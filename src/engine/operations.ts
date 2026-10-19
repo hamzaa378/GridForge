@@ -1,4 +1,5 @@
 import {type Edit,Workbook} from './workbook.js';
+import {type StyleEdit} from './format.js';
 import {colToName,parseRef,shiftFormula} from './parser.js';
 import {display} from './workbook.js';
 export interface Rect {r1:number;r2:number;c1:number;c2:number}
@@ -39,12 +40,14 @@ export function replaceCells(book:Workbook,needle:string,replacement:string,case
     return {ref,raw:next+raw.slice(start)};
   });
 }
-/** Sort a selected rectangle as complete rows. Formula references shift with the moved formula. */
-export function sortSelection(book:Workbook,b:Rect,byCol:number,descending=false,firstRowHeader=false):Edit[]{
+/** A single atomic, undoable data-and-format transaction for a selected rectangle.
+ * Other columns are intentionally untouched; sorting an entire table is the caller's job.
+ */
+export function sortRangeTransaction(book:Workbook,b:Rect,byCol:number,descending=false,firstRowHeader=false):{edits:Edit[];styles:StyleEdit[]}{
   if(byCol<b.c1||byCol>b.c2)throw Error('Sort key is outside the selection.');
-  const from=b.r1+(firstRowHeader?1:0);if(b.r2<=from)return[];
+  const from=b.r1+(firstRowHeader?1:0);if(b.r2<=from)return {edits:[],styles:[]};
   const entries=[];
-  for(let r=from;r<=b.r2;r++)entries.push({original:r,key:book.getValue(address(r,byCol)),raw:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getRaw(address(r,b.c1+j)))});
+  for(let r=from;r<=b.r2;r++)entries.push({original:r,key:book.getValue(address(r,byCol)),raw:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getRaw(address(r,b.c1+j))),styles:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getStyle(address(r,b.c1+j)))});
   entries.sort((a,b)=>{
     const x=a.key.value,y=b.key.value;if(a.key.error&&!b.key.error)return 1;if(b.key.error&&!a.key.error)return -1;
     if(x===null||x==='')return y===null||y===''?a.original-b.original:1;
@@ -52,10 +55,16 @@ export function sortSelection(book:Workbook,b:Rect,byCol:number,descending=false
     const comparison=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true,sensitivity:'base'});
     return (descending?-comparison:comparison)||a.original-b.original;
   });
-  const edits:Edit[]=[];entries.forEach((item,index)=>{const destination=from+index;
+  const edits:Edit[]=[],styles:StyleEdit[]=[];entries.forEach((item,index)=>{const destination=from+index;
     item.raw.forEach((raw,delta)=>{const adjusted=raw.startsWith('=')?shiftFormula(raw,destination-item.original,0):raw;
       if(adjusted!==book.getRaw(address(destination,b.c1+delta)))edits.push({ref:address(destination,b.c1+delta),raw:adjusted});
+      const ref=address(destination,b.c1+delta),style=item.styles[delta]!;
+      if(JSON.stringify(style)!==JSON.stringify(book.getStyle(ref)))styles.push({ref,style});
     });
   });
-  return edits;
+  return {edits,styles};
+}
+/** Backwards-compatible values-only helper retained for v2 tests and integrations. */
+export function sortSelection(book:Workbook,b:Rect,byCol:number,descending=false,firstRowHeader=false):Edit[]{
+  return sortRangeTransaction(book,b,byCol,descending,firstRowHeader).edits;
 }

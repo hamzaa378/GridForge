@@ -66,6 +66,52 @@ with sync_playwright() as p:
  assert len(payload['sheets'])==2 and payload['version']==2
  assert payload['sheets'][1]['workbook']['cells']['A1']=='42'
  assert payload['sheets'][0]['workbook']['styles']['D4']['bold'] is True
+ # Context menu: preserve selection, copy formula with adjusted references, and undo
+ cell('D4').click(button='right')
+ assert page.locator('#cell-context-menu').is_visible()
+ assert 'D4' in page.locator('#context-heading').inner_text()
+ page.locator('[data-context="copy"]').click()
+ cell('H4').click(button='right')
+ page.locator('[data-context="paste"]').click()
+ page.locator('#name-box').fill('H4');page.locator('#name-box').press('Enter')
+ assert page.locator('#formula').input_value()=='=F4*G4'
+ page.locator('#btn-undo').click()
+ assert page.locator('#formula').input_value()==''
+ # Right-click inside multi-cell selection should preserve it, unlike right-click outside.
+ cell('A3').click();cell('G11').click(modifiers=['Shift'])
+ assert 'A3:G11' in page.locator('#selection-status').inner_text()
+ cell('B5').click(button='right')
+ assert 'A3:G11' in page.locator('#context-heading').inner_text()
+ page.locator('[data-context="sort-custom"]').click()
+ assert page.locator('#sort-dialog').is_visible()
+ page.locator('#sort-column').select_option('1')
+ page.locator('#sort-header').check()
+ page.locator('#btn-sort-apply').click()
+ assert cell('A3').inner_text()=='SKU'
+ assert cell('A4').inner_text()=='P-103', cell('A4').inner_text()
+ assert cell('B4').inner_text()=='51'
+ page.locator('#btn-undo').click()
+ assert cell('A4').inner_text()=='P-100'
+ # Keyboard access to the context menu and Escape to dismiss.
+ page.locator('#grid-scroll').focus()
+ page.locator('#grid-scroll').press('Shift+F10')
+ assert page.locator('#cell-context-menu').is_visible()
+ page.keyboard.press('Escape')
+ assert not page.locator('#cell-context-menu').is_visible()
+ # Cut followed by a context-menu paste moves data, and a single Undo restores it.
+ cell('J5').click(button='right');page.locator('[data-context="cut"]').click()
+ cell('J6').click(button='right');page.locator('[data-context="paste"]').click()
+ assert cell('J5').inner_text()==''
+ assert cell('J6').inner_text()=='P-103'
+ page.locator('#btn-undo').click()
+ assert cell('J5').inner_text()=='P-103'
+ print('v2.1 Context actions: copy, paste, cut/move, custom sort with header, undo, Shift+F10 PASS')
+ # Capture a reproducible context-menu screenshot for project documentation.
+ cell('D4').click(button='right')
+ page.locator('#toast').evaluate("e => e.classList.remove('visible')")
+ page.wait_for_timeout(420)
+ page.screenshot(path=str(root.parent/'docs'/'preview_context_v2_1.png'))
+ page.keyboard.press('Escape')
  print('RESULT: UI checks pass','visible cells:',page.locator('.cell').count(),'sheets:',len(payload['sheets']),'errors:',errors)
  assert not errors,errors
  browser.close()

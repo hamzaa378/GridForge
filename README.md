@@ -1,114 +1,124 @@
-# GridForge v2.0 · Spreadsheet Intelligence
+# GridForge v3.0 — Spreadsheet Intelligence
 
-![GridForge spreadsheet interface](docs/preview_v2.png)
+![GridForge v3 spreadsheet with Excel-style grid and frozen panes](docs/preview_v3.png)
 
-**Data Quality Lens:** [see selected-range analytics screenshot](docs/preview_analytics_v2.png).
+**GDG Tech Wildcard Entry — Frontend Task 2.** A browser-based, virtualized spreadsheet written in TypeScript. Features a **handwritten lexer, Pratt parser, evaluator with 56 functions, incremental dependency graph and cyclic-formula diagnostics**. GridForge v3 adds native `.xlsx` read/write, filtered tables, freeze panes, live conditional formatting and AutoSum. **No existing spreadsheet formula engine is used.**
 
-A browser-based, Excel-inspired spreadsheet built in **TypeScript** for **GDG Tech Wildcard Entry · Frontend Task 2**. The expression tokenizer, Pratt parser, custom 56-function evaluator, dependency graph, circular-reference detection, and incremental recalculation remain independent of any third-party formula engine.
+## Quick start: Windows / macOS / Linux
 
-**Version 2 adds:** independent worksheet tabs, style/number formatting, sortable data ranges, find and replace, selection analytics with data-quality checks and a quick chart, formula-aware same-app copying, values-only paste, per-sheet undo/redo, and one-click GitHub Pages deployment workflows.
-
-## Quick start
-
-Prerequisite: **Node.js 20 or newer** and npm (Node 22 is used in GitHub Actions).
+Install Node.js **20+**, unzip the GitHub package, then run in its directory:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Visit **http://localhost:4173**. On Windows, after extraction, you may instead double-click `run_windows.bat` to serve the **included prebuilt `dist/`** using Node, without an npm install. On macOS/Linux run `./run_unix.sh` (or `bash run_unix.sh`). No backend, database, API token or paid cloud account is required.
+Open the printed address. The default port is **4174**, with fallback to 4175–4184 when occupied. In PowerShell you may set an explicit port:
 
-## Excel-like tools
-
-| Feature | How to use it | Scope |
-| --- | --- | --- |
-| Worksheets | Add `+`, click a tab, Rename, Duplicate, Delete | Up to 12 independent sheets |
-| Formatting | Select cells; use **B**, *I*, underline, font/fill colors and alignment | Sparse per-cell styles; JSON-persisted |
-| Number formats | General, two decimals, integer, USD, percent | Affects display, never stored numeric precision |
-| Grid editing | Type, double-click, Enter/F2, arrows, Shift+arrows | 400 × 52 per sheet by default |
-| Formula bar | Edit raw formula such as `=SUM(B4:B11)` | 56 custom functions |
-| Drag-to-fill | Drag selected cell's bottom-right handle | Relative/absolute reference shifts |
-| Undo/redo | Ctrl+Z, Ctrl+Y, toolbar buttons | Edit and formatting transactions; per sheet, current session |
-| Copy/paste | Ctrl+C, Ctrl+V while grid focused | Same-app raw formulas + formatting, external TSV text |
-| Paste values | Copy a range; select destination; click `Paste values` | Calculated values, without formulas |
-| Sort | Select a rectangular range of ≥2 rows; Sort A–Z or Z–A | Entire selected rows sorted on leftmost selected column |
-| Find/replace | Ctrl+F or `Find` | Active sheet; replace excludes formulas by default |
-| Analyze | Select range; open Analyze sidebar tab | Count/sum/average/min/max/blanks/errors/duplicates + chart |
-| Inspector | Click cell; open Inspector | AST, inputs, parsed formula errors, suggestions |
-| Impact | Click cell; open Impact | Upstream/downstream dependency visualization |
-| What-if | Select cell; enter alternate content; Preview | Non-destructive simulation with differences |
-| Persistence | Autosaves in your browser | All sheets and formatting via localStorage |
-| Import/export | JSON, CSV | JSON retains formulas/sheets/styles; CSV exports active sheet values |
-
-**Examples:** `=SUM(B4:B11)`, `=IF(D4>5000,"High","Normal")`, `=VLOOKUP(J5,A4:D11,4,FALSE)`, `=ROUND(F4*0.18,2)`.
-
-## Engineering proof
-
-- Grid space: **20,800 addressable cells per standard sheet**; viewport virtualization renders only visible cells.
-- Formula library: **56 hand-implemented functions** with documented supported semantics.
-- Dependency graph: forward and reverse edges; edits invalidate transitive downstream cells only; direct and indirect cycles report `#CYCLE!`.
-- Error diagnostics: parser caret position and suggested correction; Inspector surfaces details.
-- Unit tests: **42 passing** at the v2 checkpoint (26 original + 16 new), run using Node's built-in test runner.
-- Reproducible benchmark: **10,000 formulas / 10,400 populated cells**; on the recorded local run, an input change recalculated just **26 cells**. Hardware-dependent time measurements are in `docs/PERFORMANCE_REPORT.md`.
-
-```bash
-npm run check        # TypeScript type check
-npm test             # builds and runs automated tests
-npm run benchmark    # independent engine performance experiment
-npm run build        # emits static dist/ for deployment
-npm start            # serves dist/ at port 4173
+```powershell
+$env:PORT = "4190"
+npm run dev
 ```
 
-## GitHub repository and deployment
+Windows users can run `run_windows.bat` to serve the **included precompiled `dist/`** with Node; it does not need `npm install`. For Unix use `bash run_unix.sh`. GridForge is a static web app, **no backend/database/cloud account required**. Data autosaves per browser origin in `localStorage`; export JSON/XLSX for portable backups.
 
-This ZIP is structured as the **repository root**, not nested inside an extra generated parent folder. After extraction:
+## Excel features now implemented
+
+| Feature | How to use | Important scope |
+| --- | --- | --- |
+| **XLSX export** | **XLSX** in the upper toolbar | All sheets, formulas, cell styles and supported table view/rules; Office Open XML workbook |
+| **XLSX import** | **Import** and choose `.xlsx` | Standard, unencrypted OOXML; shared strings, inline strings, basic formulas/styles, supported freeze/filter/conditional formatting; review import report |
+| **Filter** | Select table including header, click **Filter**, choose column and substring | Non-destructive; filters a single column; **Show all** restores all rows |
+| **Freeze panes** | **Freeze row**, **Freeze col** in formatting ribbon | Top row and/or first column remain visible while scrolling; click again to unfreeze |
+| **Conditional formatting** | Select numbers → **Conditional** → choose >, < or =, threshold, color | Live numeric comparison; up to 30 rules per sheet; persists in JSON and XLSX |
+| **AutoSum** | Click total cell below contiguous numbers, then **∑ AutoSum** or `Alt+=` | Inserts a real `SUM` formula. Selecting a vertical range inserts below selection |
+| Custom Sort | Select entire table, right-click → **Custom sort** | Choose column, ascending/descending, and whether the selection has a header; formats move with rows |
+| Find & Replace | `Ctrl+F` | Case-sensitive option; formula source protected by default |
+| Right-click | Mouse right-click or `Shift+F10` | Copy, cut, paste, values-only, formatting, sorting, Analyze, Inspector, AutoSum, Filter |
+| More common tools | Formatting ribbon | Bold/italic/underline, text/fill color, alignment, numeric/currency/percent formats, undo/redo |
+| Multiple sheets | Tabs at bottom | Up to 12 independent tabs; create, switch, rename, duplicate, delete |
+| Import/export fallback | CSV and JSON | CSV exports values; JSON round-trips GridForge workbook with formulas, styles, filters, freeze and rules |
+
+The application also includes drag-to-fill, formula bar, cell selection, relative/absolute references, VLOOKUP, IF, SUM, conditional aggregations, Find, data-quality analytics, Formula Inspector, Dependency Impact Explorer, What-if previews and keyboard shortcuts.
+
+**Spreadsheet size:** default grid is 400 rows × 52 columns = 20,800 addressable cells per sheet, with viewport rendering (virtualization). Imported sheets may grow up to 1,000 rows × 104 columns; up to 12 sheets.
+
+## Try the included XLSX file
+
+1. Click **Import** → `examples/sample_sales.xlsx`.
+2. Close the **XLSX import report**. Check the **Sales** and **Summary** tabs.
+3. On Sales, select `A1:D5`. Choose **Filter** → column A → Contains `Mouse`. Only the header and Mouse row remain visible; **Show all** returns every row.
+4. Select `D2:D5` → **Conditional** → greater than `100000` → choose color. Changing a revenue formula changes the highlight automatically.
+5. Scroll down/right with Freeze row/col active. Click **XLSX** to export, then import the downloaded workbook again.
+6. Test `=SUM(B2:B5)`, `=IF(D2>1000,"High","Low")` and the right-click Formula Inspector.
+
+For a complete reproducible acceptance walk-through, see [`docs/V3_ACCEPTANCE_CHECKLIST.md`](docs/V3_ACCEPTANCE_CHECKLIST.md).
+
+## Engineering evidence
+
+| Check | Result in development environment |
+| --- | --- |
+| TypeScript strict type checking | PASS |
+| Automated Node tests | **57/57 passing** (v2.1 had 49) |
+| Chromium v3 browser regression | PASS: editing, formatting, multi-sheet, right-click menu, freeze, filtering, conditional formatting, AutoSum, XLSX export/import |
+| XLSX round-trip compatibility | PASS: exported stored-ZIP OOXML, recompressed to normal DEFLATE `.xlsx`, imported via file picker; supported formulas, styles, panes and rules verified |
+| ZIP archive validation | PASS (CRC and archive part verification) |
+| Dependency stress benchmark | 10,000 formulas; edit to one row's source invalidated/recalculated **26 cells**, not 10,000 |
+
+All timing results are environment-dependent; the reproducible script is `scripts/benchmark.mjs`. Browser smoke testing is optional and needs local Python Playwright and Chromium; it is **not** run by standard `npm test` or GitHub Actions. See [`docs/TESTING_AND_DEMO.md`](docs/TESTING_AND_DEMO.md).
+
+```bash
+npm run check          # TypeScript static checks
+npm test               # builds and runs 57 Node tests
+npm run benchmark      # dependency-recalculation benchmark
+npm run build          # compiles and copies public files into dist/
+npm start              # serves dist/, default http://localhost:4174
+node scripts/generate_sample.mjs   # regenerate example XLSX after a build
+```
+
+## How XLSX works without a spreadsheet engine
+
+`src/engine/xlsx.ts` creates/parses **Office Open XML** parts (workbook, worksheets, relationships, styles) packaged with `src/engine/zip.ts`. The archive writer uses valid **stored** ZIP entries, the importer reads stored and **DEFLATE** entries using the browser `DecompressionStream('deflate-raw')`. Cell formulas are parsed and evaluated **only** by GridForge's own `parser.ts` and `workbook.ts`. Imported formula syntax that GridForge cannot evaluate is shown as a formula error rather than silently evaluated by a library. Unsupported items are disclosed in the import report.
+
+**Interoperability is a supported subset, not full Microsoft Excel compatibility.** Imported charts, pivot tables, macros, cell merges, rich-text runs, external links, password-protected/ZIP64 workbooks, Excel date semantics, complex filter conditions, advanced conditional rules, named ranges, array/spill formulas and cross-sheet formulas are not supported. Large XLSX sheets above GridForge limits are rejected instead of silently truncating values. **JSON is GridForge's loss-minimizing backup format** for its supported features. Verify imported files before overwriting originals. Original `.xlsx` files are never modified in place.
+
+## Repository layout
+
+```text
+.github/workflows/             CI test workflow + GitHub Pages deploy workflow
+src/main.ts                    Spreadsheet UI: virtual grid, dialogs, keyboard/mouse interaction
+src/engine/parser.ts           Handwritten lexer, parser, AST, reference shifting
+src/engine/functions.ts        Custom 56-function library
+src/engine/workbook.ts         Sparse cells, dependency graph, cycles, undo/redo
+src/engine/document.ts         Multi-sheet container, v2 JSON compatibility, v3 metadata
+src/engine/sheettools.ts       Non-destructive filters, freeze/conditional rule state
+src/engine/xlsx.ts             OOXML workbook import and export (no formula engine)
+src/engine/zip.ts              Minimal CRC-verified ZIP import/export
+src/engine/operations.ts       Search, replace, sorting
+src/engine/clipboard.ts        Formula-aware cut/copy/paste
+public/                        HTML and CSS, including theme/virtualized grid
+scripts/                       Static server, build helper, benchmark, optional browser smoke
+examples/sample_sales.xlsx     Self-generated, importable sample workbook
+tests/                         Node tests for parser, engine, sorting, ZIP/XLSX, views
+dist/                         Generated runnable static site (included for Windows launcher)
+docs/                          Architecture, release notes, demo, troubleshooting and handover
+```
+
+## Push to GitHub and deploy
+
+Create a **new empty GitHub repository** first. From the extracted root (the directory containing `package.json`):
 
 ```bash
 git init
 git add .
-git commit -m "GridForge v2: multi-sheet spreadsheet with custom formula engine"
+git commit -m "GridForge v3: XLSX interoperability and spreadsheet productivity"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
 git push -u origin main
 ```
 
-Create an **empty GitHub repository first**, and replace the placeholder with its real URL. **Do not paste the placeholder literally.** GitHub Actions workflows included:
+Replace the GitHub URL with the actual empty repository's URL. Both `.github/workflows/ci.yml` and `.github/workflows/pages.yml` are included. After pushing, go to **GitHub → Settings → Pages → Build and deployment → GitHub Actions** and check the Actions logs for the deployment URL. See [`docs/GITHUB_RELEASE.md`](docs/GITHUB_RELEASE.md). Do not upload `node_modules` or any private data.
 
-- `.github/workflows/ci.yml`: install, type check, full tests, benchmark, compiled-site artifact.
-- `.github/workflows/pages.yml`: rebuild, test, and deploy the `dist/` site to GitHub Pages on pushes to `main`.
+**Evaluation:** This project satisfies the GDG task's custom-formula-engine rule: the formulas and recalculation logic are authored locally, not delegated to SheetJS, ExcelJS or another spreadsheet evaluator. Be ready to explain parsing, dependency propagation, and v3 XLSX boundaries.
 
-In the repository **Settings → Pages**, choose **GitHub Actions** as the build/deployment source. See `docs/GITHUB_RELEASE.md` for troubleshooting and reviewer demonstration steps. A public GitHub URL is not included until you create and push the actual repository.
-
-## Important compatibility limits
-
-GridForge is **Excel-inspired, not an Excel clone**. The spreadsheet syntax intentionally uses **sheet-local references** (`A1`, `B2:C5`); **cross-sheet formulas** (`Sheet2!A1`) are not implemented. **`.xlsx` import/export is not implemented**; use CSV for active-sheet values or the app's JSON format to preserve formulas, tabs, and formatting. Sorting shifts relative references inside formulas moved to new rows; this is a documented simplified sorting policy, not a claim of identical Excel behavior. The chart is a lightweight sidebar visualization, not a saved Excel chart object. There are no pivots, shared collaboration, macros, charts persisted in the workbook, or full Excel date semantics. State is browser-local and subject to storage quotas; export JSON before clearing browser data.
-
-## Project structure
-
-```text
-.github/workflows/   CI and GitHub Pages workflows
-src/engine/parser.ts        Tokenizer, Pratt parser, AST, relative references
-src/engine/functions.ts     56 custom spreadsheet functions
-src/engine/workbook.ts      Cells, cache, dependencies, transaction undo/redo
-src/engine/format.ts        Safe cell styles + number formatting
-src/engine/document.ts      Multiple worksheets + v1 import migration
-src/engine/operations.ts    Range sorting, searching, analytics
-src/engine/csv.ts           CSV parser + serializer
-src/main.ts                 Virtual grid, toolbar, dialogs, clipboard, UI
-public/                    HTML + CSS
-dist/                      Precompiled static site (versioned in ZIP)
-scripts/                   Serve/build/benchmark scripts
-tests/                     42 independent automated tests
-docs/                      Technical and reviewer documentation
-run_windows.bat / run_unix.sh
-```
-
-## Documentation and reviewer evidence
-
-- [Architecture](docs/ARCHITECTURE.md) · [Full list of 56 functions](docs/FUNCTION_REFERENCE.md)
-- [v2 feature design and behaviors](docs/V2_EXCEL_FEATURES.md) · [User guide](docs/USER_GUIDE.md)
-- [Test and live demo walkthrough](docs/TESTING_AND_DEMO.md) · [Performance evidence](docs/PERFORMANCE_REPORT.md)
-- [GitHub upload and Pages deployment](docs/GITHUB_RELEASE.md) · [Project continuation handover](docs/PROJECT_HANDOVER.md)
-
-MIT licensed. All spreadsheet computation runs entirely in the browser. The included demo workbook is synthetic.
+Licensed MIT; see `LICENSE`.

@@ -1,3 +1,11 @@
+# GridForge v3 testing update
+
+**Current automated baseline is 57 Node tests, plus the optional `scripts/browser_v3_smoke_optional.py`. v3 instructions are in `docs/V3_ACCEPTANCE_CHECKLIST.md`, `docs/V3_XLSX_IO.md` and `docs/PROJECT_HANDOVER.md`. The older v2.1 evidence below is historical.**
+
+## v2.1 context menu and custom sort
+
+See `V2_1_ACCEPTANCE_CHECKLIST.md` for reproducible manual testing and `V2_1_CONTEXT_MENU_AND_SORT.md` for sorting/cut semantics. Additional Node tests in `tests/context-sort.test.mjs` and additional Chromium interactions in `scripts/browser_smoke_optional.py`.
+
 # Testing, Acceptance Checks, and Demonstration
 
 ## 1. Environment setup
@@ -9,7 +17,7 @@ npm test
 npm run dev
 ```
 
-Open `http://localhost:4173`. Note the Node.js version (`node --version`) and browser version when reporting results. The app itself has no cloud dependencies.
+Open `http://localhost:4174`. Note the Node.js version (`node --version`) and browser version when reporting results. The app itself has no cloud dependencies.
 
 ## 2. Automated unit tests
 

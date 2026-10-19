@@ -4,7 +4,10 @@ import { colToName, parseRef, shiftFormula } from './engine/parser.js';
 import { functions, functionNames } from './engine/functions.js';
 import { SpreadsheetDocument } from './engine/document.js';
 import { styledDisplay } from './engine/format.js';
-import { analyzeSelection, findCells, replaceCells, sortSelection } from './engine/operations.js';
+import { analyzeSelection, findCells, replaceCells, sortRangeTransaction } from './engine/operations.js';
+import { snapshotCells, pasteSnapshot } from './engine/clipboard.js';
+import { exportXlsx, importXlsx, xlsxFileName } from './engine/xlsx.js';
+import { filterVisibleRows, ruleColor } from './engine/sheettools.js';
 const ROW_H = 30, COL_W = 126, HEAD_W = 54, HEAD_H = 34;
 const STORAGE = 'gridforge:document:v2';
 const LEGACY_STORAGE = 'gridforge:greeting:workbook:v1';
@@ -62,8 +65,8 @@ root.innerHTML = `
   <nav class="toolbar" aria-label="Workbook toolbar">
     <div class="tool-group"><button id="btn-new" class="tool-btn" title="New workbook">＋ <span>New</span></button><button id="btn-sample" class="tool-btn" title="Load demo workbook">▧ <span>Demo</span></button></div>
     <span class="separator"></span><div class="tool-group"><button id="btn-undo" class="tool-btn" title="Undo (Ctrl+Z)">↶ <span>Undo</span></button><button id="btn-redo" class="tool-btn" title="Redo (Ctrl+Y)">↷ <span>Redo</span></button></div>
-    <span class="separator"></span><div class="tool-group"><button id="btn-import" class="tool-btn" title="Import CSV or JSON">↧ <span>Import</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
-    <span class="separator"></span><div class="tool-group"><button id="btn-sort-asc" class="tool-btn" title="Sort selected rows ascending by first selected column">↑ <span>Sort A–Z</span></button><button id="btn-sort-desc" class="tool-btn" title="Sort selected rows descending by first selected column">↓ <span>Sort Z–A</span></button><button id="btn-find" class="tool-btn" title="Find and replace (Ctrl+F)">⌕ <span>Find</span></button></div><span class="separator"></span><span class="toolbar-tip">Tip: Format, sort, or analyze your selection</span><div class="toolbar-push"></div><span id="grid-size" class="cell-counter"></span>
+    <span class="separator"></span><div class="tool-group"><button id="btn-import" class="tool-btn" title="Import XLSX, CSV or JSON">↧ <span>Import</span></button><button id="btn-xlsx" class="tool-btn" title="Download Excel .xlsx workbook">▦ <span>XLSX</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
+    <span class="separator"></span><div class="tool-group"><button id="btn-sort-asc" class="tool-btn" title="Sort selected rows ascending by first selected column">↑ <span>Sort A–Z</span></button><button id="btn-sort-desc" class="tool-btn" title="Sort selected rows descending by first selected column">↓ <span>Sort Z–A</span></button><button id="btn-sort-custom" class="tool-btn" title="Choose sorting column and header handling">▤ <span>Custom sort</span></button><button id="btn-find" class="tool-btn" title="Find and replace (Ctrl+F)">⌕ <span>Find</span></button><button id="btn-filter" class="tool-btn" title="Filter selected table rows">⛃ <span>Filter</span></button><button id="btn-clear-filter" class="tool-btn" title="Show all filtered rows">◯ <span>Show all</span></button></div><span class="separator"></span><span class="toolbar-tip">Tip: Format, sort, or analyze your selection</span><div class="toolbar-push"></div><span id="grid-size" class="cell-counter"></span>
   </nav>
   <div class="format-toolbar" aria-label="Cell formatting toolbar">
     <span class="format-caption">FORMAT</span><button id="fmt-bold" class="format-btn" title="Bold (Ctrl+B)"><b>B</b></button><button id="fmt-italic" class="format-btn" title="Italic (Ctrl+I)"><i>I</i></button><button id="fmt-underline" class="format-btn" title="Underline (Ctrl+U)"><u>U</u></button>
@@ -72,7 +75,7 @@ root.innerHTML = `
     <label class="color-field">Text <input id="fmt-color" type="color" value="#d4dbef" title="Font color" aria-label="Font color"/></label>
     <label class="color-field">Fill <input id="fmt-fill" type="color" value="#131b2d" title="Cell background" aria-label="Background color"/></label>
     <button id="fmt-clear" class="format-btn reset-format" title="Remove formatting from selected cells">Clear style</button>
-    <button id="btn-paste-values" class="format-btn reset-format" title="Paste values from the most recent copied grid range">Paste values</button>
+    <button id="btn-autosum" class="format-btn reset-format" title="Insert a SUM formula for the cells above the selection (Alt+=)">∑ AutoSum</button><button id="btn-freeze-row" class="format-btn reset-format" title="Freeze or unfreeze top row">Freeze row</button><button id="btn-freeze-col" class="format-btn reset-format" title="Freeze or unfreeze first column">Freeze col</button><button id="btn-conditional" class="format-btn reset-format" title="Highlight cells by numeric rule">Conditional</button><button id="btn-paste-values" class="format-btn reset-format" title="Paste values from the most recent copied grid range">Paste values</button>
   </div>
   <div class="workspace">
     <section class="sheet-area" aria-label="Spreadsheet">
@@ -83,17 +86,49 @@ root.innerHTML = `
     </section>
     <aside class="sidebar" id="sidebar"><div class="sidebar-top"><div class="sidebar-title"><span class="sidebar-emoji">✧</span><div><strong>Formula intelligence</strong><small>Understand every calculation</small></div></div><button id="sidebar-toggle" class="sidebar-hide" title="Show or hide inspector">☰</button></div>
       <div class="side-tabs" role="tablist"><button data-mode="inspector" class="side-tab chosen">Inspector</button><button data-mode="impact" class="side-tab">Impact</button><button data-mode="scenario" class="side-tab">What-if</button><button data-mode="analyze" class="side-tab">Analyze</button><button data-mode="functions" class="side-tab">Functions</button></div>
-      <div class="sidebar-body" id="sidebar-body"></div><div class="sidebar-footer"><span class="mini-spark">✦</span> Built from scratch in TypeScript <span class="side-version">v2.0</span></div>
+      <div class="sidebar-body" id="sidebar-body"></div><div class="sidebar-footer"><span class="mini-spark">✦</span> Built from scratch in TypeScript <span class="side-version">v3.0</span></div>
     </aside>
   </div>
   <footer class="statusbar"><span class="status-left"><span class="green-dot"></span> Auto-saved in this browser</span><span id="status-text">Custom formula engine · No external spreadsheet library</span><span id="selection-aggregate"></span><span class="status-right">Up to 12 sheets <span class="dot">•</span> ${functionNames.length} functions</span></footer>
-  <input type="file" id="file-picker" accept=".csv,.json,text/csv,application/json" hidden/>
+  <input type="file" id="file-picker" accept=".csv,.json,.xlsx,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden/>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="cell-context-menu" class="cell-context-menu" role="menu" aria-label="Cell actions" hidden>
+    <div class="context-heading" id="context-heading">CELL ACTIONS</div>
+    <button role="menuitem" data-context="edit"><span class="menu-glyph">✎</span> Edit cell <kbd>F2</kbd></button>
+    <div class="context-separator"></div>
+    <button role="menuitem" data-context="cut"><span class="menu-glyph">✂</span> Cut <kbd>Ctrl+X</kbd></button>
+    <button role="menuitem" data-context="copy"><span class="menu-glyph">▢</span> Copy <kbd>Ctrl+C</kbd></button>
+    <button role="menuitem" data-context="paste"><span class="menu-glyph">▣</span> Paste <kbd>Ctrl+V</kbd></button>
+    <button role="menuitem" data-context="paste-values"><span class="menu-glyph">123</span> Paste values</button>
+    <div class="context-separator"></div>
+    <button role="menuitem" data-context="clear"><span class="menu-glyph">⌫</span> Clear contents <kbd>Del</kbd></button>
+    <button role="menuitem" data-context="clear-format"><span class="menu-glyph">◌</span> Clear formatting</button>
+    <button role="menuitem" data-context="bold"><span class="menu-glyph"><b>B</b></span> Toggle bold <kbd>Ctrl+B</kbd></button>
+    <div class="context-separator"></div>
+    <button role="menuitem" data-context="sort-asc"><span class="menu-glyph">↑</span> Sort A–Z</button>
+    <button role="menuitem" data-context="sort-desc"><span class="menu-glyph">↓</span> Sort Z–A</button>
+    <button role="menuitem" data-context="autosum"><span class="menu-glyph">∑</span> AutoSum</button><button role="menuitem" data-context="filter"><span class="menu-glyph">⛃</span> Filter selection…</button><button role="menuitem" data-context="conditional"><span class="menu-glyph">◈</span> Conditional formatting…</button>
+    <button role="menuitem" data-context="sort-custom"><span class="menu-glyph">▤</span> Custom sort…</button>
+    <button role="menuitem" data-context="find"><span class="menu-glyph">⌕</span> Find and replace <kbd>Ctrl+F</kbd></button>
+    <div class="context-separator"></div>
+    <button role="menuitem" data-context="inspect"><span class="menu-glyph">ƒx</span> Formula Inspector</button>
+    <button role="menuitem" data-context="analyze"><span class="menu-glyph">▥</span> Analyze selection</button>
+  </div>
+  <dialog id="sort-dialog" class="help-dialog sort-dialog"><div class="dialog-top"><h2>Custom sort</h2><button id="close-sort" class="tool-btn" aria-label="Close custom sort">✕</button></div>
+    <p>Sort complete rows inside the selected rectangle. Columns outside the selection are not moved.</p>
+    <label for="sort-column" class="field-label">Sort by</label><select id="sort-column" class="context-select" aria-label="Column to sort"></select>
+    <label for="sort-direction" class="field-label">Order</label><select id="sort-direction" class="context-select"><option value="ascending">A–Z / Smallest to largest</option><option value="descending">Z–A / Largest to smallest</option></select>
+    <label class="sort-checkbox"><input type="checkbox" id="sort-header"/> My selection has a header row</label>
+    <p id="sort-preview" class="sort-preview"></p><button id="btn-sort-apply" class="primary-button">Sort selection</button>
+  </dialog>
   <dialog id="find-dialog" class="help-dialog find-dialog"><div class="dialog-top"><h2>Find and replace</h2><button id="close-find" class="tool-btn" aria-label="Close">✕</button></div><label class="field-label" for="find-query">Find in the active worksheet</label><input id="find-query" class="scenario-input" placeholder="Search cell contents or formulas"/>
     <label class="field-label" for="replace-text">Replace with</label><input id="replace-text" class="scenario-input" placeholder="Replacement text"/>
     <div class="find-options"><label><input type="checkbox" id="find-case"/> Match case</label><label><input type="checkbox" id="find-formulas"/> Include formulas in Replace All</label></div>
     <div class="find-actions"><button id="btn-find-all" class="secondary-button">Find all</button><button id="btn-replace-all" class="primary-button">Replace all</button></div><div id="find-results" class="find-results" aria-live="polite"></div></dialog>
-  <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Navigate cells</span><kbd>Arrow keys</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward</span><kbd>Ctrl + D</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Search cell address</span><kbd>Ctrl + L</kbd></div></dialog>
+  <dialog id="import-notes-dialog" class="help-dialog"><div class="dialog-top"><h2>XLSX import report</h2><button class="tool-btn" id="close-import-notes">✕</button></div><p>GridForge imported the supported worksheet content. Review any formula or feature differences before editing or exporting.</p><div id="import-notes-body" class="import-notes-body"></div><button id="confirm-import-notes" class="primary-button">Continue to workbook</button></dialog>
+  <dialog id="filter-dialog" class="help-dialog"><div class="dialog-top"><h2>Filter table rows</h2><button class="tool-btn" id="close-filter">✕</button></div><p>Select a header and data rectangle, choose a column, and show rows containing a value. The data is never deleted.</p><label class="field-label" for="filter-column">Filter by column</label><select id="filter-column" class="context-select"></select><label class="field-label" for="filter-query">Contains (case-insensitive)</label><input id="filter-query" class="scenario-input" placeholder="Example: Review"/><button id="apply-filter" class="primary-button">Apply filter</button></dialog>
+  <dialog id="conditional-dialog" class="help-dialog"><div class="dialog-top"><h2>Conditional formatting</h2><button class="tool-btn" id="close-conditional">✕</button></div><p>Color selected numeric cells based on their actual numeric values. Rules recalculate automatically after edits.</p><label class="field-label">Condition</label><select class="context-select" id="rule-op"><option value="gt">Greater than</option><option value="lt">Less than</option><option value="eq">Equal to</option></select><label class="field-label">Numeric threshold</label><input id="rule-threshold" type="number" step="any" value="100" class="scenario-input"/><label class="field-label">Highlight color</label><input type="color" id="rule-color" value="#276a53"/><button class="primary-button" id="apply-conditional">Apply to selection</button><button class="secondary-button" id="clear-conditional">Clear rules on this sheet</button></dialog>
+  <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Navigate cells</span><kbd>Arrow keys</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Cell context menu</span><kbd>Right-click / Shift+F10</kbd><span>AutoSum</span><kbd>Alt + =</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward</span><kbd>Ctrl + D</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Search cell address</span><kbd>Ctrl + L</kbd></div></dialog>
 `;
 const grid = el('grid-scroll');
 const surface = el('grid-surface');
@@ -113,7 +148,14 @@ catch {
     toast('Local storage is full. Export your workbook to JSON.');
 } }, 250); }
 function stats() { const s = book.lastStats; el('metric-count').textContent = String(s.recalculated); el('metric-time').textContent = `${s.durationMs.toFixed(3)} ms`; el('metric-populated').textContent = s.totalPopulated.toLocaleString(); el('grid-size').textContent = `${(book.rows * book.cols).toLocaleString()}-cell canvas`; el('btn-undo').toggleAttribute('disabled', !book.canUndo); el('btn-redo').toggleAttribute('disabled', !book.canRedo); }
-function ensureVisible() { const y = HEAD_H + active.r * ROW_H, x = HEAD_W + active.c * COL_W; if (y < grid.scrollTop + HEAD_H)
+function visibleRows() {
+    const f = doc.active.tools.filter, show = filterVisibleRows(book, f), rows = [];
+    for (let r = 0; r < book.rows; r++)
+        if (!f || r <= f.startRow || r > f.endRow || show.has(r))
+            rows.push(r);
+    return rows;
+}
+function ensureVisible() { const displayed = visibleRows(); const idx = displayed.indexOf(active.r); const y = HEAD_H + (idx < 0 ? active.r : idx) * ROW_H, x = HEAD_W + active.c * COL_W; if (y < grid.scrollTop + HEAD_H)
     grid.scrollTop = Math.max(0, y - HEAD_H);
 else if (y + ROW_H > grid.scrollTop + grid.clientHeight)
     grid.scrollTop = y + ROW_H - grid.clientHeight; if (x < grid.scrollLeft + HEAD_W)
@@ -160,14 +202,25 @@ catch (e) {
     toast(e instanceof Error ? e.message : 'Invalid format');
 } }
 function renderGrid() {
+    const visibleRowsMap = visibleRows(), tools = doc.active.tools;
     surface.style.width = `${HEAD_W + book.cols * COL_W}px`;
-    surface.style.height = `${HEAD_H + book.rows * ROW_H}px`;
+    surface.style.height = `${HEAD_H + visibleRowsMap.length * ROW_H}px`;
     grid.setAttribute('aria-rowcount', String(book.rows));
     grid.setAttribute('aria-colcount', String(book.cols));
     const startR = Math.max(0, Math.floor(Math.max(0, grid.scrollTop - HEAD_H) / ROW_H) - 4);
-    const endR = Math.min(book.rows, Math.ceil((grid.scrollTop + grid.clientHeight - HEAD_H) / ROW_H) + 4);
+    const endR = Math.min(visibleRowsMap.length, Math.ceil((grid.scrollTop + grid.clientHeight - HEAD_H) / ROW_H) + 4);
     const startC = Math.max(0, Math.floor(Math.max(0, grid.scrollLeft - HEAD_W) / COL_W) - 2);
     const endC = Math.min(book.cols, Math.ceil((grid.scrollLeft + grid.clientWidth - HEAD_W) / COL_W) + 2);
+    const rowViews = new Set();
+    for (let r = startR; r < endR; r++)
+        rowViews.add(r);
+    for (let r = 0; r < Math.min(tools.freezeRows, visibleRowsMap.length); r++)
+        rowViews.add(r);
+    const colViews = new Set();
+    for (let c = startC; c < endC; c++)
+        colViews.add(c);
+    for (let c = 0; c < tools.freezeCols; c++)
+        colViews.add(c);
     const frag = document.createDocumentFragment();
     let rendered = 0;
     const add = (klass, left, top, width, height, content, dataset) => {
@@ -181,18 +234,28 @@ function renderGrid() {
         frag.appendChild(div);
         return div;
     };
-    const visible = sel();
-    for (let r = startR; r < endR; r++) {
-        add('row-heading', grid.scrollLeft, HEAD_H + r * ROW_H, HEAD_W, ROW_H, String(r + 1));
-        for (let c = startC; c < endC; c++) {
+    const selected = sel(), demoTheme = book.getRaw('A1') === 'NORTHSTAR / Q4 SALES';
+    for (const viewR of [...rowViews].sort((a, b) => b - a)) {
+        const r = visibleRowsMap[viewR];
+        if (r === undefined)
+            continue;
+        const fixedRow = viewR < tools.freezeRows, top = HEAD_H + viewR * ROW_H + (fixedRow ? grid.scrollTop : 0);
+        const header = add('row-heading', grid.scrollLeft, top, HEAD_W, ROW_H, String(r + 1));
+        if (fixedRow)
+            header.style.zIndex = '8';
+        for (const c of [...colViews].sort((a, b) => b - a)) {
             const ref = asRef(r, c), res = book.getValue(ref), style = book.getStyle(ref), value = styledDisplay(res, style);
-            const selected = r >= visible.r1 && r <= visible.r2 && c >= visible.c1 && c <= visible.c2;
-            const primary = r === active.r && c === active.c;
-            const classes = `cell${selected ? ' selected' : ''}${primary ? ' primary' : ''}${res.error ? ' has-error' : ''}${book.getRaw(ref).startsWith('=') ? ' calculated' : ''}${r === 2 ? ' header-data' : ''}${r === 13 ? ' total-data' : ''}`;
-            const node = add(classes, HEAD_W + c * COL_W, HEAD_H + r * ROW_H, COL_W, ROW_H, value, { ref });
+            const inSelection = r >= selected.r1 && r <= selected.r2 && c >= selected.c1 && c <= selected.c2;
+            const primary = r === active.r && c === active.c, fixedCol = c < tools.freezeCols;
+            const classes = `cell${inSelection ? ' selected' : ''}${primary ? ' primary' : ''}${res.error ? ' has-error' : ''}${book.getRaw(ref).startsWith('=') ? ' calculated' : ''}${demoTheme && r === 2 ? ' header-data' : ''}${demoTheme && r === 13 ? ' total-data' : ''}`;
+            const node = add(classes, HEAD_W + c * COL_W + (fixedCol ? grid.scrollLeft : 0), top, COL_W, ROW_H, value, { ref });
             node.setAttribute('role', 'gridcell');
-            node.setAttribute('aria-selected', String(selected));
+            node.setAttribute('aria-selected', String(inSelection));
             node.title = res.error ? res.error.message : `${ref} ${book.getRaw(ref)}`;
+            if (fixedRow || fixedCol) {
+                node.style.zIndex = fixedRow && fixedCol ? '7' : fixedRow ? '6' : '5';
+                node.classList.add('frozen-cell');
+            }
             if (style.bold)
                 node.style.fontWeight = '800';
             if (style.italic)
@@ -203,6 +266,9 @@ function renderGrid() {
                 node.style.color = style.color;
             if (style.background)
                 node.style.backgroundColor = style.background;
+            const conditional = ruleColor(ref, res.value, tools.conditional);
+            if (conditional)
+                node.style.backgroundColor = conditional;
             if (style.align)
                 node.style.justifyContent = style.align === 'right' ? 'flex-end' : style.align === 'center' ? 'center' : 'flex-start';
             if (primary) {
@@ -215,11 +281,22 @@ function renderGrid() {
             rendered++;
         }
     }
-    for (let c = startC; c < endC; c++)
-        add('col-heading', HEAD_W + c * COL_W, grid.scrollTop, COL_W, HEAD_H, colToName(c));
-    add('corner', grid.scrollLeft, grid.scrollTop, HEAD_W, HEAD_H, '');
+    for (const c of [...colViews].sort((a, b) => b - a)) {
+        const fixed = c < tools.freezeCols, heading = add('col-heading', HEAD_W + c * COL_W + (fixed ? grid.scrollLeft : 0), grid.scrollTop, COL_W, HEAD_H, colToName(c));
+        if (fixed)
+            heading.style.zIndex = '10';
+    }
+    add('corner', grid.scrollLeft, grid.scrollTop, HEAD_W, HEAD_H, '').style.zIndex = '12';
     surface.replaceChildren(frag);
     el('metric-rendered').textContent = String(rendered);
+}
+function gridPointerCell(clientX, clientY) {
+    const bounds = grid.getBoundingClientRect(), tools = doc.active.tools;
+    const x = clientX - bounds.left, y = clientY - bounds.top;
+    const viewC = Math.floor((x - HEAD_W + (x < HEAD_W + tools.freezeCols * COL_W ? 0 : grid.scrollLeft)) / COL_W);
+    const viewR = Math.floor((y - HEAD_H + (y < HEAD_H + tools.freezeRows * ROW_H ? 0 : grid.scrollTop)) / ROW_H);
+    const r = visibleRows()[viewR];
+    return r === undefined || !inBounds(r, viewC) ? null : { r, c: viewC };
 }
 function apply(edits) { try {
     book.applyEdits(edits);
@@ -385,6 +462,8 @@ surface.addEventListener('mousedown', ev => {
         dragTarget = { ...active };
         return;
     }
+    if (ev.button !== 0)
+        return;
     if (editing)
         return;
     const p = parseRef(cell.dataset.ref);
@@ -413,18 +492,10 @@ surface.addEventListener('mousedown', ev => {
     refresh();
     grid.focus({ preventScroll: true });
 });
-grid.addEventListener('dblclick', ev => {
-    const rect = grid.getBoundingClientRect();
-    const localX = ev.clientX - rect.left + grid.scrollLeft - HEAD_W;
-    const localY = ev.clientY - rect.top + grid.scrollTop - HEAD_H;
-    if (localX < 0 || localY < 0)
-        return;
-    const row = Math.floor(localY / ROW_H), col = Math.floor(localX / COL_W);
-    if (inBounds(row, col)) {
-        select(row, col);
-        beginEdit();
-    }
-});
+grid.addEventListener('dblclick', ev => { const where = gridPointerCell(ev.clientX, ev.clientY); if (where) {
+    select(where.r, where.c);
+    beginEdit();
+} });
 surface.addEventListener('mouseover', ev => {
     const cell = ev.target.closest('[data-ref]');
     if (!cell?.dataset.ref)
@@ -448,7 +519,19 @@ window.addEventListener('mouseup', () => { if (fillDrag) {
 grid.addEventListener('keydown', ev => {
     if (editing)
         return;
+    if (ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10')) {
+        ev.preventDefault();
+        const selectedNode = surface.querySelector(`.cell[data-ref="${currentRef()}"]`);
+        const at = selectedNode?.getBoundingClientRect() ?? grid.getBoundingClientRect();
+        openContextMenu(at.left + 30, at.top + 20);
+        return;
+    }
     const ctrl = ev.ctrlKey || ev.metaKey;
+    if (ctrl && ev.key.toLowerCase() === 'x') {
+        ev.preventDefault();
+        copySelection(true);
+        return;
+    }
     if (ctrl && ev.key.toLowerCase() === 'z') {
         ev.preventDefault();
         if (ev.shiftKey)
@@ -544,48 +627,36 @@ grid.addEventListener('keydown', ev => {
     ev.preventDefault();
     select(Math.min(book.rows - 1, Math.max(0, active.r + dr)), Math.min(book.cols - 1, Math.max(0, active.c + dc)), ev.shiftKey && ev.key !== 'Tab');
 });
+function copySelection(cut = false) {
+    clipboardCache = snapshotCells(book, sel(), doc.activeId, cut);
+    // Menu and Ctrl+X copying is always usable within the app even when browser clipboard permission is denied.
+    void navigator.clipboard?.writeText(clipboardCache.plain).catch(() => { });
+    toast(`${cut ? 'Cut' : 'Copied'} ${clipboardCache.rows.length} row(s) · ${cut ? 'paste to move' : 'paste to duplicate'}`);
+}
 function pasteCached(valuesOnly = false) {
     if (!clipboardCache) {
-        toast('Copy a range first (Ctrl+C).');
+        toast('Copy a range first (Ctrl+C or right-click → Copy).');
         return;
     }
-    const source = clipboardCache, edits = [], styles = [];
-    source.rows.forEach((row, r) => row.forEach((cell, c) => {
-        const destR = active.r + r, destC = active.c + c;
-        if (!inBounds(destR, destC))
-            return;
-        const ref = asRef(destR, destC), result = valuesOnly ? cell.value : shiftFormula(cell.raw, destR - (source.origin.row + r), destC - (source.origin.col + c));
-        edits.push({ ref, raw: result });
-        if (!valuesOnly)
-            styles.push({ ref, style: cell.style });
-    }));
-    if (edits.length) {
-        book.applyTransaction(edits, valuesOnly ? [] : styles);
+    try {
+        const plan = pasteSnapshot(book, clipboardCache, { row: active.r, col: active.c }, doc.activeId, valuesOnly);
+        book.applyTransaction(plan.edits, plan.styles);
+        if (plan.moved)
+            clipboardCache = null;
         save();
         refresh();
-        toast(`Pasted ${edits.length} ${valuesOnly ? 'values' : 'cells with formulas and styles'}`);
+        toast(`${plan.moved ? 'Moved' : 'Pasted'} ${plan.edits.length} cells${valuesOnly ? ' as values' : ''}`);
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Paste failed');
     }
 }
 document.addEventListener('copy', ev => {
     if (document.activeElement !== grid)
         return;
-    const b = sel();
-    const rows = [];
-    const detailed = [];
-    for (let r = b.r1; r <= b.r2; r++) {
-        const line = [], info = [];
-        for (let c = b.c1; c <= b.c2; c++) {
-            const ref = asRef(r, c);
-            const shown = display(book.getValue(ref));
-            line.push(shown);
-            info.push({ raw: book.getRaw(ref), value: shown, style: book.getStyle(ref) });
-        }
-        rows.push(line);
-        detailed.push(info);
-    }
-    const plain = rows.map(row => row.join('\t')).join('\n');
-    clipboardCache = { origin: { row: b.r1, col: b.c1 }, rows: detailed, plain };
-    ev.clipboardData?.setData('text/plain', plain);
+    clipboardCache = snapshotCells(book, sel(), doc.activeId, false);
+    ev.clipboardData?.setData('text/plain', clipboardCache.plain);
+    // Preserve the existing same-app MIME metadata for browsers that allow it.
     ev.clipboardData?.setData('application/x-gridforge-cells', JSON.stringify(clipboardCache));
     ev.preventDefault();
     toast('Copied cells, formulas and formatting');
@@ -597,8 +668,7 @@ document.addEventListener('paste', ev => {
     if (txt === undefined || !data)
         return;
     ev.preventDefault();
-    const custom = data.getData('application/x-gridforge-cells');
-    if (custom && clipboardCache && txt === clipboardCache.plain) {
+    if (clipboardCache && txt === clipboardCache.plain) {
         pasteCached();
         return;
     }
@@ -633,8 +703,15 @@ nameBox.addEventListener('keydown', ev => { if (ev.key === 'Enter') {
         toast('Enter a valid address, e.g. AA120');
 } if (ev.key === 'Escape')
     nameBox.value = currentRef(); });
-function download(name, contents, type) { const url = URL.createObjectURL(new Blob([contents], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1500); }
-el('btn-json').addEventListener('click', () => download('gridforge-workbook-v2.json', JSON.stringify(doc.toJSON(), null, 2), 'application/json'));
+function download(name, contents, type) { const url = URL.createObjectURL(new Blob([typeof contents === 'string' ? contents : new Uint8Array(contents)], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1500); }
+el('btn-xlsx').addEventListener('click', () => { try {
+    download(xlsxFileName(workbookTitle), exportXlsx(doc), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    toast('Exported multi-sheet XLSX.');
+}
+catch (e) {
+    toast(e instanceof Error ? e.message : 'XLSX export failed');
+} });
+el('btn-json').addEventListener('click', () => download('gridforge-workbook-v3.json', JSON.stringify(doc.toJSON(), null, 2), 'application/json'));
 el('btn-csv').addEventListener('click', () => {
     const entries = book.allEntries();
     let maxR = 0, maxC = 0;
@@ -674,8 +751,18 @@ picker.addEventListener('change', async () => {
     if (!file)
         return;
     try {
-        const content = await file.text();
-        if (file.name.toLowerCase().endsWith('.json')) {
+        const content = file.name.toLowerCase().endsWith('.xlsx') ? '' : await file.text();
+        if (file.name.toLowerCase().endsWith('.xlsx')) {
+            const response = await importXlsx(new Uint8Array(await file.arrayBuffer()));
+            doc = response.document;
+            book = doc.active.book;
+            if (response.warnings.length) {
+                console.warn('XLSX import notes:', response.warnings);
+                el('import-notes-body').innerHTML = `<strong>${doc.sheets.length} worksheet(s) loaded</strong><ul>${response.warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
+                el('import-notes-dialog').showModal();
+            }
+        }
+        else if (file.name.toLowerCase().endsWith('.json')) {
             doc = SpreadsheetDocument.fromJSON(JSON.parse(content));
             book = doc.active.book;
         }
@@ -689,11 +776,11 @@ picker.addEventListener('change', async () => {
             doc = new SpreadsheetDocument(fresh);
             book = doc.active.book;
         }
-        workbookTitle = file.name.replace(/\.(csv|json)$/i, '').slice(0, 45) || 'Imported Workbook';
+        workbookTitle = file.name.replace(/\.(csv|json|xlsx)$/i, '').slice(0, 45) || 'Imported Workbook';
         el('book-title').textContent = workbookTitle;
         save();
         select(0, 0);
-        toast(`Imported ${file.name}`);
+        toast(`Imported ${file.name}; verify formulas and styles`);
     }
     catch (e) {
         toast(e instanceof Error ? e.message : 'Import failed');
@@ -702,6 +789,8 @@ picker.addEventListener('change', async () => {
         picker.value = '';
     }
 });
+for (const id of ['close-import-notes', 'confirm-import-notes'])
+    el(id).addEventListener('click', () => el('import-notes-dialog').close());
 const dialog = el('help-dialog');
 el('btn-shortcuts').addEventListener('click', () => dialog.showModal());
 el('close-help').addEventListener('click', () => dialog.close());
@@ -716,27 +805,164 @@ el('fmt-color').addEventListener('change', ev => applyStyle({ color: ev.target.v
 el('fmt-fill').addEventListener('change', ev => applyStyle({ background: ev.target.value }));
 el('fmt-clear').addEventListener('click', () => { book.clearStyles(selectionRefs()); save(); refresh(); });
 el('btn-paste-values').addEventListener('click', () => pasteCached(true));
-// Sorting is an undoable bulk edit and recalculates dependencies only once.
+// Styling follows the sorted records. Sorting plus style moves is one undoable transaction.
+function sortCurrent(byColumn, descending, hasHeader = false) {
+    const selected = sel();
+    if (selected.r1 === selected.r2 || (hasHeader && selected.r2 - selected.r1 < 2)) {
+        toast('Select at least two data rows to sort.');
+        return false;
+    }
+    if ((selected.r2 - selected.r1 + 1) * (selected.c2 - selected.c1 + 1) > 15000) {
+        toast('Sort up to 15,000 cells at a time.');
+        return false;
+    }
+    try {
+        const tx = sortRangeTransaction(book, selected, byColumn, descending, hasHeader);
+        book.applyTransaction(tx.edits, tx.styles);
+        save();
+        refresh();
+        toast(`Sorted ${selected.r2 - selected.r1 + 1 - (hasHeader ? 1 : 0)} rows by ${colToName(byColumn)} (${descending ? 'Z–A' : 'A–Z'})`);
+        return true;
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Sort failed');
+        return false;
+    }
+}
 for (const [id, descending] of [['btn-sort-asc', false], ['btn-sort-desc', true]])
-    el(id).addEventListener('click', () => {
-        const selected = sel();
-        if (selected.r1 === selected.r2) {
-            toast('Select at least two rows to sort.');
-            return;
-        }
-        if ((selected.r2 - selected.r1 + 1) * (selected.c2 - selected.c1 + 1) > 15000) {
-            toast('Sort up to 15,000 cells at a time.');
-            return;
-        }
-        try {
-            const edits = sortSelection(book, selected, selected.c1, descending, false);
-            apply(edits);
-            toast(`Sorted ${selected.r2 - selected.r1 + 1} rows by ${colToName(selected.c1)}`);
-        }
-        catch (e) {
-            toast(e instanceof Error ? e.message : 'Sort failed');
-        }
-    });
+    el(id).addEventListener('click', () => sortCurrent(sel().c1, descending));
+const sortDialog = el('sort-dialog');
+function openCustomSort() {
+    const selected = sel();
+    if (selected.r1 === selected.r2) {
+        toast('Select at least two rows first.');
+        return;
+    }
+    const choices = [];
+    for (let c = selected.c1; c <= selected.c2; c++) {
+        const name = colToName(c), label = book.getRaw(asRef(selected.r1, c)).slice(0, 40);
+        choices.push(`<option value="${c}">${name}${label ? ' — ' + escapeHtml(label) : ''}</option>`);
+    }
+    el('sort-column').innerHTML = choices.join('');
+    el('sort-column').value = String(selected.c1);
+    el('sort-header').checked = false;
+    el('sort-preview').textContent = `Selected ${asRef(selected.r1, selected.c1)}:${asRef(selected.r2, selected.c2)} · ${selected.r2 - selected.r1 + 1} rows`;
+    sortDialog.showModal();
+}
+el('btn-sort-custom').addEventListener('click', openCustomSort);
+el('close-sort').addEventListener('click', () => sortDialog.close());
+el('btn-sort-apply').addEventListener('click', () => {
+    if (sortCurrent(Number(el('sort-column').value), el('sort-direction').value === 'descending', el('sort-header').checked))
+        sortDialog.close();
+});
+const contextMenu = el('cell-context-menu');
+function closeContextMenu() { contextMenu.hidden = true; }
+function openContextMenu(clientX, clientY) {
+    if (editing)
+        commitEdit();
+    el('context-heading').textContent = `${doc.active.name} · ${asRef(sel().r1, sel().c1)}${sel().r1 !== sel().r2 || sel().c1 !== sel().c2 ? ':' + asRef(sel().r2, sel().c2) : ''}`;
+    contextMenu.hidden = false;
+    // Make the complete menu visible near all four viewport boundaries.
+    contextMenu.style.left = `${Math.max(6, Math.min(clientX, window.innerWidth - contextMenu.offsetWidth - 8))}px`;
+    contextMenu.style.top = `${Math.max(6, Math.min(clientY, window.innerHeight - contextMenu.offsetHeight - 8))}px`;
+    contextMenu.querySelector('[data-context="edit"]')?.focus({ preventScroll: true });
+}
+grid.addEventListener('contextmenu', event => {
+    const where = gridPointerCell(event.clientX, event.clientY);
+    if (!where)
+        return;
+    const { r, c } = where;
+    event.preventDefault();
+    const b = sel();
+    if (r < b.r1 || r > b.r2 || c < b.c1 || c > b.c2) {
+        active = { r, c };
+        anchor = { r, c };
+        end = { r, c };
+        refresh();
+    }
+    openContextMenu(event.clientX, event.clientY);
+});
+contextMenu.addEventListener('click', event => {
+    const btn = event.target.closest('[data-context]');
+    if (!btn)
+        return;
+    const action = btn.dataset.context;
+    closeContextMenu();
+    switch (action) {
+        case 'edit':
+            beginEdit();
+            break;
+        case 'copy':
+            copySelection();
+            break;
+        case 'cut':
+            copySelection(true);
+            break;
+        case 'paste':
+            pasteCached();
+            break;
+        case 'paste-values':
+            pasteCached(true);
+            break;
+        case 'clear':
+            apply(actionFor(sel()));
+            break;
+        case 'clear-format':
+            book.clearStyles(selectionRefs());
+            save();
+            refresh();
+            toast('Cleared selection formatting');
+            break;
+        case 'bold':
+            applyStyle({ bold: !book.getStyle(currentRef()).bold });
+            break;
+        case 'sort-asc':
+            sortCurrent(sel().c1, false);
+            break;
+        case 'sort-desc':
+            sortCurrent(sel().c1, true);
+            break;
+        case 'sort-custom':
+            openCustomSort();
+            break;
+        case 'autosum':
+            autoSum();
+            break;
+        case 'filter':
+            el('btn-filter').click();
+            break;
+        case 'conditional':
+            el('btn-conditional').click();
+            break;
+        case 'find':
+            openFind();
+            break;
+        case 'inspect':
+            setMode('inspector');
+            break;
+        case 'analyze':
+            setMode('analyze');
+            break;
+    }
+});
+contextMenu.addEventListener('keydown', event => {
+    const buttons = Array.from(contextMenu.querySelectorAll('[data-context]'));
+    const index = buttons.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeContextMenu();
+        grid.focus({ preventScroll: true });
+    }
+});
+document.addEventListener('pointerdown', event => { if (!contextMenu.contains(event.target))
+    closeContextMenu(); });
+window.addEventListener('resize', closeContextMenu);
+grid.addEventListener('wheel', closeContextMenu, { passive: true });
+window.addEventListener('blur', closeContextMenu);
 const findDialog = el('find-dialog');
 function openFind() { findDialog.showModal(); el('find-query').focus(); }
 el('btn-find').addEventListener('click', openFind);
@@ -836,6 +1062,100 @@ el('book-title').addEventListener('click', () => {
     workbookTitle = next.trim().slice(0, 60) || 'Untitled Workbook';
     el('book-title').textContent = workbookTitle;
     save();
+});
+// GridForge v3: Excel-style productivity actions.
+function autoSum() {
+    const selection = sel(), ref = currentRef();
+    const col = colToName(active.c), last = selection.r1 === selection.r2 ? active.r - 1 : selection.r2;
+    let first = selection.r1;
+    if (selection.r1 === selection.r2) {
+        first = last;
+        while (first > 0) {
+            const val = book.getValue(`${col}${first + 1}`);
+            if (typeof val.value !== 'number' || val.error)
+                break;
+            first--;
+        }
+        if (first !== last)
+            first++;
+    }
+    if (last < first) {
+        toast('Select a range above the destination cell.');
+        return;
+    }
+    const destination = selection.r1 === selection.r2 ? ref : `${col}${Math.min(book.rows, selection.r2 + 2)}`;
+    const p = parseRef(destination);
+    if (!p || !inBounds(p.row, p.col)) {
+        toast('No space for AutoSum below this selection');
+        return;
+    }
+    apply([{ ref: destination, raw: `=SUM(${col}${first + 1}:${col}${last + 1})` }]);
+    select(p.row, p.col);
+    toast(`Inserted AutoSum in ${destination}`);
+}
+el('btn-autosum').addEventListener('click', autoSum);
+window.addEventListener('keydown', e => { if (e.altKey && e.key === '=') {
+    e.preventDefault();
+    autoSum();
+} });
+function freeze(axis) {
+    const tool = doc.active.tools, key = axis === 'row' ? 'freezeRows' : 'freezeCols';
+    tool[key] = tool[key] ? 0 : 1;
+    save();
+    renderGrid();
+    toast(`${axis === 'row' ? 'Top row' : 'First column'} ${tool[key] ? 'frozen' : 'unfrozen'}`);
+}
+el('btn-freeze-row').addEventListener('click', () => freeze('row'));
+el('btn-freeze-col').addEventListener('click', () => freeze('col'));
+const filterDialog = el('filter-dialog');
+el('btn-filter').addEventListener('click', () => {
+    const s = sel();
+    if (s.r2 === s.r1) {
+        toast('Select a header row and at least one data row to filter');
+        return;
+    }
+    el('filter-column').innerHTML = Array.from({ length: s.c2 - s.c1 + 1 }, (_, i) => {
+        const col = s.c1 + i, heading = book.getRaw(asRef(s.r1, col));
+        return `<option value="${col}">${colToName(col)} — ${escapeHtml(heading)}</option>`;
+    }).join('');
+    el('filter-query').value = doc.active.tools.filter?.query ?? '';
+    filterDialog.showModal();
+});
+el('close-filter').addEventListener('click', () => filterDialog.close());
+el('apply-filter').addEventListener('click', () => {
+    const b = sel();
+    doc.active.tools.filter = { startRow: b.r1, endRow: b.r2, startCol: b.c1, endCol: b.c2, column: Number(el('filter-column').value), query: el('filter-query').value.slice(0, 100) };
+    save();
+    refresh();
+    filterDialog.close();
+    toast('Filter active: rows are hidden, never deleted');
+});
+el('btn-clear-filter').addEventListener('click', () => { doc.active.tools.filter = null; save(); refresh(); toast('All table rows visible'); });
+const conditionalDialog = el('conditional-dialog');
+el('btn-conditional').addEventListener('click', () => conditionalDialog.showModal());
+el('close-conditional').addEventListener('click', () => conditionalDialog.close());
+el('apply-conditional').addEventListener('click', () => {
+    const threshold = Number(el('rule-threshold').value), b = sel();
+    if (!Number.isFinite(threshold)) {
+        toast('Enter a valid numeric threshold');
+        return;
+    }
+    if (doc.active.tools.conditional.length >= 30) {
+        toast('Maximum 30 rules per sheet');
+        return;
+    }
+    doc.active.tools.conditional.push({ start: asRef(b.r1, b.c1), end: asRef(b.r2, b.c2), operator: el('rule-op').value, threshold, color: el('rule-color').value });
+    save();
+    refresh();
+    conditionalDialog.close();
+    toast('Live conditional formatting rule added');
+});
+el('clear-conditional').addEventListener('click', () => {
+    doc.active.tools.conditional = [];
+    save();
+    refresh();
+    conditionalDialog.close();
+    toast('Conditional formatting rules cleared');
 });
 refresh();
 grid.scrollTop = 0;

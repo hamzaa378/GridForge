@@ -1,9 +1,9 @@
 {
   "name": "gridforge-gdg-frontend-task2",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "description": "Multi-sheet virtualized spreadsheet with native TypeScript formula parser, workbook styling, data quality analytics and dependency introspection",
+  "description": "Multi-sheet virtualized spreadsheet with custom TypeScript formula parser, OOXML XLSX import/export, filters, freeze panes and conditional formatting",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
     "start": "node scripts/serve.mjs",

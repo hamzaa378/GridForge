@@ -1,4 +1,5 @@
 import { Workbook } from './workbook.js';
+import { freshTools, validateTools } from './sheettools.js';
 export class SpreadsheetDocument {
     items = [];
     nextId = 1;
@@ -25,7 +26,7 @@ export class SpreadsheetDocument {
             title = `Sheet ${n}`;
         }
         title = this.validateName(title);
-        const item = { id: `s${this.nextId++}`, name: title, book: book ?? new Workbook() };
+        const item = { id: `s${this.nextId++}`, name: title, book: book ?? new Workbook(), tools: freshTools() };
         this.items.push(item);
         this.activeId = item.id;
         return item;
@@ -41,13 +42,15 @@ export class SpreadsheetDocument {
         let name = `${original.name} copy`, suffix = 2;
         while (this.items.some(x => x.name.toLowerCase() === name.toLowerCase()))
             name = `${original.name.slice(0, 23)} ${suffix++}`;
-        return this.addSheet(name, Workbook.fromJSON(original.book.toJSON()));
+        const duplicate = this.addSheet(name, Workbook.fromJSON(original.book.toJSON()));
+        duplicate.tools = validateTools(JSON.parse(JSON.stringify(original.tools)), duplicate.book.rows, duplicate.book.cols);
+        return duplicate;
     }
     deleteSheet(id = this.activeId) { if (this.items.length === 1)
         throw Error('At least one sheet must remain.'); const idx = this.items.findIndex(x => x.id === id); if (idx === -1)
         throw Error('Sheet not found.'); this.items.splice(idx, 1); if (this.activeId === id)
         this.activeId = this.items[Math.min(idx, this.items.length - 1)].id; }
-    toJSON() { return { format: 'gridforge', version: 2, activeId: this.activeId, sheets: this.items.map(x => ({ id: x.id, name: x.name, workbook: x.book.toJSON() })) }; }
+    toJSON() { return { format: 'gridforge', version: 3, activeId: this.activeId, sheets: this.items.map(x => ({ id: x.id, name: x.name, workbook: x.book.toJSON(), tools: x.tools })) }; }
     static fromJSON(raw) {
         if (!raw || typeof raw !== 'object')
             throw Error('Invalid document JSON.');
@@ -55,7 +58,7 @@ export class SpreadsheetDocument {
         if (!Array.isArray(data.sheets)) {
             return new SpreadsheetDocument(Workbook.fromJSON(raw));
         }
-        if (data.format !== 'gridforge' || data.version !== 2 || !data.sheets.length || data.sheets.length > 12)
+        if (data.format !== 'gridforge' || ![2, 3].includes(data.version) || !data.sheets.length || data.sheets.length > 12)
             throw Error('Invalid GridForge v2 document.');
         const doc = new SpreadsheetDocument();
         doc.items = [];
@@ -68,7 +71,8 @@ export class SpreadsheetDocument {
                 throw Error('Invalid sheet name.');
             const name = doc.validateName(x.name);
             const id = `s${doc.nextId++}`;
-            doc.items.push({ id, name, book: Workbook.fromJSON(x.workbook) });
+            const book = Workbook.fromJSON(x.workbook);
+            doc.items.push({ id, name, book, tools: validateTools(x.tools, book.rows, book.cols) });
         }
         if (typeof data.activeId === 'string') {
             const i = data.sheets.findIndex((x) => !!x && typeof x === 'object' && x.id === data.activeId);

@@ -1,8 +1,12 @@
+# GridForge v3 user guide update
+
+**For v3 XLSX import/export, table filters, freeze panes, conditional formatting and AutoSum, start with the README or `docs/V3_ACCEPTANCE_CHECKLIST.md`. The instructions below are retained from v2.1 for the unchanged features.**
+
 # User Guide
 
 ## Opening the app
 
-Use `npm install` and `npm run dev`; open `http://localhost:4173`. GridForge loads a sample sales workbook with example formulas, totals and a product lookup. Everything runs in your browser. The original 20,800-cell address space is much larger than the cells visible on screen.
+Use `npm install` and `npm run dev`; open `http://localhost:4174`. GridForge loads a sample sales workbook with example formulas, totals and a product lookup. Everything runs in your browser. The original 20,800-cell address space is much larger than the cells visible on screen.
 
 ## Editing a cell
 
@@ -96,7 +100,7 @@ More formulas to try:
 
 **The app page is blank:** Confirm Node.js 20+ is installed, run `npm install` and `npm run build` in the project folder, then `npm run start`. Inspect the browser console for errors. Do not double-click `index.html` from the file manager because ES modules use HTTP-origin loading.
 
-**Port 4173 already in use:** Stop the old server, or choose a different port. On Windows PowerShell: `$env:PORT=5050; npm run start`. On macOS/Linux: `PORT=5050 npm run start`.
+**Default port already in use:** Stop the old server, or choose a different port. On Windows PowerShell: `$env:PORT=5050; npm run start`. On macOS/Linux: `PORT=5050 npm run start`.
 
 **A formula shows #PARSE!:** Verify every `(` is paired with `)` and function arguments are separated by commas. Open Inspector for the caret and suggestion.
 

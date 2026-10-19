@@ -1,85 +1,70 @@
-# GridForge v2.0 — Canonical Project Handover and Continuation Guide
+# MAIN HANDOVER — GridForge v3.0 (GDG Frontend Task 2)
 
-**Challenge:** GDG Tech Wildcard Entry, Frontend Task 2 — Spreadsheet Web Application. **Checkpoint:** 19 October 2026. **Status:** v2 source built; TypeScript `npm run check` passes; **42/42 automated tests** pass; reproducible engine benchmark passes; offline assembled Chromium browser smoke passes on the exercised interactions. GitHub repository creation, external deployment and a full normal-browser acceptance run must be completed by the user.
+**Resume here first.** This guide is the authoritative current state, not a historical v2.1 plan.
 
-## How to resume
+## Current state
 
-Extract the v2 ZIP to any folder (Windows supports ordinary `Downloads`). With Node 20+ installed, double-click `run_windows.bat` and open `http://localhost:4173`; the ZIP includes current compiled `dist/`. To develop:
+- **v3 source ready:** `src/`, `public/`, `.github/workflows/`, compiled `dist/`, `examples/sample_sales.xlsx`.
+- **Task:** custom TypeScript formula parser/evaluator, minimum 30 functions (implemented 56), dependency-aware incremental recalculation, 10,000+ virtualized cells, circular detection, diagnostic display, undo/redo, fill handle, formula bar, keyboard navigation.
+- **v2.1 kept intact:** 12 worksheet tabs, formats, sorting, custom context menu, search/replace, copy/paste, dependency and inspector panels, analytics, scenario mode.
+- **New v3:** Office Open XML XLSX import/export, shared-string/shared-formula handling, filter selected table rows by substring, freeze top row/first column, live numeric conditional formatting, AutoSum and import report.
+- **No formula engine dependencies:** `parser.ts`/`functions.ts`/`workbook.ts` remain handwritten. `xlsx.ts` and `zip.ts` are only file interoperability and archive utilities. No new npm runtime dependency.
+- **Persistence:** localStorage key stays `gridforge:document:v2` to pick up local prior v2.1 workbooks on **the same browser origin**. Document JSON is now version 3; version 2 imports automatically. Changing localhost port changes origin and therefore storage. Explicitly export JSON when migrating.
 
-```powershell
+## Important modules
+
+| File | Responsibility |
+| --- | --- |
+| `src/main.ts` | Shell UI, events, virtualized grid, render, frozen panes, filtered row mapping, conditional colors, import/export dialogs |
+| `src/engine/xlsx.ts` | OOXML mapping between GridForge sheets and Excel worksheet/style/relationship XML, import diagnostics |
+| `src/engine/zip.ts` | CRC32-verified stored ZIP writer, central-directory parsing, deflate-raw reader |
+| `src/engine/sheettools.ts` | Validated persisted filter, freeze and conditional-rule metadata; matches and comparison |
+| `src/engine/document.ts` | Named multi-sheet workbook with v2 compatibility and v3 metadata |
+| `src/engine/workbook.ts` | Sparse cells, parser ASTs, dependency/reverse dependency graph, recalculation, transactions |
+| `src/engine/parser.ts` | Handwritten tokenizer, Pratt parser, diagnostics, formula reference shifting |
+| `src/engine/functions.ts` | 56 implemented custom spreadsheet functions |
+| `src/engine/operations.ts` | Sort by any selected key with header handling, search/replace, analytics |
+| `src/engine/clipboard.ts` | Copy/paste snapshot, relative-formula-aware edits and undoable moves |
+| `public/styles.css` | Dark responsive application UI and dialogs |
+| `scripts/browser_v3_smoke_optional.py` | Optional full Chromium UI smoke, XLSX DEFLATE roundtrip, screenshot |
+| `scripts/benchmark.mjs` | 10,000 formula experiment |
+| `scripts/generate_sample.mjs` | Rebuild `examples/sample_sales.xlsx` via GridForge XLSX writer |
+
+## Run/check/test
+
+```bash
 npm install
+npm run dev                 # prints server URL, defaults to 4174 with fallback
 npm run check
-npm test
-npm run benchmark
-npm run dev
+npm test                    # 57 passing automated tests at handover
+npm run benchmark           # 10,000 formulas, isolate row -> 26 affected
+npm run build
+node scripts/generate_sample.mjs
 ```
 
-No database, backend credentials, environment variables, API keys, or user data files are needed. GitHub publication steps are in `docs/GITHUB_RELEASE.md`.
+Optional local Chromium browser regression: set `GRIDFORGE_CHROMIUM=/usr/bin/chromium` on Linux, install Python Playwright, run `python scripts/browser_v3_smoke_optional.py`. The browser script uses Playwright's Chromium binary override. On Windows set the environment variable to your Chromium executable (or remove it if Playwright browsers are installed). This script is not part of required CI.
 
-## Current feature and API inventory
+**Measured here:** TypeScript check PASS, 57/57 Node tests PASS, Chromium browser regression PASS with no uncaught page errors, ZIP validation PASS, local performance benchmark PASS (10,000 formulas, changed row affected 26). Results are local evidence only, not production SLA or external Excel validation.
 
-**Original v1 preserved:** 20,800-cell virtual address space, viewport virtualization, 56 custom functions, tokenizer, Pratt parser, dependency graph, selective recalculation, circular-reference errors, syntax-position diagnostics, formula bar, range selection, keyboard navigation, drag-fill, undo/redo, JSON/CSV, What-if, Inspector, Impact.
+## Architectural safety rules
 
-**New v2 implemented:** independent worksheet tabs (add, rename, duplicate, delete, switch), editable workbook title, sparse per-cell formatting with font weight/italics/underline/colors/alignment, General/Number/Integer/USD/Percent numeric display, style undo/redo, same-app raw formula + style clipboard paste, values-only paste, selected-range ascending/descending sort, Find/Replace with formula protection, Data Quality Lens and bar chart, versioned multi-sheet JSON with legacy v1 migration, CI and GitHub Pages workflow files.
+- Do not add any library that evaluates formulas: that would violate the challenge rule.
+- Keep v2 JSON deserialization compatible; use **v3** for new serialized document format, preserve worksheet metadata across duplicates.
+- Do not silently discard unsupported spreadsheet imports or promise `.xlsx` lossless interoperability.
+- Imported XLSX is bounded to <=25MB archive, <=12 sheets, <=1000×104 grid per sheet. For larger workbooks, display an error; do not truncate.
+- Never execute VBA or external links; `<f>` content is data until parsed by the local GridForge engine.
+- Filter is a **view**, not a data rewrite; clearing filter restores unchanged worksheet cells.
+- Conditional rules apply to numeric evaluated values; styled background takes priority only when no conditional rule matches.
+- XLSX export requests Excel recalc; JSON remains the authoritative GridForge feature backup.
 
-**Exact source responsibilities**
+## Known limitations / next milestones
 
-| File | Owner responsibility |
-| --- | --- |
-| `src/engine/parser.ts` | Lexer, Pratt parser, reference expansion/shifting, formula diagnostics |
-| `src/engine/functions.ts` | 56 function registry entries, coercion/error helpers |
-| `src/engine/workbook.ts` | Raw/source cells, sparse styles, dependency/reverse dependency maps, cached evaluation, undo/redo, multi-edit transaction, What-if, JSON workbook serialization |
-| `src/engine/format.ts` | `CellStyle`, safe style validation, `styledDisplay` numeric presentation |
-| `src/engine/document.ts` | `SpreadsheetDocument`, 12-sheet cap, tabs, names, duplication, deletion, v1/v2 document serialization |
-| `src/engine/operations.ts` | Range search/replace, stable sort, selection stats, chart-ready data |
-| `src/engine/csv.ts` | CSV parsing and quoting/serialization |
-| `src/main.ts` | All DOM event wiring, virtual grid, toolbar, side panels, clipboard, file import/export, debounced local persistence |
-| `public/index.html`, `public/styles.css` | Static shell, interface and responsive presentation |
-| `scripts/benchmark.mjs` | Deterministic 10,000-formula benchmark and expected graph reach checks |
-| `scripts/copy-static.mjs`, `scripts/serve.mjs` | Compile static public shell, run lightweight local HTTP server |
-| `tests/workbook.test.mjs`, `tests/upgrade.test.mjs` | 26 original + 16 v2 Node engine tests |
-| `.github/workflows/{ci,pages}.yml` | Automated static checking/tests/benchmark and optional GitHub Pages deployment |
-| `dist/` | Regenerated JavaScript, CSS, HTML for web/Windows launcher and GitHub Pages |
+1. Excel compatibility is a subset: no pivot tables, merges, Excel charts, macro execution, date/time fidelity, true Excel data validation, advanced filters or complex conditional rules.
+2. Parser and dependency graph are **sheet-local**; quoted/unquoted `Sheet2!A1` references are not yet evaluated. Full cross-sheet dependency graph and cross-sheet cycles would be a worthwhile next research milestone.
+3. Freeze is limited to top row and first column (not arbitrary split); no resize of rows/columns.
+4. Text-contains filter is one selected column per sheet at a time; OR/AND multi-key filtering is future work.
+5. XLSX writer uses stored ZIP (larger output). Compressed XLSX input uses browser `DecompressionStream`; old browser versions might not support it.
+6. No backend/sync; localStorage is origin-specific and quota-limited. CSV and XLSX are interoperable subsets; for full GridForge reload prefer JSON.
+7. No external spreadsheet app validation was performed in this checkpoint; Windows Excel/LibreOffice user test should be recorded separately before making compatibility claims.
 
-## Exact checkpoint checks
-
-- Node.js `v22.16.0`, TypeScript `5.8.3` CLI.
-- `npm run check`: PASS.
-- `npm test`: **42 passed, 0 failed**; v2 test suite additionally covers styles/undo, multiple sheets/legacy migration, sort/find/replacement, data analytics.
-- `node scripts/benchmark.mjs`: **10,400 populated (10,000 formulas)**, initial load/recalc **95.516 ms**, change A2 **26 affected/recalculated / 0.049 ms**, isolated edit **1 affected/recalculated / 0.007 ms** on this environment. These are local engine timings, not UI rendering or cloud performance.
-- Chromium assembled-page smoke (direct HTTP navigation blocked in environment): **231 virtual cell DOM nodes** at 1440×900; D4 initial 4000, updating B4 to 225 made D4 = 7200, undo restored it; Bold plus undo/redo; an added second sheet contained A1=42 without changing Sheet 1; Find `P-103` yielded two matches; custom MIME clipboard translated `=B4*C4` from D4 to H4 as `=F4*G4` and undo cleared H4; Analyze A4:B11 reported sum 951 and average 118.875; sorting and undo worked; downloaded v2 JSON exported both worksheets and formatting; no uncaught JS exceptions. **localStorage could not be tested in the assembled `about:blank` context**. Optional reproduction script: `scripts/browser_smoke_optional.py`; see `docs/TESTING_AND_DEMO.md`.
-- Browser screenshot stored at `docs/preview_v2.png`.
-- npm registry was unreachable from the packaging runtime; `package-lock.json` could not be reliably generated. GitHub workflows use `npm install`, not `npm ci`. Users may generate and commit lockfile after installing on their own machines, then switch CI to `npm ci`.
-
-## Data formats and migration
-
-- Current browser key: `gridforge:document:v2`; older key: `gridforge:greeting:workbook:v1` (auto migrated if no v2 saved document).
-- `SpreadsheetDocument.toJSON()` version 2 holds `format`, `activeId`, and sheet entries `{id,name,workbook}`. Workbook v2 stores `rows`, `cols`, `cells`, and `styles`. Export JSON before changing browsers/ports or clearing local storage.
-- Legacy standalone v1 workbook JSON can be imported; it becomes a one-sheet v2 document.
-- CSV import/export applies to one sheet, values only; **not** to Excel `.xlsx` packages.
-- No schema, database or server; all computed formulas and source data stay in client runtime/browser storage.
-
-## Architecture invariants / do not regress
-
-1. Keep the handwritten formula parser/evaluator. Do **not** use an existing spreadsheet calculation engine.
-2. Preserve relative/absolute `$` reference behavior and cycle detection.
-3. Keep calculation graphs per sheet, isolated from visual formatting or chart calculations.
-4. Preserve 150-operation undo/redo history within a sheet session; formatting must be undoable.
-5. `IF` and `IFERROR` must evaluate lazily. Preserve AST diagnostics.
-6. Keep browser visible cell DOM count tied to viewport, not total sheet size.
-7. Sanitize imported cell styles to strict `#RRGGBB` strings. Use escaped HTML or textContent for external content.
-8. `What-if` must clone state; previews may not modify live workbooks.
-9. Do not claim Excel parity: sorting and clipboard semantics are documented approximations.
-10. Rebuild with `npm run build` whenever changing source; `dist/` is checked into the packaged version for easy demo.
-
-## Known limitations and next milestones
-
-- Cross-sheet formula references (`OtherSheet!A1`) are not implemented. Each sheet recalculates in isolation.
-- No `.xlsx` import/export, chart object persistence, filtering, conditional formatting, merged cells, pivot tables, macros or collaborative editing.
-- Sorting works on selected rectangle and shifts relative refs in moved formulas; review complex inter-row references.
-- Clipboard custom MIME depends on browser permissions. Plain TSV fallback can lose formula/source style metadata outside same-app copying.
-- No tab-wide undo history persisted after browser reload. Saving uses localStorage with quotas, not IndexedDB.
-- Main-thread recalculation might become slow with dense complex dependencies. Web Workers are future work.
-- GitHub Actions and GitHub Pages workflows have not been exercised in a pushed GitHub repository; perform the final push + deployment validation yourself.
-
-**Suggested v3 sequence (not yet implemented):** 1) confirm `npm install` and full browser acceptance on user's machine, 2) push repository and verify CI/Pages, 3) optional XLSX interoperability library strictly for file I/O while retaining custom formulas, 4) cross-sheet formula grammar and dependency graph, 5) richer charts/data validation/filtering, 6) background calculation worker. Do not claim unimplemented items as current functionality.
+**Next recommended engineering steps after user feedback:** perform Windows acceptance checklist; review import of a real Excel file with shared formulas and dates; integrate cross-sheet references with deterministic cycles and dependency propagation; consider multi-column filter/dropdown validation, frozen arbitrary panes, accessible headers and wider grid navigation. Keep benchmark/test evidence current.

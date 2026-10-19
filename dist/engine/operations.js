@@ -64,16 +64,18 @@ export function replaceCells(book, needle, replacement, caseSensitive = false, i
         return { ref, raw: next + raw.slice(start) };
     });
 }
-/** Sort a selected rectangle as complete rows. Formula references shift with the moved formula. */
-export function sortSelection(book, b, byCol, descending = false, firstRowHeader = false) {
+/** A single atomic, undoable data-and-format transaction for a selected rectangle.
+ * Other columns are intentionally untouched; sorting an entire table is the caller's job.
+ */
+export function sortRangeTransaction(book, b, byCol, descending = false, firstRowHeader = false) {
     if (byCol < b.c1 || byCol > b.c2)
         throw Error('Sort key is outside the selection.');
     const from = b.r1 + (firstRowHeader ? 1 : 0);
     if (b.r2 <= from)
-        return [];
+        return { edits: [], styles: [] };
     const entries = [];
     for (let r = from; r <= b.r2; r++)
-        entries.push({ original: r, key: book.getValue(address(r, byCol)), raw: Array.from({ length: b.c2 - b.c1 + 1 }, (_, j) => book.getRaw(address(r, b.c1 + j))) });
+        entries.push({ original: r, key: book.getValue(address(r, byCol)), raw: Array.from({ length: b.c2 - b.c1 + 1 }, (_, j) => book.getRaw(address(r, b.c1 + j))), styles: Array.from({ length: b.c2 - b.c1 + 1 }, (_, j) => book.getStyle(address(r, b.c1 + j))) });
     entries.sort((a, b) => {
         const x = a.key.value, y = b.key.value;
         if (a.key.error && !b.key.error)
@@ -87,14 +89,21 @@ export function sortSelection(book, b, byCol, descending = false, firstRowHeader
         const comparison = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' });
         return (descending ? -comparison : comparison) || a.original - b.original;
     });
-    const edits = [];
+    const edits = [], styles = [];
     entries.forEach((item, index) => {
         const destination = from + index;
         item.raw.forEach((raw, delta) => {
             const adjusted = raw.startsWith('=') ? shiftFormula(raw, destination - item.original, 0) : raw;
             if (adjusted !== book.getRaw(address(destination, b.c1 + delta)))
                 edits.push({ ref: address(destination, b.c1 + delta), raw: adjusted });
+            const ref = address(destination, b.c1 + delta), style = item.styles[delta];
+            if (JSON.stringify(style) !== JSON.stringify(book.getStyle(ref)))
+                styles.push({ ref, style });
         });
     });
-    return edits;
+    return { edits, styles };
+}
+/** Backwards-compatible values-only helper retained for v2 tests and integrations. */
+export function sortSelection(book, b, byCol, descending = false, firstRowHeader = false) {
+    return sortRangeTransaction(book, b, byCol, descending, firstRowHeader).edits;
 }

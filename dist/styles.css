@@ -48,3 +48,29 @@
 #book-title{cursor:pointer}#book-title:hover{text-decoration:underline;text-decoration-style:dotted}
 @media(max-width:930px){.format-toolbar{gap:7px;padding:5px 8px}.sheet-commands{gap:3px}.sheet-action{padding:6px}.sheet-tab-list{max-width:35%}.sidebar{top:172px}}
 @media(max-width:650px){.format-toolbar{height:48px;min-height:48px}.format-caption{display:none}.sheet-commands{max-width:110px;overflow-x:auto}.sheet-tab-list{max-width:39%}.sidebar{top:167px}.statusbar #selection-aggregate{display:none}}
+
+/* GridForge v2.1: keyboard-accessible Excel-inspired context menu */
+.cell-context-menu[hidden]{display:none!important}
+.cell-context-menu{position:fixed;z-index:130;display:flex;flex-direction:column;min-width:264px;max-height:calc(100vh - 14px);overflow:auto;background:#1a2239;border:1px solid #55618a;border-radius:12px;box-shadow:0 18px 64px #020716df;padding:7px;color:#ebecfe;scrollbar-width:thin}
+.context-heading{font:700 10px var(--mono);letter-spacing:.5px;color:#9eadcf;padding:10px 11px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cell-context-menu button{display:flex;align-items:center;gap:11px;min-height:32px;text-align:left;border:0;background:transparent;border-radius:6px;color:#e0e7fa;padding:6px 10px;font-size:11px;white-space:nowrap}
+.cell-context-menu button:hover,.cell-context-menu button:focus-visible{background:#39436b;outline:1px solid #7777b5}
+.menu-glyph{display:inline-flex;justify-content:center;min-width:23px;font:700 12px var(--mono);color:#b9aeff}
+.cell-context-menu kbd{margin-left:auto;font:9px var(--mono);color:#92a3c8;padding-left:13px}
+.context-separator{border-top:1px solid #38435e;margin:5px 8px}
+.sort-dialog .field-label{margin-top:16px;margin-bottom:6px}
+.context-select{width:100%;background:#11192d;border:1px solid #475479;color:#eff2fd;padding:10px;border-radius:7px;font-size:12px}
+.sort-checkbox{display:flex;align-items:center;gap:9px;font-size:12px;color:#c4cce4;margin-top:20px}
+.sort-preview{font:10px/1.7 var(--mono);color:#aebce5!important;margin-top:15px}
+
+/* v3 productivity ribbon and import transparency */
+#btn-xlsx {border-color:#438e74;background:#173f36;color:#a7f6d0}
+#btn-xlsx:hover{background:#246853;color:#fff}
+.frozen-cell {box-shadow:inset -1px -1px 0 #445c77}
+.import-notes-body {max-height:250px;overflow:auto;border:1px solid #465071;background:#10182e;border-radius:8px;padding:13px;font-size:11px;line-height:1.6;color:#cbd8ec}
+.import-notes-body strong {color:#b1f1d3}.import-notes-body ul {padding-left:19px;margin:7px 0}.import-notes-body li{margin-bottom:7px}
+#rule-color {width:88px;height:34px;background:#293855;border:1px solid #536282;padding:3px;margin-top:6px;border-radius:6px}
+@media(max-width:1200px){.format-toolbar{gap:7px}.format-toolbar .reset-format{padding:4px 7px}}
+
+/* V3: leave the growing Excel-action ribbon uncluttered. */
+.toolbar-tip{display:none!important}

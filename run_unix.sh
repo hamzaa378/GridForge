@@ -9,5 +9,5 @@ if [ ! -f dist/index.html ]; then
   echo 'Run npm install and npm run build first.' >&2
   exit 1
 fi
-echo 'GridForge available at http://localhost:4173 (Ctrl+C to stop)'
+echo 'Starting GridForge; use the URL printed below (Ctrl+C to stop)'
 node scripts/serve.mjs

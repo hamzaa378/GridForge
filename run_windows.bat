@@ -15,9 +15,9 @@ if not exist "dist\index.html" (
 echo.
 echo =========================================
 echo   GridForge - GDG Frontend Task 2
- echo =========================================
+echo =========================================
 echo.
-echo Open in your browser: http://localhost:4173
+echo The server will print the correct browser URL below.
 echo Keep this window open while using GridForge.
 echo Press Ctrl+C to stop.
 echo.

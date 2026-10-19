@@ -1,3 +1,23 @@
+# GridForge v3 benchmark verification
+
+**Environment:** Node.js v22.16.0, development container, 2026-10-19. Run `npm run benchmark` on your own hardware before quoting response times.
+
+````json
+{
+  "populated": 10400,
+  "formulas": 10000,
+  "initialBuildMs": 95.279,
+  "singleSourceEdit": {"affected": 26, "recalculated": 26, "elapsedMs": 0.056},
+  "isolatedEdit": {"affected": 1, "recalculated": 1, "elapsedMs": 0.006}
+}
+````
+
+The primary supported claim is structural: the reverse-dependency graph identifies only **26 affected cells** after the specified row input edit, not all 10,000 formulas. Millisecond observations are illustrative, not an SLA or percentile latency guarantee.
+
+---
+
+## Historical benchmark notes
+
 # Performance and Reliability Report
 
 ## Test target

@@ -1,62 +1,34 @@
-# GitHub publishing and deployment guide
+# GitHub-ready submission: GridForge v3.0
 
-## 1. Local preflight
+## Checklist before pushing
 
-From the folder containing `package.json`:
+1. Ensure the extracted ZIP has `package.json`, `src/`, `tests/`, `public/`, `dist/`, `docs/`, `examples/`, `.github/workflows/`, `LICENSE`, `.gitignore` at the top level.
+2. Install Node.js 20+ and run `npm install && npm test && npm run benchmark` on your Windows machine. Expect 57 passing tests and 26 affected cells in the demonstration input-change experiment. Compiler and results may differ with hardware.
+3. Run `npm run dev`, open the printed local URL. Test a real `.xlsx` through Import/Export and ensure the Import Report is visible.
+4. Run the steps in `docs/V3_ACCEPTANCE_CHECKLIST.md`. Capture screenshots/GIF for reviewers if desired.
+5. Ensure no credentials, private datasets, `node_modules/`, `.env` or temporary files were added. Node/browser uses no external spreadsheet engine; dependencies are dev-only TypeScript.
 
-```powershell
-node --version
-npm install
-npm run check
-npm test
-npm run benchmark
-npm run build
-npm start
-```
-
-Open `http://localhost:4173`. If another process is using port 4173, set `PORT` in your terminal before `npm start` (PowerShell: `$env:PORT=4180`). The included `dist/` is meant for immediate demos; always run `npm run build` after changing source.
-
-## 2. Create your GitHub repository
-
-Create an **empty** GitHub repository, e.g. `gridforge-spreadsheet`, with no automatically generated README, then from the extracted folder:
+## Push to empty repository
 
 ```powershell
 git init
 git add .
-git commit -m "GridForge v2 submission"
+git commit -m "GridForge v3.0: XLSX interoperability and Excel-style tools"
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
+git remote add origin https://github.com/YOUR_USERNAME/GridForge.git
 git push -u origin main
 ```
 
-The repository URL above is **only a placeholder**. Replace it with your actual repository's URL. If GitHub says the remote already exists, run `git remote -v` and update it with `git remote set-url origin <actual-url>`. Authentication is handled by your configured Git credential manager or GitHub SSH setup. Never commit a password, token, or `.env` file.
+Replace the remote URL with your actual repository. Create it first, without auto-generated README. If Git warns `remote origin already exists`, inspect `git remote -v` and use `git remote set-url origin ...` only if needed. Do not push to an unrelated repository.
 
-## 3. Check CI and deploy GitHub Pages
+## Deployment
 
-The included Actions workflow `.github/workflows/ci.yml` checks TypeScript, runs tests, records benchmark results, and uploads a compiled-site artifact. `.github/workflows/pages.yml` builds and deploys the static site.
+The source contains `.github/workflows/ci.yml` (typecheck, tests, benchmark and compiled artifact) and `.github/workflows/pages.yml` (tests and static-site publication). In GitHub **Settings → Pages**, set source to **GitHub Actions** and wait for the Actions `Deploy GridForge to GitHub Pages` run. The resulting Pages URL is returned by GitHub; no deployment URL is pre-filled because it cannot be known before you publish it.
 
-In your repo: **Settings → Pages → Build and deployment → Source → GitHub Actions**. Then visit **Actions** and verify both workflows. Once Pages finishes, find the actual published URL under **Settings → Pages** or the deployment environment. The app uses `./styles.css` and `./main.js` relative paths, which work under repository subpaths; no API, server database, or environment keys are necessary.
+## Reviewer demo (2–3 minutes)
 
-If Actions fail because dependencies cannot be installed, verify npm registry accessibility in Actions and that `npm install` works. This source snapshot intentionally does not contain a generated package-lock file because npm registry access was unavailable in the packaging environment; the workflow uses `npm install`, not `npm ci`. For stricter dependency pinning after installing locally, commit the resulting `package-lock.json`, then change workflows to `npm ci`.
+Start with the bundled `examples/sample_sales.xlsx`, import into GridForge and close the Import Report. Show two tabs and a formula `=B2*C2`. Filter the Sales header table to `Mouse` and show all. Apply a live greater-than threshold, change a referenced value and watch the highlight. Freeze the top row and first column while scrolling. Export as `.xlsx`, import the output and inspect preserved formulas/styles. End with the Formula Inspector and dependency benchmark output. Explain that formulas and recalc are custom implemented and that Excel interoperability is a **supported subset**, not all Excel features.
 
-## 4. Demo to reviewers (2–4 minutes)
+## GitHub Actions caveats
 
-1. Open the demo sheet. Change B4 from 125 to 225. Show that D4 changes from 4000 to 7200 and the recalculation counter stays selective.
-2. Select D4; show Inspector AST, dependencies, and Impact panel.
-3. Add another sheet. Enter `42` in A1. Switch back and show the original demo is intact; duplicate and rename a sheet.
-4. Select an example cell and apply Bold, Percent/Number/Currency, alignment or color; demonstrate undo. Pick a range and sort ascending/descending, then undo.
-5. Open Find, search for `P-103`, jump to the matching cell. Show Replace All with formula protection.
-6. Select A4:B11; open Analyze to show sums, blank/error counts and live chart.
-7. Open What-if; preview a changed value and show the original value remains intact. Export JSON, then reimport it to show all tabs and formatting persist.
-8. Show tests, the benchmark report, and the public repository's CI status.
-
-## 5. Final checklist
-
-- [ ] README loads and preview image displays in the GitHub repository.
-- [ ] `npm run check`, `npm test`, and `npm run benchmark` pass on your machine.
-- [ ] GitHub Actions CI is green and Pages is configured correctly.
-- [ ] Live URL loads without a missing stylesheet or `.js` 404.
-- [ ] Show at least one useful error diagnostic (`=SUM(A1, B2`) and cycle (`=C1` in C1).
-- [ ] Validate copy/paste and drag-fill in a regular Chrome or Edge session.
-- [ ] Confirm JSON export and reimport preserve multiple sheets and formatting.
-- [ ] Add actual GitHub / live-demo URLs to your submission form; do not claim a deployment before checking it.
+GitHub's CI runner installs the declared development tool `typescript` with `npm install`; it has Internet access for that. The optional Playwright/Chromium smoke test is not part of CI unless you explicitly install Chromium in the workflow. The included compiled `dist/` lets reviewers run the app with `node scripts/serve.mjs` even without installing dependencies. If GitHub Pages URLs need a non-root base path, the app loads its `./main.js`, `./styles.css` and relative JS imports from the deployment directory.
