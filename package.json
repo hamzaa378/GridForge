@@ -1,0 +1,22 @@
+{
+  "name": "gridforge-gdg-frontend-task2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-sheet virtualized spreadsheet with native TypeScript formula parser, workbook styling, data quality analytics and dependency introspection",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
+    "start": "node scripts/serve.mjs",
+    "dev": "npm run build && npm run start",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "benchmark": "npm run build && node scripts/benchmark.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,28 @@
+name: GridForge CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install TypeScript
+        run: npm install --no-audit --no-fund
+      - name: Static type checking
+        run: npm run check
+      - name: Automated engine and document tests
+        run: npm test
+      - name: Dependency benchmark
+        run: npm run benchmark
+      - name: Upload compiled site
+        uses: actions/upload-artifact@v4
+        with:
+          name: gridforge-dist
+          path: dist/
