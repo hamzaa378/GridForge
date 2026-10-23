@@ -1,0 +1,4918 @@
+TAP version 13
+# Subtest: custom sort by any selected column keeps complete rows and moves formatting
+ok 1 - custom sort by any selected column keeps complete rows and moves formatting
+  ---
+  duration_ms: 6.356596
+  type: 'test'
+  ...
+# Subtest: sort changes only selected columns, and stable duplicates preserve input order
+ok 2 - sort changes only selected columns, and stable duplicates preserve input order
+  ---
+  duration_ms: 0.832251
+  type: 'test'
+  ...
+# Subtest: copy/paste adjusts relative formulas, includes styles and can undo
+ok 3 - copy/paste adjusts relative formulas, includes styles and can undo
+  ---
+  duration_ms: 2.634688
+  type: 'test'
+  ...
+# Subtest: cut then paste moves cell and style atomically; overlapping moves are safe
+ok 4 - cut then paste moves cell and style atomically; overlapping moves are safe
+  ---
+  duration_ms: 0.765361
+  type: 'test'
+  ...
+# Subtest: cut from a different worksheet becomes copy, never clears source
+ok 5 - cut from a different worksheet becomes copy, never clears source
+  ---
+  duration_ms: 0.681786
+  type: 'test'
+  ...
+# Subtest: paste values preserves leading equals as literal text and prevents overflow
+ok 6 - paste values preserves leading equals as literal text and prevents overflow
+  ---
+  duration_ms: 0.823828
+  type: 'test'
+  ...
+# Subtest: sorting with zero data rows returns empty transaction
+ok 7 - sorting with zero data rows returns empty transaction
+  ---
+  duration_ms: 0.322821
+  type: 'test'
+  ...
+# Subtest: v8 has exactly 100 distinct, searchable, categorized spreadsheet actions
+ok 8 - v8 has exactly 100 distinct, searchable, categorized spreadsheet actions
+  ---
+  duration_ms: 3.249665
+  type: 'test'
+  ...
+# Subtest: Data Studio: upper
+ok 9 - Data Studio: upper
+  ---
+  duration_ms: 3.643491
+  type: 'test'
+  ...
+# Subtest: Data Studio: lower
+ok 10 - Data Studio: lower
+  ---
+  duration_ms: 0.534066
+  type: 'test'
+  ...
+# Subtest: Data Studio: title
+ok 11 - Data Studio: title
+  ---
+  duration_ms: 0.548228
+  type: 'test'
+  ...
+# Subtest: Data Studio: sentence
+ok 12 - Data Studio: sentence
+  ---
+  duration_ms: 0.376541
+  type: 'test'
+  ...
+# Subtest: Data Studio: swapcase
+ok 13 - Data Studio: swapcase
+  ---
+  duration_ms: 0.221961
+  type: 'test'
+  ...
+# Subtest: Data Studio: reverse-text
+ok 14 - Data Studio: reverse-text
+  ---
+  duration_ms: 0.151516
+  type: 'test'
+  ...
+# Subtest: Data Studio: trim
+ok 15 - Data Studio: trim
+  ---
+  duration_ms: 0.164405
+  type: 'test'
+  ...
+# Subtest: Data Studio: collapse-spaces
+ok 16 - Data Studio: collapse-spaces
+  ---
+  duration_ms: 1.950047
+  type: 'test'
+  ...
+# Subtest: Data Studio: remove-spaces
+ok 17 - Data Studio: remove-spaces
+  ---
+  duration_ms: 0.651892
+  type: 'test'
+  ...
+# Subtest: Data Studio: clean-control
+ok 18 - Data Studio: clean-control
+  ---
+  duration_ms: 0.34181
+  type: 'test'
+  ...
+# Subtest: Data Studio: first-word
+ok 19 - Data Studio: first-word
+  ---
+  duration_ms: 0.256412
+  type: 'test'
+  ...
+# Subtest: Data Studio: last-word
+ok 20 - Data Studio: last-word
+  ---
+  duration_ms: 0.249632
+  type: 'test'
+  ...
+# Subtest: Data Studio: before-space
+ok 21 - Data Studio: before-space
+  ---
+  duration_ms: 0.138857
+  type: 'test'
+  ...
+# Subtest: Data Studio: after-space
+ok 22 - Data Studio: after-space
+  ---
+  duration_ms: 0.122472
+  type: 'test'
+  ...
+# Subtest: Data Studio: initials
+ok 23 - Data Studio: initials
+  ---
+  duration_ms: 0.273407
+  type: 'test'
+  ...
+# Subtest: Data Studio: first-three
+ok 24 - Data Studio: first-three
+  ---
+  duration_ms: 0.158386
+  type: 'test'
+  ...
+# Subtest: Data Studio: last-three
+ok 25 - Data Studio: last-three
+  ---
+  duration_ms: 0.112187
+  type: 'test'
+  ...
+# Subtest: Data Studio: drop-first
+ok 26 - Data Studio: drop-first
+  ---
+  duration_ms: 0.427878
+  type: 'test'
+  ...
+# Subtest: Data Studio: drop-last
+ok 27 - Data Studio: drop-last
+  ---
+  duration_ms: 0.137645
+  type: 'test'
+  ...
+# Subtest: Data Studio: word-count
+ok 28 - Data Studio: word-count
+  ---
+  duration_ms: 0.436821
+  type: 'test'
+  ...
+# Subtest: Data Studio: remove-digits
+ok 29 - Data Studio: remove-digits
+  ---
+  duration_ms: 0.272787
+  type: 'test'
+  ...
+# Subtest: Data Studio: digits-only
+ok 30 - Data Studio: digits-only
+  ---
+  duration_ms: 0.312075
+  type: 'test'
+  ...
+# Subtest: Data Studio: letters-only
+ok 31 - Data Studio: letters-only
+  ---
+  duration_ms: 0.481068
+  type: 'test'
+  ...
+# Subtest: Data Studio: alnum-only
+ok 32 - Data Studio: alnum-only
+  ---
+  duration_ms: 0.581757
+  type: 'test'
+  ...
+# Subtest: Data Studio: remove-punct
+ok 33 - Data Studio: remove-punct
+  ---
+  duration_ms: 0.247259
+  type: 'test'
+  ...
+# Subtest: Data Studio: remove-newlines
+ok 34 - Data Studio: remove-newlines
+  ---
+  duration_ms: 0.252397
+  type: 'test'
+  ...
+# Subtest: Data Studio: tabs-to-spaces
+ok 35 - Data Studio: tabs-to-spaces
+  ---
+  duration_ms: 0.134932
+  type: 'test'
+  ...
+# Subtest: Data Studio: unicode-normalize
+ok 36 - Data Studio: unicode-normalize
+  ---
+  duration_ms: 0.341779
+  type: 'test'
+  ...
+# Subtest: Data Studio: strip-accents
+ok 37 - Data Studio: strip-accents
+  ---
+  duration_ms: 0.491362
+  type: 'test'
+  ...
+# Subtest: Data Studio: strip-leading-zeros
+ok 38 - Data Studio: strip-leading-zeros
+  ---
+  duration_ms: 0.164926
+  type: 'test'
+  ...
+# Subtest: Data Studio: negate
+ok 39 - Data Studio: negate
+  ---
+  duration_ms: 0.38229
+  type: 'test'
+  ...
+# Subtest: Data Studio: absolute
+ok 40 - Data Studio: absolute
+  ---
+  duration_ms: 0.115512
+  type: 'test'
+  ...
+# Subtest: Data Studio: reciprocal
+ok 41 - Data Studio: reciprocal
+  ---
+  duration_ms: 1.10055
+  type: 'test'
+  ...
+# Subtest: Data Studio: square
+ok 42 - Data Studio: square
+  ---
+  duration_ms: 0.124606
+  type: 'test'
+  ...
+# Subtest: Data Studio: cube
+ok 43 - Data Studio: cube
+  ---
+  duration_ms: 0.10097
+  type: 'test'
+  ...
+# Subtest: Data Studio: sqrt
+ok 44 - Data Studio: sqrt
+  ---
+  duration_ms: 0.146609
+  type: 'test'
+  ...
+# Subtest: Data Studio: sign
+ok 45 - Data Studio: sign
+  ---
+  duration_ms: 0.158787
+  type: 'test'
+  ...
+# Subtest: Data Studio: increment
+ok 46 - Data Studio: increment
+  ---
+  duration_ms: 0.093229
+  type: 'test'
+  ...
+# Subtest: Data Studio: decrement
+ok 47 - Data Studio: decrement
+  ---
+  duration_ms: 0.229903
+  type: 'test'
+  ...
+# Subtest: Data Studio: double
+ok 48 - Data Studio: double
+  ---
+  duration_ms: 0.111846
+  type: 'test'
+  ...
+# Subtest: Data Studio: round0
+ok 49 - Data Studio: round0
+  ---
+  duration_ms: 0.091707
+  type: 'test'
+  ...
+# Subtest: Data Studio: round1
+ok 50 - Data Studio: round1
+  ---
+  duration_ms: 0.116794
+  type: 'test'
+  ...
+# Subtest: Data Studio: round2
+ok 51 - Data Studio: round2
+  ---
+  duration_ms: 0.097305
+  type: 'test'
+  ...
+# Subtest: Data Studio: round3
+ok 52 - Data Studio: round3
+  ---
+  duration_ms: 0.086318
+  type: 'test'
+  ...
+# Subtest: Data Studio: ceil
+ok 53 - Data Studio: ceil
+  ---
+  duration_ms: 0.329191
+  type: 'test'
+  ...
+# Subtest: Data Studio: floor
+ok 54 - Data Studio: floor
+  ---
+  duration_ms: 0.095652
+  type: 'test'
+  ...
+# Subtest: Data Studio: trunc
+ok 55 - Data Studio: trunc
+  ---
+  duration_ms: 0.198416
+  type: 'test'
+  ...
+# Subtest: Data Studio: nearest5
+ok 56 - Data Studio: nearest5
+  ---
+  duration_ms: 0.203533
+  type: 'test'
+  ...
+# Subtest: Data Studio: nearest10
+ok 57 - Data Studio: nearest10
+  ---
+  duration_ms: 0.203654
+  type: 'test'
+  ...
+# Subtest: Data Studio: nearest100
+ok 58 - Data Studio: nearest100
+  ---
+  duration_ms: 0.121562
+  type: 'test'
+  ...
+# Subtest: Data Studio: divide100
+ok 59 - Data Studio: divide100
+  ---
+  duration_ms: 0.124115
+  type: 'test'
+  ...
+# Subtest: Data Studio: multiply100
+ok 60 - Data Studio: multiply100
+  ---
+  duration_ms: 0.117925
+  type: 'test'
+  ...
+# Subtest: Data Studio: divide1000
+ok 61 - Data Studio: divide1000
+  ---
+  duration_ms: 0.081652
+  type: 'test'
+  ...
+# Subtest: Data Studio: multiply1000
+ok 62 - Data Studio: multiply1000
+  ---
+  duration_ms: 0.258345
+  type: 'test'
+  ...
+# Subtest: Data Studio: half
+ok 63 - Data Studio: half
+  ---
+  duration_ms: 0.089233
+  type: 'test'
+  ...
+# Subtest: Data Studio: triple
+ok 64 - Data Studio: triple
+  ---
+  duration_ms: 0.084175
+  type: 'test'
+  ...
+# Subtest: Data Studio: plus10pct
+ok 65 - Data Studio: plus10pct
+  ---
+  duration_ms: 0.167439
+  type: 'test'
+  ...
+# Subtest: Data Studio: minus10pct
+ok 66 - Data Studio: minus10pct
+  ---
+  duration_ms: 0.079339
+  type: 'test'
+  ...
+# Subtest: Data Studio: parse-percent
+ok 67 - Data Studio: parse-percent
+  ---
+  duration_ms: 0.148612
+  type: 'test'
+  ...
+# Subtest: Data Studio: parse-currency
+ok 68 - Data Studio: parse-currency
+  ---
+  duration_ms: 0.212677
+  type: 'test'
+  ...
+# Subtest: Data Studio: fill-down
+ok 69 - Data Studio: fill-down
+  ---
+  duration_ms: 0.343161
+  type: 'test'
+  ...
+# Subtest: Data Studio: fill-up
+ok 70 - Data Studio: fill-up
+  ---
+  duration_ms: 0.138206
+  type: 'test'
+  ...
+# Subtest: Data Studio: fill-right
+ok 71 - Data Studio: fill-right
+  ---
+  duration_ms: 0.121781
+  type: 'test'
+  ...
+# Subtest: Data Studio: fill-left
+ok 72 - Data Studio: fill-left
+  ---
+  duration_ms: 0.382721
+  type: 'test'
+  ...
+# Subtest: Data Studio: series-one
+ok 73 - Data Studio: series-one
+  ---
+  duration_ms: 0.515864
+  type: 'test'
+  ...
+# Subtest: Data Studio: series-zero
+ok 74 - Data Studio: series-zero
+  ---
+  duration_ms: 0.150805
+  type: 'test'
+  ...
+# Subtest: Data Studio: series-even
+ok 75 - Data Studio: series-even
+  ---
+  duration_ms: 3.858007
+  type: 'test'
+  ...
+# Subtest: Data Studio: series-odd
+ok 76 - Data Studio: series-odd
+  ---
+  duration_ms: 0.28839
+  type: 'test'
+  ...
+# Subtest: Data Studio: series-fives
+ok 77 - Data Studio: series-fives
+  ---
+  duration_ms: 0.12729
+  type: 'test'
+  ...
+# Subtest: Data Studio: series-tens
+ok 78 - Data Studio: series-tens
+  ---
+  duration_ms: 0.258896
+  type: 'test'
+  ...
+# Subtest: Data Studio: flip-vertical
+ok 79 - Data Studio: flip-vertical
+  ---
+  duration_ms: 0.55704
+  type: 'test'
+  ...
+# Subtest: Data Studio: flip-horizontal
+ok 80 - Data Studio: flip-horizontal
+  ---
+  duration_ms: 0.217444
+  type: 'test'
+  ...
+# Subtest: Data Studio: transpose-square
+ok 81 - Data Studio: transpose-square
+  ---
+  duration_ms: 0.132828
+  type: 'test'
+  ...
+# Subtest: Data Studio: rotate-right
+ok 82 - Data Studio: rotate-right
+  ---
+  duration_ms: 0.108993
+  type: 'test'
+  ...
+# Subtest: Data Studio: rotate-left
+ok 83 - Data Studio: rotate-left
+  ---
+  duration_ms: 0.191796
+  type: 'test'
+  ...
+# Subtest: Data Studio: shift-down
+ok 84 - Data Studio: shift-down
+  ---
+  duration_ms: 0.485804
+  type: 'test'
+  ...
+# Subtest: Data Studio: shift-up
+ok 85 - Data Studio: shift-up
+  ---
+  duration_ms: 0.244164
+  type: 'test'
+  ...
+# Subtest: Data Studio: shift-right
+ok 86 - Data Studio: shift-right
+  ---
+  duration_ms: 0.231024
+  type: 'test'
+  ...
+# Subtest: Data Studio: shift-left
+ok 87 - Data Studio: shift-left
+  ---
+  duration_ms: 0.224815
+  type: 'test'
+  ...
+# Subtest: Data Studio: clear-diagonal
+ok 88 - Data Studio: clear-diagonal
+  ---
+  duration_ms: 0.173159
+  type: 'test'
+  ...
+# Subtest: Data Studio: blank-zero
+ok 89 - Data Studio: blank-zero
+  ---
+  duration_ms: 0.608948
+  type: 'test'
+  ...
+# Subtest: Data Studio: blank-na
+ok 90 - Data Studio: blank-na
+  ---
+  duration_ms: 0.172847
+  type: 'test'
+  ...
+# Subtest: Data Studio: zero-blank
+ok 91 - Data Studio: zero-blank
+  ---
+  duration_ms: 0.138507
+  type: 'test'
+  ...
+# Subtest: Data Studio: negative-zero
+ok 92 - Data Studio: negative-zero
+  ---
+  duration_ms: 0.132808
+  type: 'test'
+  ...
+# Subtest: Data Studio: positive-zero
+ok 93 - Data Studio: positive-zero
+  ---
+  duration_ms: 0.125717
+  type: 'test'
+  ...
+# Subtest: Data Studio: error-clear
+ok 94 - Data Studio: error-clear
+  ---
+  duration_ms: 1.597101
+  type: 'test'
+  ...
+# Subtest: Data Studio: dedupe-rows
+ok 95 - Data Studio: dedupe-rows
+  ---
+  duration_ms: 0.158587
+  type: 'test'
+  ...
+# Subtest: Data Studio: dedupe-cells
+ok 96 - Data Studio: dedupe-cells
+  ---
+  duration_ms: 0.502189
+  type: 'test'
+  ...
+# Subtest: Data Studio: space-hyphen
+ok 97 - Data Studio: space-hyphen
+  ---
+  duration_ms: 0.252477
+  type: 'test'
+  ...
+# Subtest: Data Studio: hyphen-space
+ok 98 - Data Studio: hyphen-space
+  ---
+  duration_ms: 0.246838
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-sum
+ok 99 - Data Studio: insert-sum
+  ---
+  duration_ms: 0.727574
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-average
+ok 100 - Data Studio: insert-average
+  ---
+  duration_ms: 0.345686
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-min
+ok 101 - Data Studio: insert-min
+  ---
+  duration_ms: 0.24804
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-max
+ok 102 - Data Studio: insert-max
+  ---
+  duration_ms: 0.296923
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-count
+ok 103 - Data Studio: insert-count
+  ---
+  duration_ms: 0.229542
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-counta
+ok 104 - Data Studio: insert-counta
+  ---
+  duration_ms: 0.280027
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-median
+ok 105 - Data Studio: insert-median
+  ---
+  duration_ms: 0.779662
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-product
+ok 106 - Data Studio: insert-product
+  ---
+  duration_ms: 0.282841
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-stdev
+ok 107 - Data Studio: insert-stdev
+  ---
+  duration_ms: 0.964027
+  type: 'test'
+  ...
+# Subtest: Data Studio: insert-countblank
+ok 108 - Data Studio: insert-countblank
+  ---
+  duration_ms: 0.293978
+  type: 'test'
+  ...
+# Subtest: v8 text and numeric cleanup do not rewrite formulas
+ok 109 - v8 text and numeric cleanup do not rewrite formulas
+  ---
+  duration_ms: 0.883637
+  type: 'test'
+  ...
+# Subtest: v8 fill correctly adjusts formula references and absolute row/column locks
+ok 110 - v8 fill correctly adjusts formula references and absolute row/column locks
+  ---
+  duration_ms: 0.459615
+  type: 'test'
+  ...
+# Subtest: v8 range transformations adjust formulas when moving and preserve undo
+ok 111 - v8 range transformations adjust formulas when moving and preserve undo
+  ---
+  duration_ms: 0.317063
+  type: 'test'
+  ...
+# Subtest: v8 rejects invalid, oversized, unsupported and out-of-bounds requests without mutation
+ok 112 - v8 rejects invalid, oversized, unsupported and out-of-bounds requests without mutation
+  ---
+  duration_ms: 0.721806
+  type: 'test'
+  ...
+# Subtest: v8 handles invalid numeric values without NaN or Infinity stored in cells
+ok 113 - v8 handles invalid numeric values without NaN or Infinity stored in cells
+  ---
+  duration_ms: 0.273247
+  type: 'test'
+  ...
+# Subtest: v8 quality cleanup never silently converts valid formula results to raw values
+ok 114 - v8 quality cleanup never silently converts valid formula results to raw values
+  ---
+  duration_ms: 0.356261
+  type: 'test'
+  ...
+# Subtest: reference probe round-positive-half
+ok 115 - reference probe round-positive-half
+  ---
+  duration_ms: 5.709702
+  type: 'test'
+  ...
+# Subtest: reference probe round-negative-half
+ok 116 - reference probe round-negative-half
+  ---
+  duration_ms: 0.486295
+  type: 'test'
+  ...
+# Subtest: reference probe round-negative-two-half
+ok 117 - reference probe round-negative-two-half
+  ---
+  duration_ms: 0.320718
+  type: 'test'
+  ...
+# Subtest: reference probe round-negative-decimal
+ok 118 - reference probe round-negative-decimal
+  ---
+  duration_ms: 0.290613
+  type: 'test'
+  ...
+# Subtest: reference probe round-positive-one
+ok 119 - reference probe round-positive-one
+  ---
+  duration_ms: 0.385715
+  type: 'test'
+  ...
+# Subtest: reference probe round-negative-digits
+ok 120 - reference probe round-negative-digits
+  ---
+  duration_ms: 0.435669
+  type: 'test'
+  ...
+# Subtest: reference probe roundup-negative
+ok 121 - reference probe roundup-negative
+  ---
+  duration_ms: 0.356101
+  type: 'test'
+  ...
+# Subtest: reference probe rounddown-negative
+ok 122 - reference probe rounddown-negative
+  ---
+  duration_ms: 0.619073
+  type: 'test'
+  ...
+# Subtest: reference probe abs-negative
+ok 123 - reference probe abs-negative
+  ---
+  duration_ms: 0.644561
+  type: 'test'
+  ...
+# Subtest: reference probe int-negative
+ok 124 - reference probe int-negative
+  ---
+  duration_ms: 0.548418
+  type: 'test'
+  ...
+# Subtest: reference probe sqrt-perfect
+ok 125 - reference probe sqrt-perfect
+  ---
+  duration_ms: 0.334278
+  type: 'test'
+  ...
+# Subtest: reference probe power-integer
+ok 126 - reference probe power-integer
+  ---
+  duration_ms: 0.18816
+  type: 'test'
+  ...
+# Subtest: reference probe mod-negative-divisor
+ok 127 - reference probe mod-negative-divisor
+  ---
+  duration_ms: 0.183934
+  type: 'test'
+  ...
+# Subtest: reference probe mod-negative-numerator
+ok 128 - reference probe mod-negative-numerator
+  ---
+  duration_ms: 0.138807
+  type: 'test'
+  ...
+# Subtest: reference probe sign-negative
+ok 129 - reference probe sign-negative
+  ---
+  duration_ms: 0.20114
+  type: 'test'
+  ...
+# Subtest: reference probe factorial-five
+ok 130 - reference probe factorial-five
+  ---
+  duration_ms: 0.260398
+  type: 'test'
+  ...
+# Subtest: reference probe floor-positive
+ok 131 - reference probe floor-positive
+  ---
+  duration_ms: 0.209462
+  type: 'test'
+  ...
+# Subtest: reference probe ceiling-positive
+ok 132 - reference probe ceiling-positive
+  ---
+  duration_ms: 0.230454
+  type: 'test'
+  ...
+# Subtest: reference probe logten
+ok 133 - reference probe logten
+  ---
+  duration_ms: 0.191265
+  type: 'test'
+  ...
+# Subtest: reference probe ln-one
+ok 134 - reference probe ln-one
+  ---
+  duration_ms: 0.170234
+  type: 'test'
+  ...
+# Subtest: reference probe sin-zero
+ok 135 - reference probe sin-zero
+  ---
+  duration_ms: 0.153249
+  type: 'test'
+  ...
+# Subtest: reference probe cos-zero
+ok 136 - reference probe cos-zero
+  ---
+  duration_ms: 0.137375
+  type: 'test'
+  ...
+# Subtest: reference probe min-simple
+ok 137 - reference probe min-simple
+  ---
+  duration_ms: 0.297373
+  type: 'test'
+  ...
+# Subtest: reference probe max-simple
+ok 138 - reference probe max-simple
+  ---
+  duration_ms: 0.192346
+  type: 'test'
+  ...
+# Subtest: reference probe average-three
+ok 139 - reference probe average-three
+  ---
+  duration_ms: 0.281339
+  type: 'test'
+  ...
+# Subtest: reference probe product-three
+ok 140 - reference probe product-three
+  ---
+  duration_ms: 0.183253
+  type: 'test'
+  ...
+# Subtest: reference probe sum-three
+ok 141 - reference probe sum-three
+  ---
+  duration_ms: 0.163363
+  type: 'test'
+  ...
+# Subtest: reference probe count-literal
+ok 142 - reference probe count-literal
+  ---
+  duration_ms: 0.175682
+  type: 'test'
+  ...
+# Subtest: reference probe sum-coercion-text
+ok 143 - reference probe sum-coercion-text
+  ---
+  duration_ms: 0.153489
+  type: 'test'
+  ...
+# Subtest: reference probe sum-coercion-boolean
+ok 144 - reference probe sum-coercion-boolean
+  ---
+  duration_ms: 0.189442
+  type: 'test'
+  ...
+# Subtest: reference probe count-coercion-text
+ok 145 - reference probe count-coercion-text
+  ---
+  duration_ms: 0.148722
+  type: 'test'
+  ...
+# Subtest: reference probe add
+ok 146 - reference probe add
+  ---
+  duration_ms: 0.147259
+  type: 'test'
+  ...
+# Subtest: reference probe precedence
+ok 147 - reference probe precedence
+  ---
+  duration_ms: 0.172236
+  type: 'test'
+  ...
+# Subtest: reference probe parens
+ok 148 - reference probe parens
+  ---
+  duration_ms: 0.116374
+  type: 'test'
+  ...
+# Subtest: reference probe divide
+ok 149 - reference probe divide
+  ---
+  duration_ms: 0.113179
+  type: 'test'
+  ...
+# Subtest: reference probe exponent
+ok 150 - reference probe exponent
+  ---
+  duration_ms: 0.125116
+  type: 'test'
+  ...
+# Subtest: reference probe concatenate
+ok 151 - reference probe concatenate
+  ---
+  duration_ms: 0.197474
+  type: 'test'
+  ...
+# Subtest: reference probe equality
+ok 152 - reference probe equality
+  ---
+  duration_ms: 0.126168
+  type: 'test'
+  ...
+# Subtest: reference probe less-than
+ok 153 - reference probe less-than
+  ---
+  duration_ms: 0.162532
+  type: 'test'
+  ...
+# Subtest: reference probe boolean-if
+ok 154 - reference probe boolean-if
+  ---
+  duration_ms: 0.237965
+  type: 'test'
+  ...
+# Subtest: reference probe if-short-circuit
+ok 155 - reference probe if-short-circuit
+  ---
+  duration_ms: 0.142833
+  type: 'test'
+  ...
+# Subtest: reference probe iferror-short-circuit
+ok 156 - reference probe iferror-short-circuit
+  ---
+  duration_ms: 0.137585
+  type: 'test'
+  ...
+# Subtest: reference probe iferror-handles
+ok 157 - reference probe iferror-handles
+  ---
+  duration_ms: 0.299236
+  type: 'test'
+  ...
+# Subtest: reference probe ifna-handles
+ok 158 - reference probe ifna-handles
+  ---
+  duration_ms: 0.322772
+  type: 'test'
+  ...
+# Subtest: reference probe logic-and
+ok 159 - reference probe logic-and
+  ---
+  duration_ms: 0.210855
+  type: 'test'
+  ...
+# Subtest: reference probe logic-or
+ok 160 - reference probe logic-or
+  ---
+  duration_ms: 0.156083
+  type: 'test'
+  ...
+# Subtest: reference probe logic-not
+ok 161 - reference probe logic-not
+  ---
+  duration_ms: 0.201941
+  type: 'test'
+  ...
+# Subtest: reference probe len-ascii
+ok 162 - reference probe len-ascii
+  ---
+  duration_ms: 0.16746
+  type: 'test'
+  ...
+# Subtest: reference probe left-text
+ok 163 - reference probe left-text
+  ---
+  duration_ms: 0.1682
+  type: 'test'
+  ...
+# Subtest: reference probe right-text
+ok 164 - reference probe right-text
+  ---
+  duration_ms: 0.144275
+  type: 'test'
+  ...
+# Subtest: reference probe mid-text
+ok 165 - reference probe mid-text
+  ---
+  duration_ms: 0.898209
+  type: 'test'
+  ...
+# Subtest: reference probe upper
+ok 166 - reference probe upper
+  ---
+  duration_ms: 0.142793
+  type: 'test'
+  ...
+# Subtest: reference probe lower
+ok 167 - reference probe lower
+  ---
+  duration_ms: 0.125337
+  type: 'test'
+  ...
+# Subtest: reference probe trim
+ok 168 - reference probe trim
+  ---
+  duration_ms: 0.256752
+  type: 'test'
+  ...
+# Subtest: reference probe substitute
+ok 169 - reference probe substitute
+  ---
+  duration_ms: 0.171065
+  type: 'test'
+  ...
+# Subtest: reference probe find
+ok 170 - reference probe find
+  ---
+  duration_ms: 0.141902
+  type: 'test'
+  ...
+# Subtest: reference probe exact-case
+ok 171 - reference probe exact-case
+  ---
+  duration_ms: 0.113359
+  type: 'test'
+  ...
+# Subtest: reference probe textjoin
+ok 172 - reference probe textjoin
+  ---
+  duration_ms: 0.177775
+  type: 'test'
+  ...
+# Subtest: reference probe sumproduct
+ok 173 - reference probe sumproduct
+  ---
+  duration_ms: 0.776808
+  type: 'test'
+  ...
+# Subtest: reference probe range-sum
+ok 174 - reference probe range-sum
+  ---
+  duration_ms: 0.223614
+  type: 'test'
+  ...
+# Subtest: reference probe range-blank-count
+ok 175 - reference probe range-blank-count
+  ---
+  duration_ms: 0.18759
+  type: 'test'
+  ...
+# Subtest: reference probe range-count-numeric
+ok 176 - reference probe range-count-numeric
+  ---
+  duration_ms: 0.116333
+  type: 'test'
+  ...
+# Subtest: reference probe range-text-ignored
+ok 177 - reference probe range-text-ignored
+  ---
+  duration_ms: 0.097495
+  type: 'test'
+  ...
+# Subtest: reference probe range-average
+ok 178 - reference probe range-average
+  ---
+  duration_ms: 0.095192
+  type: 'test'
+  ...
+# Subtest: reference probe range-sample-stdev
+ok 179 - reference probe range-sample-stdev
+  ---
+  duration_ms: 0.178827
+  type: 'test'
+  ...
+# Subtest: reference probe range-var-s
+ok 180 - reference probe range-var-s
+  ---
+  duration_ms: 0.118427
+  type: 'test'
+  ...
+# Subtest: reference probe range-var-p
+ok 181 - reference probe range-var-p
+  ---
+  duration_ms: 0.120841
+  type: 'test'
+  ...
+# Subtest: reference probe sumif-north
+ok 182 - reference probe sumif-north
+  ---
+  duration_ms: 6.983021
+  type: 'test'
+  ...
+# Subtest: reference probe countif-ten
+ok 183 - reference probe countif-ten
+  ---
+  duration_ms: 0.272476
+  type: 'test'
+  ...
+# Subtest: reference probe vlookup-exact
+ok 184 - reference probe vlookup-exact
+  ---
+  duration_ms: 0.284705
+  type: 'test'
+  ...
+# Subtest: reference probe index-lookup
+ok 185 - reference probe index-lookup
+  ---
+  duration_ms: 0.18145
+  type: 'test'
+  ...
+# Subtest: reference probe match-exact
+ok 186 - reference probe match-exact
+  ---
+  duration_ms: 0.170194
+  type: 'test'
+  ...
+# Subtest: reference probe absolute-ref
+ok 187 - reference probe absolute-ref
+  ---
+  duration_ms: 0.140239
+  type: 'test'
+  ...
+# Subtest: reference probe formula-dependency
+ok 188 - reference probe formula-dependency
+  ---
+  duration_ms: 0.104566
+  type: 'test'
+  ...
+# Subtest: reference probe countif-wildcard
+ok 189 - reference probe countif-wildcard
+  ---
+  duration_ms: 0.193719
+  type: 'test'
+  ...
+# Subtest: reference probe sumifs-multi
+ok 190 - reference probe sumifs-multi
+  ---
+  duration_ms: 0.5232
+  type: 'test'
+  ...
+# Subtest: reference probe date-march-1900
+ok 191 - reference probe date-march-1900
+  ---
+  duration_ms: 0.217394
+  type: 'test'
+  ...
+# Subtest: reference probe date-2020
+ok 192 - reference probe date-2020
+  ---
+  duration_ms: 0.084947
+  type: 'test'
+  ...
+# Subtest: reference probe year-from-date
+ok 193 - reference probe year-from-date
+  ---
+  duration_ms: 0.494437
+  type: 'test'
+  ...
+# Subtest: reference probe month-from-date
+ok 194 - reference probe month-from-date
+  ---
+  duration_ms: 0.203394
+  type: 'test'
+  ...
+# Subtest: reference probe day-from-date
+ok 195 - reference probe day-from-date
+  ---
+  duration_ms: 0.116674
+  type: 'test'
+  ...
+# Subtest: reference probe days-simple
+ok 196 - reference probe days-simple
+  ---
+  duration_ms: 0.191105
+  type: 'test'
+  ...
+# Subtest: reference probe edate-month
+ok 197 - reference probe edate-month
+  ---
+  duration_ms: 0.171565
+  type: 'test'
+  ...
+# Subtest: reference probe division-zero
+ok 198 - reference probe division-zero
+  ---
+  duration_ms: 0.140509
+  type: 'test'
+  ...
+# Subtest: reference probe negative-sqrt
+ok 199 - reference probe negative-sqrt
+  ---
+  duration_ms: 0.171335
+  type: 'test'
+  ...
+# Subtest: reference probe unknown-function
+ok 200 - reference probe unknown-function
+  ---
+  duration_ms: 1.116304
+  type: 'test'
+  ...
+# Subtest: reference probe na
+ok 201 - reference probe na
+  ---
+  duration_ms: 0.110986
+  type: 'test'
+  ...
+# Subtest: reference probe bad-ref
+ok 202 - reference probe bad-ref
+  ---
+  duration_ms: 0.144966
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-0
+ok 203 - reference probe math-sum-0
+  ---
+  duration_ms: 0.074341
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-0
+ok 204 - reference probe math-divide-0
+  ---
+  duration_ms: 0.055353
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-0
+ok 205 - reference probe math-round-neg-0
+  ---
+  duration_ms: 0.069603
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-1
+ok 206 - reference probe math-sum-1
+  ---
+  duration_ms: 0.055923
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-1
+ok 207 - reference probe math-divide-1
+  ---
+  duration_ms: 0.050375
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-1
+ok 208 - reference probe math-round-neg-1
+  ---
+  duration_ms: 0.058387
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-2
+ok 209 - reference probe math-sum-2
+  ---
+  duration_ms: 0.085238
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-2
+ok 210 - reference probe math-divide-2
+  ---
+  duration_ms: 0.055042
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-2
+ok 211 - reference probe math-round-neg-2
+  ---
+  duration_ms: 0.057055
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-3
+ok 212 - reference probe math-sum-3
+  ---
+  duration_ms: 0.05402
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-3
+ok 213 - reference probe math-divide-3
+  ---
+  duration_ms: 0.047991
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-3
+ok 214 - reference probe math-round-neg-3
+  ---
+  duration_ms: 0.054321
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-5
+ok 215 - reference probe math-sum-5
+  ---
+  duration_ms: 0.050746
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-5
+ok 216 - reference probe math-divide-5
+  ---
+  duration_ms: 0.049323
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-5
+ok 217 - reference probe math-round-neg-5
+  ---
+  duration_ms: 0.052399
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-7
+ok 218 - reference probe math-sum-7
+  ---
+  duration_ms: 0.048503
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-7
+ok 219 - reference probe math-divide-7
+  ---
+  duration_ms: 0.045417
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-7
+ok 220 - reference probe math-round-neg-7
+  ---
+  duration_ms: 0.048642
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-13
+ok 221 - reference probe math-sum-13
+  ---
+  duration_ms: 0.049143
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-13
+ok 222 - reference probe math-divide-13
+  ---
+  duration_ms: 0.044467
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-13
+ok 223 - reference probe math-round-neg-13
+  ---
+  duration_ms: 0.050365
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-17
+ok 224 - reference probe math-sum-17
+  ---
+  duration_ms: 0.049634
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-17
+ok 225 - reference probe math-divide-17
+  ---
+  duration_ms: 0.079018
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-17
+ok 226 - reference probe math-round-neg-17
+  ---
+  duration_ms: 0.05406
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-29
+ok 227 - reference probe math-sum-29
+  ---
+  duration_ms: 0.048843
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-29
+ok 228 - reference probe math-divide-29
+  ---
+  duration_ms: 0.064847
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-29
+ok 229 - reference probe math-round-neg-29
+  ---
+  duration_ms: 0.106929
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-37
+ok 230 - reference probe math-sum-37
+  ---
+  duration_ms: 0.068122
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-37
+ok 231 - reference probe math-divide-37
+  ---
+  duration_ms: 0.08676
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-37
+ok 232 - reference probe math-round-neg-37
+  ---
+  duration_ms: 0.06053
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-43
+ok 233 - reference probe math-sum-43
+  ---
+  duration_ms: 0.051216
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-43
+ok 234 - reference probe math-divide-43
+  ---
+  duration_ms: 0.045729
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-43
+ok 235 - reference probe math-round-neg-43
+  ---
+  duration_ms: 0.122202
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-71
+ok 236 - reference probe math-sum-71
+  ---
+  duration_ms: 0.108412
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-71
+ok 237 - reference probe math-divide-71
+  ---
+  duration_ms: 0.312125
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-71
+ok 238 - reference probe math-round-neg-71
+  ---
+  duration_ms: 0.08054
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-97
+ok 239 - reference probe math-sum-97
+  ---
+  duration_ms: 0.06006
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-97
+ok 240 - reference probe math-divide-97
+  ---
+  duration_ms: 0.058668
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-97
+ok 241 - reference probe math-round-neg-97
+  ---
+  duration_ms: 0.057235
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-127
+ok 242 - reference probe math-sum-127
+  ---
+  duration_ms: 0.053009
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-127
+ok 243 - reference probe math-divide-127
+  ---
+  duration_ms: 0.057105
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-127
+ok 244 - reference probe math-round-neg-127
+  ---
+  duration_ms: 0.0536
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-199
+ok 245 - reference probe math-sum-199
+  ---
+  duration_ms: 0.053861
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-199
+ok 246 - reference probe math-divide-199
+  ---
+  duration_ms: 0.066419
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-199
+ok 247 - reference probe math-round-neg-199
+  ---
+  duration_ms: 0.063004
+  type: 'test'
+  ...
+# Subtest: reference probe math-sum-255
+ok 248 - reference probe math-sum-255
+  ---
+  duration_ms: 0.052518
+  type: 'test'
+  ...
+# Subtest: reference probe math-divide-255
+ok 249 - reference probe math-divide-255
+  ---
+  duration_ms: 0.047201
+  type: 'test'
+  ...
+# Subtest: reference probe math-round-neg-255
+ok 250 - reference probe math-round-neg-255
+  ---
+  duration_ms: 0.051857
+  type: 'test'
+  ...
+# Subtest: reference probe dynamic-sequence-spill
+ok 251 - reference probe dynamic-sequence-spill
+  ---
+  duration_ms: 0.32205
+  type: 'test'
+  ...
+# Subtest: reference probe dynamic-filter-spill
+ok 252 - reference probe dynamic-filter-spill
+  ---
+  duration_ms: 1.118167
+  type: 'test'
+  ...
+# Subtest: reference probe dynamic-unique-spill
+ok 253 - reference probe dynamic-unique-spill
+  ---
+  duration_ms: 0.320037
+  type: 'test'
+  ...
+# Subtest: reference probe dynamic-textsplit-spill
+ok 254 - reference probe dynamic-textsplit-spill
+  ---
+  duration_ms: 0.42927
+  type: 'test'
+  ...
+# Subtest: Excel reference suite is deterministic, bounded, and contains no external links
+ok 255 - Excel reference suite is deterministic, bounded, and contains no external links
+  ---
+  duration_ms: 0.255571
+  type: 'test'
+  ...
+# Subtest: v10: exactly 100 unique functions, 506 overall, categorized without duplicates
+ok 256 - v10: exactly 100 unique functions, 506 overall, categorized without duplicates
+  ---
+  duration_ms: 2.347901
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BETA.DIST
+ok 257 - v10 calculation: BETA.DIST
+  ---
+  duration_ms: 0.728325
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BETA.INV
+ok 258 - v10 calculation: BETA.INV
+  ---
+  duration_ms: 2.077787
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BINOM.DIST.RANGE
+ok 259 - v10 calculation: BINOM.DIST.RANGE
+  ---
+  duration_ms: 0.290703
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHISQ.DIST
+ok 260 - v10 calculation: CHISQ.DIST
+  ---
+  duration_ms: 0.245386
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHISQ.DIST.RT
+ok 261 - v10 calculation: CHISQ.DIST.RT
+  ---
+  duration_ms: 0.195121
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHISQ.INV
+ok 262 - v10 calculation: CHISQ.INV
+  ---
+  duration_ms: 4.784823
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHISQ.INV.RT
+ok 263 - v10 calculation: CHISQ.INV.RT
+  ---
+  duration_ms: 0.249121
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHISQ.TEST
+ok 264 - v10 calculation: CHISQ.TEST
+  ---
+  duration_ms: 0.951859
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CONFIDENCE.T
+ok 265 - v10 calculation: CONFIDENCE.T
+  ---
+  duration_ms: 1.295892
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COVARIANCE.P
+ok 266 - v10 calculation: COVARIANCE.P
+  ---
+  duration_ms: 0.310743
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COVARIANCE.S
+ok 267 - v10 calculation: COVARIANCE.S
+  ---
+  duration_ms: 0.256663
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ERF.PRECISE
+ok 268 - v10 calculation: ERF.PRECISE
+  ---
+  duration_ms: 0.201471
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ERFC.PRECISE
+ok 269 - v10 calculation: ERFC.PRECISE
+  ---
+  duration_ms: 0.074211
+  type: 'test'
+  ...
+# Subtest: v10 calculation: F.DIST
+ok 270 - v10 calculation: F.DIST
+  ---
+  duration_ms: 0.215041
+  type: 'test'
+  ...
+# Subtest: v10 calculation: F.DIST.RT
+ok 271 - v10 calculation: F.DIST.RT
+  ---
+  duration_ms: 0.082333
+  type: 'test'
+  ...
+# Subtest: v10 calculation: F.INV
+ok 272 - v10 calculation: F.INV
+  ---
+  duration_ms: 0.503781
+  type: 'test'
+  ...
+# Subtest: v10 calculation: F.INV.RT
+ok 273 - v10 calculation: F.INV.RT
+  ---
+  duration_ms: 0.606224
+  type: 'test'
+  ...
+# Subtest: v10 calculation: F.TEST
+ok 274 - v10 calculation: F.TEST
+  ---
+  duration_ms: 0.401749
+  type: 'test'
+  ...
+# Subtest: v10 calculation: GAMMA.DIST
+ok 275 - v10 calculation: GAMMA.DIST
+  ---
+  duration_ms: 0.162252
+  type: 'test'
+  ...
+# Subtest: v10 calculation: GAMMA.INV
+ok 276 - v10 calculation: GAMMA.INV
+  ---
+  duration_ms: 0.138136
+  type: 'test'
+  ...
+# Subtest: v10 calculation: HYPGEOM.DIST
+ok 277 - v10 calculation: HYPGEOM.DIST
+  ---
+  duration_ms: 0.193628
+  type: 'test'
+  ...
+# Subtest: v10 calculation: MODE.MULT
+ok 278 - v10 calculation: MODE.MULT
+  ---
+  duration_ms: 0.787073
+  type: 'test'
+  ...
+# Subtest: v10 calculation: T.DIST
+ok 279 - v10 calculation: T.DIST
+  ---
+  duration_ms: 0.215922
+  type: 'test'
+  ...
+# Subtest: v10 calculation: T.DIST.2T
+ok 280 - v10 calculation: T.DIST.2T
+  ---
+  duration_ms: 0.096564
+  type: 'test'
+  ...
+# Subtest: v10 calculation: T.DIST.RT
+ok 281 - v10 calculation: T.DIST.RT
+  ---
+  duration_ms: 0.132107
+  type: 'test'
+  ...
+# Subtest: v10 calculation: T.INV
+ok 282 - v10 calculation: T.INV
+  ---
+  duration_ms: 0.37604
+  type: 'test'
+  ...
+# Subtest: v10 calculation: T.INV.2T
+ok 283 - v10 calculation: T.INV.2T
+  ---
+  duration_ms: 0.6844
+  type: 'test'
+  ...
+# Subtest: v10 calculation: T.TEST
+ok 284 - v10 calculation: T.TEST
+  ---
+  duration_ms: 0.203183
+  type: 'test'
+  ...
+# Subtest: v10 calculation: SEQUENCE
+ok 285 - v10 calculation: SEQUENCE
+  ---
+  duration_ms: 0.399386
+  type: 'test'
+  ...
+# Subtest: v10 calculation: RANDARRAY
+ok 286 - v10 calculation: RANDARRAY
+  ---
+  duration_ms: 0.178607
+  type: 'test'
+  ...
+# Subtest: v10 calculation: MUNIT
+ok 287 - v10 calculation: MUNIT
+  ---
+  duration_ms: 0.138447
+  type: 'test'
+  ...
+# Subtest: v10 calculation: TAKE
+ok 288 - v10 calculation: TAKE
+  ---
+  duration_ms: 0.23484
+  type: 'test'
+  ...
+# Subtest: v10 calculation: DROP
+ok 289 - v10 calculation: DROP
+  ---
+  duration_ms: 0.086208
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHOOSECOLS
+ok 290 - v10 calculation: CHOOSECOLS
+  ---
+  duration_ms: 0.222401
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CHOOSEROWS
+ok 291 - v10 calculation: CHOOSEROWS
+  ---
+  duration_ms: 0.111466
+  type: 'test'
+  ...
+# Subtest: v10 calculation: HSTACK
+ok 292 - v10 calculation: HSTACK
+  ---
+  duration_ms: 0.25443
+  type: 'test'
+  ...
+# Subtest: v10 calculation: VSTACK
+ok 293 - v10 calculation: VSTACK
+  ---
+  duration_ms: 0.206739
+  type: 'test'
+  ...
+# Subtest: v10 calculation: TOCOL
+ok 294 - v10 calculation: TOCOL
+  ---
+  duration_ms: 0.205236
+  type: 'test'
+  ...
+# Subtest: v10 calculation: TOROW
+ok 295 - v10 calculation: TOROW
+  ---
+  duration_ms: 0.250083
+  type: 'test'
+  ...
+# Subtest: v10 calculation: WRAPCOLS
+ok 296 - v10 calculation: WRAPCOLS
+  ---
+  duration_ms: 0.23473
+  type: 'test'
+  ...
+# Subtest: v10 calculation: WRAPROWS
+ok 297 - v10 calculation: WRAPROWS
+  ---
+  duration_ms: 0.122152
+  type: 'test'
+  ...
+# Subtest: v10 calculation: EXPAND
+ok 298 - v10 calculation: EXPAND
+  ---
+  duration_ms: 0.139327
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FILTER
+ok 299 - v10 calculation: FILTER
+  ---
+  duration_ms: 0.157795
+  type: 'test'
+  ...
+# Subtest: v10 calculation: SORT
+ok 300 - v10 calculation: SORT
+  ---
+  duration_ms: 0.24839
+  type: 'test'
+  ...
+# Subtest: v10 calculation: SORTBY
+ok 301 - v10 calculation: SORTBY
+  ---
+  duration_ms: 0.106348
+  type: 'test'
+  ...
+# Subtest: v10 calculation: UNIQUE
+ok 302 - v10 calculation: UNIQUE
+  ---
+  duration_ms: 0.799972
+  type: 'test'
+  ...
+# Subtest: v10 calculation: TRIMRANGE
+ok 303 - v10 calculation: TRIMRANGE
+  ---
+  duration_ms: 0.188821
+  type: 'test'
+  ...
+# Subtest: v10 calculation: TEXTSPLIT
+ok 304 - v10 calculation: TEXTSPLIT
+  ---
+  duration_ms: 0.219478
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COUPDAYBS
+ok 305 - v10 calculation: COUPDAYBS
+  ---
+  duration_ms: 0.363382
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COUPDAYS
+ok 306 - v10 calculation: COUPDAYS
+  ---
+  duration_ms: 0.191616
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COUPDAYSNC
+ok 307 - v10 calculation: COUPDAYSNC
+  ---
+  duration_ms: 0.109283
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COUPNCD
+ok 308 - v10 calculation: COUPNCD
+  ---
+  duration_ms: 0.102142
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COUPNUM
+ok 309 - v10 calculation: COUPNUM
+  ---
+  duration_ms: 0.096453
+  type: 'test'
+  ...
+# Subtest: v10 calculation: COUPPCD
+ok 310 - v10 calculation: COUPPCD
+  ---
+  duration_ms: 0.098527
+  type: 'test'
+  ...
+# Subtest: v10 calculation: INTRATE
+ok 311 - v10 calculation: INTRATE
+  ---
+  duration_ms: 0.267398
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ACCRINTM
+ok 312 - v10 calculation: ACCRINTM
+  ---
+  duration_ms: 0.173869
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ACCRINT
+ok 313 - v10 calculation: ACCRINT
+  ---
+  duration_ms: 0.131125
+  type: 'test'
+  ...
+# Subtest: v10 calculation: AMORLINC
+ok 314 - v10 calculation: AMORLINC
+  ---
+  duration_ms: 0.14782
+  type: 'test'
+  ...
+# Subtest: v10 calculation: AMORDEGRC
+ok 315 - v10 calculation: AMORDEGRC
+  ---
+  duration_ms: 0.072718
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ODDFPRICE
+ok 316 - v10 calculation: ODDFPRICE
+  ---
+  duration_ms: 0.184706
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ODDLPRICE
+ok 317 - v10 calculation: ODDLPRICE
+  ---
+  duration_ms: 0.08032
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ODDFYIELD
+ok 318 - v10 calculation: ODDFYIELD
+  ---
+  duration_ms: 0.111326
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ODDLYIELD
+ok 319 - v10 calculation: ODDLYIELD
+  ---
+  duration_ms: 0.069274
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ASC
+ok 320 - v10 calculation: ASC
+  ---
+  duration_ms: 0.14758
+  type: 'test'
+  ...
+# Subtest: v10 calculation: JIS
+ok 321 - v10 calculation: JIS
+  ---
+  duration_ms: 0.072638
+  type: 'test'
+  ...
+# Subtest: v10 calculation: PHONETIC
+ok 322 - v10 calculation: PHONETIC
+  ---
+  duration_ms: 0.088722
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BAHTTEXT
+ok 323 - v10 calculation: BAHTTEXT
+  ---
+  duration_ms: 0.173849
+  type: 'test'
+  ...
+# Subtest: v10 calculation: INFO
+ok 324 - v10 calculation: INFO
+  ---
+  duration_ms: 0.189602
+  type: 'test'
+  ...
+# Subtest: v10 calculation: SHEET
+ok 325 - v10 calculation: SHEET
+  ---
+  duration_ms: 0.098186
+  type: 'test'
+  ...
+# Subtest: v10 calculation: SHEETS
+ok 326 - v10 calculation: SHEETS
+  ---
+  duration_ms: 0.069554
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BESSELI
+ok 327 - v10 calculation: BESSELI
+  ---
+  duration_ms: 0.192457
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BESSELJ
+ok 328 - v10 calculation: BESSELJ
+  ---
+  duration_ms: 2.663201
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BESSELK
+ok 329 - v10 calculation: BESSELK
+  ---
+  duration_ms: 0.498964
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BESSELY
+ok 330 - v10 calculation: BESSELY
+  ---
+  duration_ms: 0.326316
+  type: 'test'
+  ...
+# Subtest: v10 calculation: PERCENTOF
+ok 331 - v10 calculation: PERCENTOF
+  ---
+  duration_ms: 0.128321
+  type: 'test'
+  ...
+# Subtest: v10 calculation: AGGREGATE
+ok 332 - v10 calculation: AGGREGATE
+  ---
+  duration_ms: 0.273678
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BYROW
+ok 333 - v10 calculation: BYROW
+  ---
+  duration_ms: 0.215171
+  type: 'test'
+  ...
+# Subtest: v10 calculation: BYCOL
+ok 334 - v10 calculation: BYCOL
+  ---
+  duration_ms: 0.169563
+  type: 'test'
+  ...
+# Subtest: v10 calculation: MAKEARRAY
+ok 335 - v10 calculation: MAKEARRAY
+  ---
+  duration_ms: 0.196342
+  type: 'test'
+  ...
+# Subtest: v10 calculation: MAP
+ok 336 - v10 calculation: MAP
+  ---
+  duration_ms: 0.173919
+  type: 'test'
+  ...
+# Subtest: v10 calculation: REDUCE
+ok 337 - v10 calculation: REDUCE
+  ---
+  duration_ms: 0.148561
+  type: 'test'
+  ...
+# Subtest: v10 calculation: SCAN
+ok 338 - v10 calculation: SCAN
+  ---
+  duration_ms: 0.084786
+  type: 'test'
+  ...
+# Subtest: v10 calculation: LET
+ok 339 - v10 calculation: LET
+  ---
+  duration_ms: 0.258405
+  type: 'test'
+  ...
+# Subtest: v10 calculation: LAMBDA
+ok 340 - v10 calculation: LAMBDA
+  ---
+  duration_ms: 0.110785
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ISOMITTED
+ok 341 - v10 calculation: ISOMITTED
+  ---
+  duration_ms: 0.158897
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FORECAST.ETS
+ok 342 - v10 calculation: FORECAST.ETS
+  ---
+  duration_ms: 0.220038
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FORECAST.ETS.CONFINT
+ok 343 - v10 calculation: FORECAST.ETS.CONFINT
+  ---
+  duration_ms: 0.095953
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FORECAST.ETS.SEASONALITY
+ok 344 - v10 calculation: FORECAST.ETS.SEASONALITY
+  ---
+  duration_ms: 0.099568
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FORECAST.ETS.STAT
+ok 345 - v10 calculation: FORECAST.ETS.STAT
+  ---
+  duration_ms: 0.125878
+  type: 'test'
+  ...
+# Subtest: v10 calculation: GROUPBY
+ok 346 - v10 calculation: GROUPBY
+  ---
+  duration_ms: 0.252537
+  type: 'test'
+  ...
+# Subtest: v10 calculation: PIVOTBY
+ok 347 - v10 calculation: PIVOTBY
+  ---
+  duration_ms: 0.090445
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FLATTEN
+ok 348 - v10 calculation: FLATTEN
+  ---
+  duration_ms: 0.137515
+  type: 'test'
+  ...
+# Subtest: v10 calculation: ISBETWEEN
+ok 349 - v10 calculation: ISBETWEEN
+  ---
+  duration_ms: 0.130795
+  type: 'test'
+  ...
+# Subtest: v10 calculation: EUROCONVERT
+ok 350 - v10 calculation: EUROCONVERT
+  ---
+  duration_ms: 0.146349
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FIELDVALUE
+ok 351 - v10 calculation: FIELDVALUE
+  ---
+  duration_ms: 0.182102
+  type: 'test'
+  ...
+# Subtest: v10 calculation: FILTERXML
+ok 352 - v10 calculation: FILTERXML
+  ---
+  duration_ms: 0.254609
+  type: 'test'
+  ...
+# Subtest: v10 calculation: DETECTLANGUAGE
+ok 353 - v10 calculation: DETECTLANGUAGE
+  ---
+  duration_ms: 0.146238
+  type: 'test'
+  ...
+# Subtest: v10 calculation: TRANSLATE
+ok 354 - v10 calculation: TRANSLATE
+  ---
+  duration_ms: 0.156554
+  type: 'test'
+  ...
+# Subtest: v10 calculation: IMAGE
+ok 355 - v10 calculation: IMAGE
+  ---
+  duration_ms: 0.159227
+  type: 'test'
+  ...
+# Subtest: v10 calculation: CUBESETCOUNT
+ok 356 - v10 calculation: CUBESETCOUNT
+  ---
+  duration_ms: 0.15426
+  type: 'test'
+  ...
+# Subtest: v10 known result: BETA.DIST
+ok 357 - v10 known result: BETA.DIST
+  ---
+  duration_ms: 0.143504
+  type: 'test'
+  ...
+# Subtest: v10 known result: BETA.INV
+ok 358 - v10 known result: BETA.INV
+  ---
+  duration_ms: 0.196503
+  type: 'test'
+  ...
+# Subtest: v10 known result: BINOM.DIST.RANGE
+ok 359 - v10 known result: BINOM.DIST.RANGE
+  ---
+  duration_ms: 0.073229
+  type: 'test'
+  ...
+# Subtest: v10 known result: COVARIANCE.P
+ok 360 - v10 known result: COVARIANCE.P
+  ---
+  duration_ms: 0.067711
+  type: 'test'
+  ...
+# Subtest: v10 known result: F.DIST
+ok 361 - v10 known result: F.DIST
+  ---
+  duration_ms: 0.068902
+  type: 'test'
+  ...
+# Subtest: v10 known result: GAMMA.DIST
+ok 362 - v10 known result: GAMMA.DIST
+  ---
+  duration_ms: 0.058217
+  type: 'test'
+  ...
+# Subtest: v10 known result: CHISQ.DIST
+ok 363 - v10 known result: CHISQ.DIST
+  ---
+  duration_ms: 0.057516
+  type: 'test'
+  ...
+# Subtest: v10 known result: T.DIST
+ok 364 - v10 known result: T.DIST
+  ---
+  duration_ms: 0.092408
+  type: 'test'
+  ...
+# Subtest: v10 known result: COUPNUM
+ok 365 - v10 known result: COUPNUM
+  ---
+  duration_ms: 0.18113
+  type: 'test'
+  ...
+# Subtest: v10 known result: EUROCONVERT
+ok 366 - v10 known result: EUROCONVERT
+  ---
+  duration_ms: 0.151185
+  type: 'test'
+  ...
+# Subtest: v10 known result: PERCENTOF
+ok 367 - v10 known result: PERCENTOF
+  ---
+  duration_ms: 0.074761
+  type: 'test'
+  ...
+# Subtest: v10 known result: SEQUENCE
+ok 368 - v10 known result: SEQUENCE
+  ---
+  duration_ms: 0.849747
+  type: 'test'
+  ...
+# Subtest: v10 known result: CHOOSECOLS
+ok 369 - v10 known result: CHOOSECOLS
+  ---
+  duration_ms: 0.150464
+  type: 'test'
+  ...
+# Subtest: v10 known result: FILTER
+ok 370 - v10 known result: FILTER
+  ---
+  duration_ms: 0.099538
+  type: 'test'
+  ...
+# Subtest: v10 known result: UNIQUE
+ok 371 - v10 known result: UNIQUE
+  ---
+  duration_ms: 0.089644
+  type: 'test'
+  ...
+# Subtest: v10 known result: TEXTSPLIT
+ok 372 - v10 known result: TEXTSPLIT
+  ---
+  duration_ms: 0.077856
+  type: 'test'
+  ...
+# Subtest: v10 known result: BYROW
+ok 373 - v10 known result: BYROW
+  ---
+  duration_ms: 0.110765
+  type: 'test'
+  ...
+# Subtest: v10 known result: MAKEARRAY
+ok 374 - v10 known result: MAKEARRAY
+  ---
+  duration_ms: 0.111006
+  type: 'test'
+  ...
+# Subtest: v10 known result: ISBETWEEN
+ok 375 - v10 known result: ISBETWEEN
+  ---
+  duration_ms: 0.046469
+  type: 'test'
+  ...
+# Subtest: v10 known result: DETECTLANGUAGE
+ok 376 - v10 known result: DETECTLANGUAGE
+  ---
+  duration_ms: 0.125477
+  type: 'test'
+  ...
+# Subtest: v10 formulas use the custom parser and INDEX for matrix access
+ok 377 - v10 formulas use the custom parser and INDEX for matrix access
+  ---
+  duration_ms: 5.181525
+  type: 'test'
+  ...
+# Subtest: v10 bounds and errors are reported, never crash the sheet
+ok 378 - v10 bounds and errors are reported, never crash the sheet
+  ---
+  duration_ms: 1.099699
+  type: 'test'
+  ...
+# Subtest: v10 bugfix: DROP only removes rows when columns argument is omitted
+ok 379 - v10 bugfix: DROP only removes rows when columns argument is omitted
+  ---
+  duration_ms: 0.137825
+  type: 'test'
+  ...
+# Subtest: v10 RANDARRAY accepts Excel five-argument whole-number flag
+ok 380 - v10 RANDARRAY accepts Excel five-argument whole-number flag
+  ---
+  duration_ms: 0.197414
+  type: 'test'
+  ...
+# Subtest: v4 maintains exactly 80 new distinct functions in the expanded v5 registry
+ok 381 - v4 maintains exactly 80 new distinct functions in the expanded v5 registry
+  ---
+  duration_ms: 2.680656
+  type: 'test'
+  ...
+# Subtest: v4 SUMSQ: =SUMSQ(1,2,3)
+ok 382 - v4 SUMSQ: =SUMSQ(1,2,3)
+  ---
+  duration_ms: 6.122888
+  type: 'test'
+  ...
+# Subtest: v4 SUMPRODUCT: =SUMPRODUCT(A1:A3,B1:B3)
+ok 383 - v4 SUMPRODUCT: =SUMPRODUCT(A1:A3,B1:B3)
+  ---
+  duration_ms: 1.158147
+  type: 'test'
+  ...
+# Subtest: v4 QUOTIENT: =QUOTIENT(-17,5)
+ok 384 - v4 QUOTIENT: =QUOTIENT(-17,5)
+  ---
+  duration_ms: 0.784399
+  type: 'test'
+  ...
+# Subtest: v4 TRUNC: =TRUNC(-3.987,2)
+ok 385 - v4 TRUNC: =TRUNC(-3.987,2)
+  ---
+  duration_ms: 2.473237
+  type: 'test'
+  ...
+# Subtest: v4 EVEN: =EVEN(-3)
+ok 386 - v4 EVEN: =EVEN(-3)
+  ---
+  duration_ms: 0.618903
+  type: 'test'
+  ...
+# Subtest: v4 ODD: =ODD(-4)
+ok 387 - v4 ODD: =ODD(-4)
+  ---
+  duration_ms: 0.672032
+  type: 'test'
+  ...
+# Subtest: v4 GCD: =GCD(24,36)
+ok 388 - v4 GCD: =GCD(24,36)
+  ---
+  duration_ms: 0.889967
+  type: 'test'
+  ...
+# Subtest: v4 LCM: =LCM(4,6)
+ok 389 - v4 LCM: =LCM(4,6)
+  ---
+  duration_ms: 0.916497
+  type: 'test'
+  ...
+# Subtest: v4 FACT: =FACT(5)
+ok 390 - v4 FACT: =FACT(5)
+  ---
+  duration_ms: 1.103885
+  type: 'test'
+  ...
+# Subtest: v4 COMBIN: =COMBIN(5,2)
+ok 391 - v4 COMBIN: =COMBIN(5,2)
+  ---
+  duration_ms: 0.77135
+  type: 'test'
+  ...
+# Subtest: v4 PERMUT: =PERMUT(5,2)
+ok 392 - v4 PERMUT: =PERMUT(5,2)
+  ---
+  duration_ms: 0.589109
+  type: 'test'
+  ...
+# Subtest: v4 RADIANS: =RADIANS(180)
+ok 393 - v4 RADIANS: =RADIANS(180)
+  ---
+  duration_ms: 0.560415
+  type: 'test'
+  ...
+# Subtest: v4 DEGREES: =DEGREES(PI())
+ok 394 - v4 DEGREES: =DEGREES(PI())
+  ---
+  duration_ms: 1.662839
+  type: 'test'
+  ...
+# Subtest: v4 SIN: =SIN(PI()/2)
+ok 395 - v4 SIN: =SIN(PI()/2)
+  ---
+  duration_ms: 0.537021
+  type: 'test'
+  ...
+# Subtest: v4 COS: =COS(0)
+ok 396 - v4 COS: =COS(0)
+  ---
+  duration_ms: 0.461698
+  type: 'test'
+  ...
+# Subtest: v4 TAN: =TAN(0)
+ok 397 - v4 TAN: =TAN(0)
+  ---
+  duration_ms: 0.431754
+  type: 'test'
+  ...
+# Subtest: v4 ASIN: =ASIN(1)
+ok 398 - v4 ASIN: =ASIN(1)
+  ---
+  duration_ms: 0.369561
+  type: 'test'
+  ...
+# Subtest: v4 ACOS: =ACOS(1)
+ok 399 - v4 ACOS: =ACOS(1)
+  ---
+  duration_ms: 0.411383
+  type: 'test'
+  ...
+# Subtest: v4 ATAN: =ATAN(1)
+ok 400 - v4 ATAN: =ATAN(1)
+  ---
+  duration_ms: 0.398103
+  type: 'test'
+  ...
+# Subtest: v4 ATAN2: =ATAN2(1,1)
+ok 401 - v4 ATAN2: =ATAN2(1,1)
+  ---
+  duration_ms: 0.547796
+  type: 'test'
+  ...
+# Subtest: v4 SINH: =SINH(0)
+ok 402 - v4 SINH: =SINH(0)
+  ---
+  duration_ms: 0.431884
+  type: 'test'
+  ...
+# Subtest: v4 COSH: =COSH(0)
+ok 403 - v4 COSH: =COSH(0)
+  ---
+  duration_ms: 0.498253
+  type: 'test'
+  ...
+# Subtest: v4 TANH: =TANH(0)
+ok 404 - v4 TANH: =TANH(0)
+  ---
+  duration_ms: 0.399155
+  type: 'test'
+  ...
+# Subtest: v4 LOG10: =LOG10(1000)
+ok 405 - v4 LOG10: =LOG10(1000)
+  ---
+  duration_ms: 1.021603
+  type: 'test'
+  ...
+# Subtest: v4 GEOMEAN: =GEOMEAN(1,4,16)
+ok 406 - v4 GEOMEAN: =GEOMEAN(1,4,16)
+  ---
+  duration_ms: 0.379827
+  type: 'test'
+  ...
+# Subtest: v4 HARMEAN: =HARMEAN(1,2,4)
+ok 407 - v4 HARMEAN: =HARMEAN(1,2,4)
+  ---
+  duration_ms: 0.403252
+  type: 'test'
+  ...
+# Subtest: v4 STDEVP: =STDEVP(2,4,6)
+ok 408 - v4 STDEVP: =STDEVP(2,4,6)
+  ---
+  duration_ms: 4.00493
+  type: 'test'
+  ...
+# Subtest: v4 VARP: =VARP(2,4,6)
+ok 409 - v4 VARP: =VARP(2,4,6)
+  ---
+  duration_ms: 0.447677
+  type: 'test'
+  ...
+# Subtest: v4 DEVSQ: =DEVSQ(2,4,6)
+ok 410 - v4 DEVSQ: =DEVSQ(2,4,6)
+  ---
+  duration_ms: 0.571793
+  type: 'test'
+  ...
+# Subtest: v4 AVEDEV: =AVEDEV(2,4,6)
+ok 411 - v4 AVEDEV: =AVEDEV(2,4,6)
+  ---
+  duration_ms: 0.387568
+  type: 'test'
+  ...
+# Subtest: v4 MODE: =MODE(1,2,2,3)
+ok 412 - v4 MODE: =MODE(1,2,2,3)
+  ---
+  duration_ms: 0.417813
+  type: 'test'
+  ...
+# Subtest: v4 PERCENTILE: =PERCENTILE(A1:A5,0.25)
+ok 413 - v4 PERCENTILE: =PERCENTILE(A1:A5,0.25)
+  ---
+  duration_ms: 0.414719
+  type: 'test'
+  ...
+# Subtest: v4 QUARTILE: =QUARTILE(A1:A5,3)
+ok 414 - v4 QUARTILE: =QUARTILE(A1:A5,3)
+  ---
+  duration_ms: 0.344173
+  type: 'test'
+  ...
+# Subtest: v4 RANK: =RANK(4,A1:A5)
+ok 415 - v4 RANK: =RANK(4,A1:A5)
+  ---
+  duration_ms: 0.331584
+  type: 'test'
+  ...
+# Subtest: v4 CORREL: =CORREL(A1:A5,B1:B5)
+ok 416 - v4 CORREL: =CORREL(A1:A5,B1:B5)
+  ---
+  duration_ms: 0.551352
+  type: 'test'
+  ...
+# Subtest: v4 RSQ: =RSQ(A1:A5,B1:B5)
+ok 417 - v4 RSQ: =RSQ(A1:A5,B1:B5)
+  ---
+  duration_ms: 0.354519
+  type: 'test'
+  ...
+# Subtest: v4 SLOPE: =SLOPE(B1:B5,A1:A5)
+ok 418 - v4 SLOPE: =SLOPE(B1:B5,A1:A5)
+  ---
+  duration_ms: 0.75146
+  type: 'test'
+  ...
+# Subtest: v4 INTERCEPT: =INTERCEPT(B1:B5,A1:A5)
+ok 419 - v4 INTERCEPT: =INTERCEPT(B1:B5,A1:A5)
+  ---
+  duration_ms: 0.414638
+  type: 'test'
+  ...
+# Subtest: v4 FORECAST: =FORECAST(7,B1:B5,A1:A5)
+ok 420 - v4 FORECAST: =FORECAST(7,B1:B5,A1:A5)
+  ---
+  duration_ms: 0.406897
+  type: 'test'
+  ...
+# Subtest: v4 PERCENTRANK: =PERCENTRANK(A1:A5,3)
+ok 421 - v4 PERCENTRANK: =PERCENTRANK(A1:A5,3)
+  ---
+  duration_ms: 0.420456
+  type: 'test'
+  ...
+# Subtest: v4 PROPER: =PROPER("heLLo woRLD")
+ok 422 - v4 PROPER: =PROPER("heLLo woRLD")
+  ---
+  duration_ms: 1.243123
+  type: 'test'
+  ...
+# Subtest: v4 REPT: =REPT("xy",3)
+ok 423 - v4 REPT: =REPT("xy",3)
+  ---
+  duration_ms: 0.361789
+  type: 'test'
+  ...
+# Subtest: v4 CLEAN: =CLEAN("a"&CHAR(10)&"b")
+ok 424 - v4 CLEAN: =CLEAN("a"&CHAR(10)&"b")
+  ---
+  duration_ms: 0.452404
+  type: 'test'
+  ...
+# Subtest: v4 TEXTJOIN: =TEXTJOIN("|",TRUE,D1:D3)
+ok 425 - v4 TEXTJOIN: =TEXTJOIN("|",TRUE,D1:D3)
+  ---
+  duration_ms: 0.420077
+  type: 'test'
+  ...
+# Subtest: v4 CONCATENATE: =CONCATENATE("ab","cd")
+ok 426 - v4 CONCATENATE: =CONCATENATE("ab","cd")
+  ---
+  duration_ms: 1.11353
+  type: 'test'
+  ...
+# Subtest: v4 CODE: =CODE("A")
+ok 427 - v4 CODE: =CODE("A")
+  ---
+  duration_ms: 0.307368
+  type: 'test'
+  ...
+# Subtest: v4 CHAR: =CHAR(65)
+ok 428 - v4 CHAR: =CHAR(65)
+  ---
+  duration_ms: 0.270473
+  type: 'test'
+  ...
+# Subtest: v4 UNICODE: =UNICODE("★")
+ok 429 - v4 UNICODE: =UNICODE("★")
+  ---
+  duration_ms: 0.457332
+  type: 'test'
+  ...
+# Subtest: v4 UNICHAR: =UNICHAR(9733)
+ok 430 - v4 UNICHAR: =UNICHAR(9733)
+  ---
+  duration_ms: 0.913652
+  type: 'test'
+  ...
+# Subtest: v4 NUMBERVALUE: =NUMBERVALUE("1.234,5",",",".")
+ok 431 - v4 NUMBERVALUE: =NUMBERVALUE("1.234,5",",",".")
+  ---
+  duration_ms: 0.389791
+  type: 'test'
+  ...
+# Subtest: v4 TEXTBEFORE: =TEXTBEFORE("one-two-three","-",2)
+ok 432 - v4 TEXTBEFORE: =TEXTBEFORE("one-two-three","-",2)
+  ---
+  duration_ms: 0.344223
+  type: 'test'
+  ...
+# Subtest: v4 TEXTAFTER: =TEXTAFTER("one-two-three","-",2)
+ok 433 - v4 TEXTAFTER: =TEXTAFTER("one-two-three","-",2)
+  ---
+  duration_ms: 0.350913
+  type: 'test'
+  ...
+# Subtest: v4 DATE: =DATE(2026,10,20)
+ok 434 - v4 DATE: =DATE(2026,10,20)
+  ---
+  duration_ms: 0.257243
+  type: 'test'
+  ...
+# Subtest: v4 YEAR: =YEAR(DATE(2026,10,20))
+ok 435 - v4 YEAR: =YEAR(DATE(2026,10,20))
+  ---
+  duration_ms: 0.387277
+  type: 'test'
+  ...
+# Subtest: v4 MONTH: =MONTH(DATE(2026,10,20))
+ok 436 - v4 MONTH: =MONTH(DATE(2026,10,20))
+  ---
+  duration_ms: 0.260939
+  type: 'test'
+  ...
+# Subtest: v4 DAY: =DAY(DATE(2026,10,20))
+ok 437 - v4 DAY: =DAY(DATE(2026,10,20))
+  ---
+  duration_ms: 0.303443
+  type: 'test'
+  ...
+# Subtest: v4 TODAY: =TODAY()
+ok 438 - v4 TODAY: =TODAY()
+  ---
+  duration_ms: 0.198176
+  type: 'test'
+  ...
+# Subtest: v4 NOW: =NOW()
+ok 439 - v4 NOW: =NOW()
+  ---
+  duration_ms: 0.199918
+  type: 'test'
+  ...
+# Subtest: v4 TIME: =TIME(14,30,45)
+ok 440 - v4 TIME: =TIME(14,30,45)
+  ---
+  duration_ms: 0.183784
+  type: 'test'
+  ...
+# Subtest: v4 HOUR: =HOUR(TIME(14,30,0))
+ok 441 - v4 HOUR: =HOUR(TIME(14,30,0))
+  ---
+  duration_ms: 0.170424
+  type: 'test'
+  ...
+# Subtest: v4 MINUTE: =MINUTE(TIME(14,30,0))
+ok 442 - v4 MINUTE: =MINUTE(TIME(14,30,0))
+  ---
+  duration_ms: 0.172657
+  type: 'test'
+  ...
+# Subtest: v4 SECOND: =SECOND(TIME(14,30,45))
+ok 443 - v4 SECOND: =SECOND(TIME(14,30,45))
+  ---
+  duration_ms: 0.206167
+  type: 'test'
+  ...
+# Subtest: v4 DAYS: =DAYS(DATE(2026,10,20),DATE(2026,10,10))
+ok 444 - v4 DAYS: =DAYS(DATE(2026,10,20),DATE(2026,10,10))
+  ---
+  duration_ms: 0.232096
+  type: 'test'
+  ...
+# Subtest: v4 EDATE: =DAY(EDATE(DATE(2026,1,31),1))
+ok 445 - v4 EDATE: =DAY(EDATE(DATE(2026,1,31),1))
+  ---
+  duration_ms: 0.286457
+  type: 'test'
+  ...
+# Subtest: v4 EOMONTH: =DAY(EOMONTH(DATE(2026,2,3),0))
+ok 446 - v4 EOMONTH: =DAY(EOMONTH(DATE(2026,2,3),0))
+  ---
+  duration_ms: 0.230153
+  type: 'test'
+  ...
+# Subtest: v4 WEEKDAY: =WEEKDAY(DATE(2026,10,20),2)
+ok 447 - v4 WEEKDAY: =WEEKDAY(DATE(2026,10,20),2)
+  ---
+  duration_ms: 0.284073
+  type: 'test'
+  ...
+# Subtest: v4 NETWORKDAYS: =NETWORKDAYS(DATE(2026,10,19),DATE(2026,10,23))
+ok 448 - v4 NETWORKDAYS: =NETWORKDAYS(DATE(2026,10,19),DATE(2026,10,23))
+  ---
+  duration_ms: 0.415209
+  type: 'test'
+  ...
+# Subtest: v4 WORKDAY: =DAY(WORKDAY(DATE(2026,10,19),5))
+ok 449 - v4 WORKDAY: =DAY(WORKDAY(DATE(2026,10,19),5))
+  ---
+  duration_ms: 0.267439
+  type: 'test'
+  ...
+# Subtest: v4 XOR: =XOR(TRUE,FALSE,FALSE)
+ok 450 - v4 XOR: =XOR(TRUE,FALSE,FALSE)
+  ---
+  duration_ms: 0.286157
+  type: 'test'
+  ...
+# Subtest: v4 IFS: =IFS(FALSE,1/0,TRUE,42)
+ok 451 - v4 IFS: =IFS(FALSE,1/0,TRUE,42)
+  ---
+  duration_ms: 0.200399
+  type: 'test'
+  ...
+# Subtest: v4 SWITCH: =SWITCH(2,1,1/0,2,99,0)
+ok 452 - v4 SWITCH: =SWITCH(2,1,1/0,2,99,0)
+  ---
+  duration_ms: 1.187099
+  type: 'test'
+  ...
+# Subtest: v4 SUMIFS: =SUMIFS(B1:B5,C1:C5,"North",A1:A5,">2")
+ok 453 - v4 SUMIFS: =SUMIFS(B1:B5,C1:C5,"North",A1:A5,">2")
+  ---
+  duration_ms: 9.43111
+  type: 'test'
+  ...
+# Subtest: v4 COUNTIFS: =COUNTIFS(C1:C5,"North",A1:A5,">2")
+ok 454 - v4 COUNTIFS: =COUNTIFS(C1:C5,"North",A1:A5,">2")
+  ---
+  duration_ms: 0.508428
+  type: 'test'
+  ...
+# Subtest: v4 AVERAGEIFS: =AVERAGEIFS(B1:B5,C1:C5,"North")
+ok 455 - v4 AVERAGEIFS: =AVERAGEIFS(B1:B5,C1:C5,"North")
+  ---
+  duration_ms: 0.291475
+  type: 'test'
+  ...
+# Subtest: v4 XLOOKUP: =XLOOKUP("k2",D1:D3,E1:E3,"missing")
+ok 456 - v4 XLOOKUP: =XLOOKUP("k2",D1:D3,E1:E3,"missing")
+  ---
+  duration_ms: 0.889506
+  type: 'test'
+  ...
+# Subtest: v4 HLOOKUP: =HLOOKUP("Q2",H1:J2,2,FALSE)
+ok 457 - v4 HLOOKUP: =HLOOKUP("Q2",H1:J2,2,FALSE)
+  ---
+  duration_ms: 0.284203
+  type: 'test'
+  ...
+# Subtest: v4 PMT: =PMT(0,10,1000)
+ok 458 - v4 PMT: =PMT(0,10,1000)
+  ---
+  duration_ms: 0.203353
+  type: 'test'
+  ...
+# Subtest: v4 FV: =FV(0,10,-100)
+ok 459 - v4 FV: =FV(0,10,-100)
+  ---
+  duration_ms: 0.283533
+  type: 'test'
+  ...
+# Subtest: v4 PV: =PV(0,10,-100)
+ok 460 - v4 PV: =PV(0,10,-100)
+  ---
+  duration_ms: 0.179298
+  type: 'test'
+  ...
+# Subtest: v4 NPV: =NPV(0.1,100,100)
+ok 461 - v4 NPV: =NPV(0.1,100,100)
+  ---
+  duration_ms: 0.224735
+  type: 'test'
+  ...
+# Subtest: lazy functions skip unselected error paths
+ok 462 - lazy functions skip unselected error paths
+  ---
+  duration_ms: 0.27465
+  type: 'test'
+  ...
+# Subtest: new functions report invalid input errors without throwing unhandled exceptions
+ok 463 - new functions report invalid input errors without throwing unhandled exceptions
+  ---
+  duration_ms: 2.155534
+  type: 'test'
+  ...
+# Subtest: new criteria functions recalculate only affected dependency chain
+ok 464 - new criteria functions recalculate only affected dependency chain
+  ---
+  duration_ms: 0.374509
+  type: 'test'
+  ...
+# Subtest: v4 formulas and dependency data survive JSON serialization
+ok 465 - v4 formulas and dependency data survive JSON serialization
+  ---
+  duration_ms: 0.701767
+  type: 'test'
+  ...
+# Subtest: XLOOKUP missing argument is lazily evaluated after an actual lookup miss
+ok 466 - XLOOKUP missing argument is lazily evaluated after an actual lookup miss
+  ---
+  duration_ms: 0.468017
+  type: 'test'
+  ...
+# Subtest: paired regression ignores incomplete observations without misaligning rows
+ok 467 - paired regression ignores incomplete observations without misaligning rows
+  ---
+  duration_ms: 0.296382
+  type: 'test'
+  ...
+# Subtest: PERCENTRANK duplicates count first matching rank
+ok 468 - PERCENTRANK duplicates count first matching rank
+  ---
+  duration_ms: 0.296773
+  type: 'test'
+  ...
+# Subtest: Excel 1900 serial-date exception and negative date range rules are explicit
+ok 469 - Excel 1900 serial-date exception and negative date range rules are explicit
+  ---
+  duration_ms: 1.280579
+  type: 'test'
+  ...
+# Subtest: LOG10 parses as a function but unrelated references still tokenize normally
+ok 470 - LOG10 parses as a function but unrelated references still tokenize normally
+  ---
+  duration_ms: 0.279376
+  type: 'test'
+  ...
+# Subtest: XLSX exporter identifies modern Excel functions without altering string literals
+ok 471 - XLSX exporter identifies modern Excel functions without altering string literals
+  ---
+  duration_ms: 46.073336
+  type: 'test'
+  ...
+# Subtest: v5: exactly 80 unique new functions and 216 overall, categorized by Excel-style families
+ok 472 - v5: exactly 80 unique new functions and 216 overall, categorized by Excel-style families
+  ---
+  duration_ms: 2.08662
+  type: 'test'
+  ...
+# Subtest: v5 ACOSH: =ACOSH(1)
+ok 473 - v5 ACOSH: =ACOSH(1)
+  ---
+  duration_ms: 4.608351
+  type: 'test'
+  ...
+# Subtest: v5 ASINH: =ASINH(0)
+ok 474 - v5 ASINH: =ASINH(0)
+  ---
+  duration_ms: 0.541597
+  type: 'test'
+  ...
+# Subtest: v5 ATANH: =ATANH(0)
+ok 475 - v5 ATANH: =ATANH(0)
+  ---
+  duration_ms: 0.288931
+  type: 'test'
+  ...
+# Subtest: v5 ACOT: =ACOT(1)
+ok 476 - v5 ACOT: =ACOT(1)
+  ---
+  duration_ms: 0.412005
+  type: 'test'
+  ...
+# Subtest: v5 ACOTH: =ACOTH(2)
+ok 477 - v5 ACOTH: =ACOTH(2)
+  ---
+  duration_ms: 0.45643
+  type: 'test'
+  ...
+# Subtest: v5 COT: =COT(PI()/4)
+ok 478 - v5 COT: =COT(PI()/4)
+  ---
+  duration_ms: 0.457562
+  type: 'test'
+  ...
+# Subtest: v5 COTH: =COTH(1)
+ok 479 - v5 COTH: =COTH(1)
+  ---
+  duration_ms: 0.312336
+  type: 'test'
+  ...
+# Subtest: v5 CSC: =CSC(PI()/2)
+ok 480 - v5 CSC: =CSC(PI()/2)
+  ---
+  duration_ms: 0.505924
+  type: 'test'
+  ...
+# Subtest: v5 CSCH: =CSCH(1)
+ok 481 - v5 CSCH: =CSCH(1)
+  ---
+  duration_ms: 1.709699
+  type: 'test'
+  ...
+# Subtest: v5 SEC: =SEC(0)
+ok 482 - v5 SEC: =SEC(0)
+  ---
+  duration_ms: 0.405084
+  type: 'test'
+  ...
+# Subtest: v5 SECH: =SECH(0)
+ok 483 - v5 SECH: =SECH(0)
+  ---
+  duration_ms: 0.251806
+  type: 'test'
+  ...
+# Subtest: v5 MROUND: =MROUND(14,5)
+ok 484 - v5 MROUND: =MROUND(14,5)
+  ---
+  duration_ms: 0.32199
+  type: 'test'
+  ...
+# Subtest: v5 FACTDOUBLE: =FACTDOUBLE(7)
+ok 485 - v5 FACTDOUBLE: =FACTDOUBLE(7)
+  ---
+  duration_ms: 0.447857
+  type: 'test'
+  ...
+# Subtest: v5 MULTINOMIAL: =MULTINOMIAL(2,1)
+ok 486 - v5 MULTINOMIAL: =MULTINOMIAL(2,1)
+  ---
+  duration_ms: 0.565283
+  type: 'test'
+  ...
+# Subtest: v5 ARABIC: =ARABIC("XIV")
+ok 487 - v5 ARABIC: =ARABIC("XIV")
+  ---
+  duration_ms: 0.765401
+  type: 'test'
+  ...
+# Subtest: v5 ROMAN: =ROMAN(14)
+ok 488 - v5 ROMAN: =ROMAN(14)
+  ---
+  duration_ms: 0.579574
+  type: 'test'
+  ...
+# Subtest: v5 BASE: =BASE(255,16)
+ok 489 - v5 BASE: =BASE(255,16)
+  ---
+  duration_ms: 0.260388
+  type: 'test'
+  ...
+# Subtest: v5 DECIMAL: =DECIMAL("FF",16)
+ok 490 - v5 DECIMAL: =DECIMAL("FF",16)
+  ---
+  duration_ms: 0.506645
+  type: 'test'
+  ...
+# Subtest: v5 SKEW: =SKEW(A1:A5)
+ok 491 - v5 SKEW: =SKEW(A1:A5)
+  ---
+  duration_ms: 0.667946
+  type: 'test'
+  ...
+# Subtest: v5 KURT: =KURT(A1:A5)
+ok 492 - v5 KURT: =KURT(A1:A5)
+  ---
+  duration_ms: 0.461538
+  type: 'test'
+  ...
+# Subtest: v5 COVARIANCEP: =COVARIANCEP(A1:A5,B1:B5)
+ok 493 - v5 COVARIANCEP: =COVARIANCEP(A1:A5,B1:B5)
+  ---
+  duration_ms: 1.247249
+  type: 'test'
+  ...
+# Subtest: v5 COVARIANCES: =COVARIANCES(A1:A5,B1:B5)
+ok 494 - v5 COVARIANCES: =COVARIANCES(A1:A5,B1:B5)
+  ---
+  duration_ms: 0.495318
+  type: 'test'
+  ...
+# Subtest: v5 PEARSON: =PEARSON(A1:A5,B1:B5)
+ok 495 - v5 PEARSON: =PEARSON(A1:A5,B1:B5)
+  ---
+  duration_ms: 0.538422
+  type: 'test'
+  ...
+# Subtest: v5 STEYX: =STEYX(B1:B5,A1:A5)
+ok 496 - v5 STEYX: =STEYX(B1:B5,A1:A5)
+  ---
+  duration_ms: 0.537742
+  type: 'test'
+  ...
+# Subtest: v5 STANDARDIZE: =STANDARDIZE(10,8,2)
+ok 497 - v5 STANDARDIZE: =STANDARDIZE(10,8,2)
+  ---
+  duration_ms: 0.425334
+  type: 'test'
+  ...
+# Subtest: v5 TRIMMEAN: =TRIMMEAN(A1:A5,0.4)
+ok 498 - v5 TRIMMEAN: =TRIMMEAN(A1:A5,0.4)
+  ---
+  duration_ms: 0.472745
+  type: 'test'
+  ...
+# Subtest: v5 NORMDIST: =NORMDIST(0,0,1,TRUE)
+ok 499 - v5 NORMDIST: =NORMDIST(0,0,1,TRUE)
+  ---
+  duration_ms: 0.490171
+  type: 'test'
+  ...
+# Subtest: v5 NORMSDIST: =NORMSDIST(0)
+ok 500 - v5 NORMSDIST: =NORMSDIST(0)
+  ---
+  duration_ms: 0.360597
+  type: 'test'
+  ...
+# Subtest: v5 NORMINV: =NORMINV(.5,0,1)
+ok 501 - v5 NORMINV: =NORMINV(.5,0,1)
+  ---
+  duration_ms: 0.57037
+  type: 'test'
+  ...
+# Subtest: v5 NORMSINV: =NORMSINV(.5)
+ok 502 - v5 NORMSINV: =NORMSINV(.5)
+  ---
+  duration_ms: 0.390922
+  type: 'test'
+  ...
+# Subtest: v5 T: =T("Hello")
+ok 503 - v5 T: =T("Hello")
+  ---
+  duration_ms: 0.374057
+  type: 'test'
+  ...
+# Subtest: v5 N: =N(TRUE)
+ok 504 - v5 N: =N(TRUE)
+  ---
+  duration_ms: 0.445705
+  type: 'test'
+  ...
+# Subtest: v5 DOLLAR: =DOLLAR(1234.5,2)
+ok 505 - v5 DOLLAR: =DOLLAR(1234.5,2)
+  ---
+  duration_ms: 17.991842
+  type: 'test'
+  ...
+# Subtest: v5 FIXED: =FIXED(1234.5,1,TRUE)
+ok 506 - v5 FIXED: =FIXED(1234.5,1,TRUE)
+  ---
+  duration_ms: 0.615267
+  type: 'test'
+  ...
+# Subtest: v5 TEXT: =TEXT(0.125,"0.0%")
+ok 507 - v5 TEXT: =TEXT(0.125,"0.0%")
+  ---
+  duration_ms: 0.615257
+  type: 'test'
+  ...
+# Subtest: v5 LENB: =LENB("abc")
+ok 508 - v5 LENB: =LENB("abc")
+  ---
+  duration_ms: 0.454318
+  type: 'test'
+  ...
+# Subtest: v5 LEFTB: =LEFTB("abc",2)
+ok 509 - v5 LEFTB: =LEFTB("abc",2)
+  ---
+  duration_ms: 0.420337
+  type: 'test'
+  ...
+# Subtest: v5 RIGHTB: =RIGHTB("abc",2)
+ok 510 - v5 RIGHTB: =RIGHTB("abc",2)
+  ---
+  duration_ms: 0.318435
+  type: 'test'
+  ...
+# Subtest: v5 MIDB: =MIDB("abc",2,2)
+ok 511 - v5 MIDB: =MIDB("abc",2,2)
+  ---
+  duration_ms: 0.397332
+  type: 'test'
+  ...
+# Subtest: v5 FINDB: =FINDB("b","abc")
+ok 512 - v5 FINDB: =FINDB("b","abc")
+  ---
+  duration_ms: 0.402891
+  type: 'test'
+  ...
+# Subtest: v5 SEARCHB: =SEARCHB("B","abc")
+ok 513 - v5 SEARCHB: =SEARCHB("B","abc")
+  ---
+  duration_ms: 0.441689
+  type: 'test'
+  ...
+# Subtest: v5 REPLACEB: =REPLACEB("abc",2,1,"Z")
+ok 514 - v5 REPLACEB: =REPLACEB("abc",2,1,"Z")
+  ---
+  duration_ms: 0.423171
+  type: 'test'
+  ...
+# Subtest: v5 REGEXTEST: =REGEXTEST("ab12","[0-9]+")
+ok 515 - v5 REGEXTEST: =REGEXTEST("ab12","[0-9]+")
+  ---
+  duration_ms: 0.551752
+  type: 'test'
+  ...
+# Subtest: v5 REGEXREPLACE: =REGEXREPLACE("ab12","[0-9]+","ZZ")
+ok 516 - v5 REGEXREPLACE: =REGEXREPLACE("ab12","[0-9]+","ZZ")
+  ---
+  duration_ms: 0.487337
+  type: 'test'
+  ...
+# Subtest: v5 DATEDIF: =DATEDIF(DATE(2020,1,1),DATE(2022,4,1),"Y")
+ok 517 - v5 DATEDIF: =DATEDIF(DATE(2020,1,1),DATE(2022,4,1),"Y")
+  ---
+  duration_ms: 0.54983
+  type: 'test'
+  ...
+# Subtest: v5 YEARFRAC: =YEARFRAC(DATE(2020,1,1),DATE(2021,1,1),3)
+ok 518 - v5 YEARFRAC: =YEARFRAC(DATE(2020,1,1),DATE(2021,1,1),3)
+  ---
+  duration_ms: 0.498243
+  type: 'test'
+  ...
+# Subtest: v5 DAYS360: =DAYS360(DATE(2026,1,1),DATE(2026,4,1))
+ok 519 - v5 DAYS360: =DAYS360(DATE(2026,1,1),DATE(2026,4,1))
+  ---
+  duration_ms: 0.746813
+  type: 'test'
+  ...
+# Subtest: v5 WEEKNUM: =WEEKNUM(DATE(2026,1,1),1)
+ok 520 - v5 WEEKNUM: =WEEKNUM(DATE(2026,1,1),1)
+  ---
+  duration_ms: 0.282331
+  type: 'test'
+  ...
+# Subtest: v5 ISOWEEKNUM: =ISOWEEKNUM(DATE(2021,1,4))
+ok 521 - v5 ISOWEEKNUM: =ISOWEEKNUM(DATE(2021,1,4))
+  ---
+  duration_ms: 0.224815
+  type: 'test'
+  ...
+# Subtest: v5 DATEVALUE: =DATEVALUE("2026-10-20")
+ok 522 - v5 DATEVALUE: =DATEVALUE("2026-10-20")
+  ---
+  duration_ms: 0.282811
+  type: 'test'
+  ...
+# Subtest: v5 TIMEVALUE: =TIMEVALUE("12:30:00")
+ok 523 - v5 TIMEVALUE: =TIMEVALUE("12:30:00")
+  ---
+  duration_ms: 0.236944
+  type: 'test'
+  ...
+# Subtest: v5 NETWORKDAYSINTL: =NETWORKDAYSINTL(DATE(2026,10,19),DATE(2026,10,23),1)
+ok 524 - v5 NETWORKDAYSINTL: =NETWORKDAYSINTL(DATE(2026,10,19),DATE(2026,10,23),1)
+  ---
+  duration_ms: 0.460496
+  type: 'test'
+  ...
+# Subtest: v5 RATE: =RATE(10,-100,1000)
+ok 525 - v5 RATE: =RATE(10,-100,1000)
+  ---
+  duration_ms: 0.276452
+  type: 'test'
+  ...
+# Subtest: v5 NPER: =NPER(0,-100,1000)
+ok 526 - v5 NPER: =NPER(0,-100,1000)
+  ---
+  duration_ms: 0.212627
+  type: 'test'
+  ...
+# Subtest: v5 IPMT: =IPMT(0.1,1,2,100)
+ok 527 - v5 IPMT: =IPMT(0.1,1,2,100)
+  ---
+  duration_ms: 0.48265
+  type: 'test'
+  ...
+# Subtest: v5 PPMT: =PPMT(0.1,1,2,100)
+ok 528 - v5 PPMT: =PPMT(0.1,1,2,100)
+  ---
+  duration_ms: 0.22809
+  type: 'test'
+  ...
+# Subtest: v5 EFFECT: =EFFECT(0.12,12)
+ok 529 - v5 EFFECT: =EFFECT(0.12,12)
+  ---
+  duration_ms: 0.191225
+  type: 'test'
+  ...
+# Subtest: v5 NOMINAL: =NOMINAL(EFFECT(0.12,12),12)
+ok 530 - v5 NOMINAL: =NOMINAL(EFFECT(0.12,12),12)
+  ---
+  duration_ms: 0.292266
+  type: 'test'
+  ...
+# Subtest: v5 SLN: =SLN(1000,0,5)
+ok 531 - v5 SLN: =SLN(1000,0,5)
+  ---
+  duration_ms: 0.298285
+  type: 'test'
+  ...
+# Subtest: v5 SYD: =SYD(1000,0,5,1)
+ok 532 - v5 SYD: =SYD(1000,0,5,1)
+  ---
+  duration_ms: 0.415178
+  type: 'test'
+  ...
+# Subtest: v5 DDB: =DDB(1000,0,5,1)
+ok 533 - v5 DDB: =DDB(1000,0,5,1)
+  ---
+  duration_ms: 0.391614
+  type: 'test'
+  ...
+# Subtest: v5 MIRR: =MIRR(F1:F5,0.1,0.1)
+ok 534 - v5 MIRR: =MIRR(F1:F5,0.1,0.1)
+  ---
+  duration_ms: 0.488498
+  type: 'test'
+  ...
+# Subtest: v5 IRR: =IRR(F1:F5)
+ok 535 - v5 IRR: =IRR(F1:F5)
+  ---
+  duration_ms: 0.515228
+  type: 'test'
+  ...
+# Subtest: v5 XNPV: =XNPV(0,F1:F5,G1:G5)
+ok 536 - v5 XNPV: =XNPV(0,F1:F5,G1:G5)
+  ---
+  duration_ms: 0.532654
+  type: 'test'
+  ...
+# Subtest: v5 XIRR: =XIRR(F1:F5,G1:G5)
+ok 537 - v5 XIRR: =XIRR(F1:F5,G1:G5)
+  ---
+  duration_ms: 1.0732
+  type: 'test'
+  ...
+# Subtest: v5 FVSCHEDULE: =FVSCHEDULE(100,A1:A2)
+ok 538 - v5 FVSCHEDULE: =FVSCHEDULE(100,A1:A2)
+  ---
+  duration_ms: 0.38884
+  type: 'test'
+  ...
+# Subtest: v5 RRI: =RRI(2,100,121)
+ok 539 - v5 RRI: =RRI(2,100,121)
+  ---
+  duration_ms: 0.352345
+  type: 'test'
+  ...
+# Subtest: v5 ISERR: =ISERR(1/0)
+ok 540 - v5 ISERR: =ISERR(1/0)
+  ---
+  duration_ms: 0.48342
+  type: 'test'
+  ...
+# Subtest: v5 ISERROR: =ISERROR(1/0)
+ok 541 - v5 ISERROR: =ISERROR(1/0)
+  ---
+  duration_ms: 0.364593
+  type: 'test'
+  ...
+# Subtest: v5 ISNA: =ISNA(MATCH(99,A1:A5,0))
+ok 542 - v5 ISNA: =ISNA(MATCH(99,A1:A5,0))
+  ---
+  duration_ms: 1.477813
+  type: 'test'
+  ...
+# Subtest: v5 ISEVEN: =ISEVEN(4)
+ok 543 - v5 ISEVEN: =ISEVEN(4)
+  ---
+  duration_ms: 0.309762
+  type: 'test'
+  ...
+# Subtest: v5 ISODD: =ISODD(3)
+ok 544 - v5 ISODD: =ISODD(3)
+  ---
+  duration_ms: 0.37611
+  type: 'test'
+  ...
+# Subtest: v5 ISLOGICAL: =ISLOGICAL(TRUE)
+ok 545 - v5 ISLOGICAL: =ISLOGICAL(TRUE)
+  ---
+  duration_ms: 0.294479
+  type: 'test'
+  ...
+# Subtest: v5 ISNONTEXT: =ISNONTEXT(123)
+ok 546 - v5 ISNONTEXT: =ISNONTEXT(123)
+  ---
+  duration_ms: 0.313217
+  type: 'test'
+  ...
+# Subtest: v5 TYPE: =TYPE("hello")
+ok 547 - v5 TYPE: =TYPE("hello")
+  ---
+  duration_ms: 0.441829
+  type: 'test'
+  ...
+# Subtest: v5 LOOKUP: =LOOKUP(3,A1:A5,B1:B5)
+ok 548 - v5 LOOKUP: =LOOKUP(3,A1:A5,B1:B5)
+  ---
+  duration_ms: 0.423612
+  type: 'test'
+  ...
+# Subtest: v5 CHOOSE: =CHOOSE(2,1/0,42)
+ok 549 - v5 CHOOSE: =CHOOSE(2,1/0,42)
+  ---
+  duration_ms: 0.26806
+  type: 'test'
+  ...
+# Subtest: v5 ROWS: =ROWS(A1:C5)
+ok 550 - v5 ROWS: =ROWS(A1:C5)
+  ---
+  duration_ms: 0.350393
+  type: 'test'
+  ...
+# Subtest: v5 COLUMNS: =COLUMNS(A1:C5)
+ok 551 - v5 COLUMNS: =COLUMNS(A1:C5)
+  ---
+  duration_ms: 0.310052
+  type: 'test'
+  ...
+# Subtest: v5 ADDRESS: =ADDRESS(4,2,1)
+ok 552 - v5 ADDRESS: =ADDRESS(4,2,1)
+  ---
+  duration_ms: 0.332205
+  type: 'test'
+  ...
+# Subtest: v5: information tests catch errors without evaluating other branches
+ok 553 - v5: information tests catch errors without evaluating other branches
+  ---
+  duration_ms: 1.208231
+  type: 'test'
+  ...
+# Subtest: v5: financial, date and engineering boundary validation emits spreadsheet errors
+ok 554 - v5: financial, date and engineering boundary validation emits spreadsheet errors
+  ---
+  duration_ms: 1.826183
+  type: 'test'
+  ...
+# Subtest: v5: action macros apply validated transactions, undo and reject executable instructions
+ok 555 - v5: action macros apply validated transactions, undo and reject executable instructions
+  ---
+  duration_ms: 2.680937
+  type: 'test'
+  ...
+# Subtest: v5: edited XLSX preserves supported new formulas without introducing executable macros
+ok 556 - v5: edited XLSX preserves supported new formulas without introducing executable macros
+  ---
+  duration_ms: 2.000713
+  type: 'test'
+  ...
+# Subtest: v6 adds exactly 90 unique functions in consistent Excel-style categories
+ok 557 - v6 adds exactly 90 unique functions in consistent Excel-style categories
+  ---
+  duration_ms: 2.785082
+  type: 'test'
+  ...
+# Subtest: v6 SQRTPI : =SQRTPI(4)
+ok 558 - v6 SQRTPI : =SQRTPI(4)
+  ---
+  duration_ms: 0.914954
+  type: 'test'
+  ...
+# Subtest: v6 SUMX2MY2 : =SUMX2MY2(A1:A2,B1:B2)
+ok 559 - v6 SUMX2MY2 : =SUMX2MY2(A1:A2,B1:B2)
+  ---
+  duration_ms: 0.57698
+  type: 'test'
+  ...
+# Subtest: v6 SUMX2PY2 : =SUMX2PY2(A1:A2,B1:B2)
+ok 560 - v6 SUMX2PY2 : =SUMX2PY2(A1:A2,B1:B2)
+  ---
+  duration_ms: 2.171887
+  type: 'test'
+  ...
+# Subtest: v6 SUMXMY2 : =SUMXMY2(A1:A2,B1:B2)
+ok 561 - v6 SUMXMY2 : =SUMXMY2(A1:A2,B1:B2)
+  ---
+  duration_ms: 0.551061
+  type: 'test'
+  ...
+# Subtest: v6 COMBINA : =COMBINA(3,2)
+ok 562 - v6 COMBINA : =COMBINA(3,2)
+  ---
+  duration_ms: 0.52359
+  type: 'test'
+  ...
+# Subtest: v6 PERMUTATIONA : =PERMUTATIONA(3,2)
+ok 563 - v6 PERMUTATIONA : =PERMUTATIONA(3,2)
+  ---
+  duration_ms: 0.468478
+  type: 'test'
+  ...
+# Subtest: v6 BITAND : =BITAND(6,3)
+ok 564 - v6 BITAND : =BITAND(6,3)
+  ---
+  duration_ms: 0.528408
+  type: 'test'
+  ...
+# Subtest: v6 BITOR : =BITOR(6,3)
+ok 565 - v6 BITOR : =BITOR(6,3)
+  ---
+  duration_ms: 0.820743
+  type: 'test'
+  ...
+# Subtest: v6 BITXOR : =BITXOR(6,3)
+ok 566 - v6 BITXOR : =BITXOR(6,3)
+  ---
+  duration_ms: 0.842636
+  type: 'test'
+  ...
+# Subtest: v6 BITLSHIFT : =BITLSHIFT(3,2)
+ok 567 - v6 BITLSHIFT : =BITLSHIFT(3,2)
+  ---
+  duration_ms: 0.361369
+  type: 'test'
+  ...
+# Subtest: v6 BITRSHIFT : =BITRSHIFT(16,2)
+ok 568 - v6 BITRSHIFT : =BITRSHIFT(16,2)
+  ---
+  duration_ms: 0.258946
+  type: 'test'
+  ...
+# Subtest: v6 DELTA : =DELTA(4,4)
+ok 569 - v6 DELTA : =DELTA(4,4)
+  ---
+  duration_ms: 0.278936
+  type: 'test'
+  ...
+# Subtest: v6 GESTEP : =GESTEP(7,5)
+ok 570 - v6 GESTEP : =GESTEP(7,5)
+  ---
+  duration_ms: 0.258755
+  type: 'test'
+  ...
+# Subtest: v6 ERF : =ERF(0)
+ok 571 - v6 ERF : =ERF(0)
+  ---
+  duration_ms: 0.279406
+  type: 'test'
+  ...
+# Subtest: v6 ERFC : =ERFC(0)
+ok 572 - v6 ERFC : =ERFC(0)
+  ---
+  duration_ms: 0.920142
+  type: 'test'
+  ...
+# Subtest: v6 CEILING.MATH : =CEILING.MATH(7.2,2)
+ok 573 - v6 CEILING.MATH : =CEILING.MATH(7.2,2)
+  ---
+  duration_ms: 0.287569
+  type: 'test'
+  ...
+# Subtest: v6 FLOOR.MATH : =FLOOR.MATH(7.2,2)
+ok 574 - v6 FLOOR.MATH : =FLOOR.MATH(7.2,2)
+  ---
+  duration_ms: 0.226027
+  type: 'test'
+  ...
+# Subtest: v6 CEILING.PRECISE : =CEILING.PRECISE(-4.1,2)
+ok 575 - v6 CEILING.PRECISE : =CEILING.PRECISE(-4.1,2)
+  ---
+  duration_ms: 0.295941
+  type: 'test'
+  ...
+# Subtest: v6 FLOOR.PRECISE : =FLOOR.PRECISE(-4.1,2)
+ok 576 - v6 FLOOR.PRECISE : =FLOOR.PRECISE(-4.1,2)
+  ---
+  duration_ms: 0.384083
+  type: 'test'
+  ...
+# Subtest: v6 ISO.CEILING : =ISO.CEILING(5.2,2)
+ok 577 - v6 ISO.CEILING : =ISO.CEILING(5.2,2)
+  ---
+  duration_ms: 0.256783
+  type: 'test'
+  ...
+# Subtest: v6 GAMMA : =GAMMA(5)
+ok 578 - v6 GAMMA : =GAMMA(5)
+  ---
+  duration_ms: 0.220499
+  type: 'test'
+  ...
+# Subtest: v6 GAMMALN : =GAMMALN(5)
+ok 579 - v6 GAMMALN : =GAMMALN(5)
+  ---
+  duration_ms: 0.206448
+  type: 'test'
+  ...
+# Subtest: v6 GAMMALN.PRECISE : =GAMMALN.PRECISE(5)
+ok 580 - v6 GAMMALN.PRECISE : =GAMMALN.PRECISE(5)
+  ---
+  duration_ms: 0.202672
+  type: 'test'
+  ...
+# Subtest: v6 SERIESSUM : =SERIESSUM(2,1,2,A1:A3)
+ok 581 - v6 SERIESSUM : =SERIESSUM(2,1,2,A1:A3)
+  ---
+  duration_ms: 0.264915
+  type: 'test'
+  ...
+# Subtest: v6 MAXIFS : =MAXIFS(A1:A5,D1:D5,"East")
+ok 582 - v6 MAXIFS : =MAXIFS(A1:A5,D1:D5,"East")
+  ---
+  duration_ms: 7.491869
+  type: 'test'
+  ...
+# Subtest: v6 MINIFS : =MINIFS(A1:A5,D1:D5,"East")
+ok 583 - v6 MINIFS : =MINIFS(A1:A5,D1:D5,"East")
+  ---
+  duration_ms: 0.306056
+  type: 'test'
+  ...
+# Subtest: v6 AVERAGEA : =AVERAGEA(TRUE,2,"x")
+ok 584 - v6 AVERAGEA : =AVERAGEA(TRUE,2,"x")
+  ---
+  duration_ms: 0.252777
+  type: 'test'
+  ...
+# Subtest: v6 MAXA : =MAXA(-5,-1)
+ok 585 - v6 MAXA : =MAXA(-5,-1)
+  ---
+  duration_ms: 0.195922
+  type: 'test'
+  ...
+# Subtest: v6 MINA : =MINA(1,3)
+ok 586 - v6 MINA : =MINA(1,3)
+  ---
+  duration_ms: 0.189833
+  type: 'test'
+  ...
+# Subtest: v6 STDEV.S : =STDEV.S(A1:A5)
+ok 587 - v6 STDEV.S : =STDEV.S(A1:A5)
+  ---
+  duration_ms: 0.257063
+  type: 'test'
+  ...
+# Subtest: v6 STDEV.P : =STDEV.P(A1:A5)
+ok 588 - v6 STDEV.P : =STDEV.P(A1:A5)
+  ---
+  duration_ms: 0.533184
+  type: 'test'
+  ...
+# Subtest: v6 VAR.S : =VAR.S(A1:A5)
+ok 589 - v6 VAR.S : =VAR.S(A1:A5)
+  ---
+  duration_ms: 0.729007
+  type: 'test'
+  ...
+# Subtest: v6 VAR.P : =VAR.P(A1:A5)
+ok 590 - v6 VAR.P : =VAR.P(A1:A5)
+  ---
+  duration_ms: 0.23488
+  type: 'test'
+  ...
+# Subtest: v6 MODE.SNGL : =MODE.SNGL(1,2,2,3)
+ok 591 - v6 MODE.SNGL : =MODE.SNGL(1,2,2,3)
+  ---
+  duration_ms: 0.204595
+  type: 'test'
+  ...
+# Subtest: v6 PERCENTILE.INC : =PERCENTILE.INC(A1:A5,0.75)
+ok 592 - v6 PERCENTILE.INC : =PERCENTILE.INC(A1:A5,0.75)
+  ---
+  duration_ms: 0.231195
+  type: 'test'
+  ...
+# Subtest: v6 PERCENTILE.EXC : =PERCENTILE.EXC(A1:A5,0.5)
+ok 593 - v6 PERCENTILE.EXC : =PERCENTILE.EXC(A1:A5,0.5)
+  ---
+  duration_ms: 0.186408
+  type: 'test'
+  ...
+# Subtest: v6 PERCENTRANK.INC : =PERCENTRANK.INC(A1:A5,3)
+ok 594 - v6 PERCENTRANK.INC : =PERCENTRANK.INC(A1:A5,3)
+  ---
+  duration_ms: 0.376191
+  type: 'test'
+  ...
+# Subtest: v6 PERCENTRANK.EXC : =PERCENTRANK.EXC(A1:A5,3)
+ok 595 - v6 PERCENTRANK.EXC : =PERCENTRANK.EXC(A1:A5,3)
+  ---
+  duration_ms: 0.173398
+  type: 'test'
+  ...
+# Subtest: v6 QUARTILE.INC : =QUARTILE.INC(A1:A5,1)
+ok 596 - v6 QUARTILE.INC : =QUARTILE.INC(A1:A5,1)
+  ---
+  duration_ms: 0.21438
+  type: 'test'
+  ...
+# Subtest: v6 QUARTILE.EXC : =QUARTILE.EXC(A1:A5,1)
+ok 597 - v6 QUARTILE.EXC : =QUARTILE.EXC(A1:A5,1)
+  ---
+  duration_ms: 0.437622
+  type: 'test'
+  ...
+# Subtest: v6 RANK.EQ : =RANK.EQ(4,A1:A5)
+ok 598 - v6 RANK.EQ : =RANK.EQ(4,A1:A5)
+  ---
+  duration_ms: 0.269992
+  type: 'test'
+  ...
+# Subtest: v6 RANK.AVG : =RANK.AVG(2,A1:A5)
+ok 599 - v6 RANK.AVG : =RANK.AVG(2,A1:A5)
+  ---
+  duration_ms: 0.18775
+  type: 'test'
+  ...
+# Subtest: v6 FORECAST.LINEAR : =FORECAST.LINEAR(6,B1:B5,A1:A5)
+ok 600 - v6 FORECAST.LINEAR : =FORECAST.LINEAR(6,B1:B5,A1:A5)
+  ---
+  duration_ms: 0.238596
+  type: 'test'
+  ...
+# Subtest: v6 SKEW.P : =SKEW.P(A1:A3)
+ok 601 - v6 SKEW.P : =SKEW.P(A1:A3)
+  ---
+  duration_ms: 0.371934
+  type: 'test'
+  ...
+# Subtest: v6 FISHER : =FISHER(0)
+ok 602 - v6 FISHER : =FISHER(0)
+  ---
+  duration_ms: 0.189012
+  type: 'test'
+  ...
+# Subtest: v6 FISHERINV : =FISHERINV(0)
+ok 603 - v6 FISHERINV : =FISHERINV(0)
+  ---
+  duration_ms: 0.190354
+  type: 'test'
+  ...
+# Subtest: v6 BINOM.DIST : =BINOM.DIST(2,4,0.5,FALSE)
+ok 604 - v6 BINOM.DIST : =BINOM.DIST(2,4,0.5,FALSE)
+  ---
+  duration_ms: 0.260188
+  type: 'test'
+  ...
+# Subtest: v6 POISSON.DIST : =POISSON.DIST(0,2,FALSE)
+ok 605 - v6 POISSON.DIST : =POISSON.DIST(0,2,FALSE)
+  ---
+  duration_ms: 4.121385
+  type: 'test'
+  ...
+# Subtest: v6 EXPON.DIST : =EXPON.DIST(2,0.5,TRUE)
+ok 606 - v6 EXPON.DIST : =EXPON.DIST(2,0.5,TRUE)
+  ---
+  duration_ms: 0.199318
+  type: 'test'
+  ...
+# Subtest: v6 WEIBULL.DIST : =WEIBULL.DIST(2,1,2,TRUE)
+ok 607 - v6 WEIBULL.DIST : =WEIBULL.DIST(2,1,2,TRUE)
+  ---
+  duration_ms: 0.178807
+  type: 'test'
+  ...
+# Subtest: v6 NORM.DIST : =NORM.DIST(0,0,1,TRUE)
+ok 608 - v6 NORM.DIST : =NORM.DIST(0,0,1,TRUE)
+  ---
+  duration_ms: 0.231335
+  type: 'test'
+  ...
+# Subtest: v6 NORM.INV : =NORM.INV(0.5,0,1)
+ok 609 - v6 NORM.INV : =NORM.INV(0.5,0,1)
+  ---
+  duration_ms: 0.280007
+  type: 'test'
+  ...
+# Subtest: v6 NORM.S.DIST : =NORM.S.DIST(0,FALSE)
+ok 610 - v6 NORM.S.DIST : =NORM.S.DIST(0,FALSE)
+  ---
+  duration_ms: 0.193048
+  type: 'test'
+  ...
+# Subtest: v6 NORM.S.INV : =NORM.S.INV(0.5)
+ok 611 - v6 NORM.S.INV : =NORM.S.INV(0.5)
+  ---
+  duration_ms: 0.165898
+  type: 'test'
+  ...
+# Subtest: v6 LOGNORM.DIST : =LOGNORM.DIST(1,0,1,TRUE)
+ok 612 - v6 LOGNORM.DIST : =LOGNORM.DIST(1,0,1,TRUE)
+  ---
+  duration_ms: 0.210574
+  type: 'test'
+  ...
+# Subtest: v6 LOGNORM.INV : =LOGNORM.INV(0.5,0,1)
+ok 613 - v6 LOGNORM.INV : =LOGNORM.INV(0.5,0,1)
+  ---
+  duration_ms: 0.196012
+  type: 'test'
+  ...
+# Subtest: v6 CONFIDENCE.NORM : =CONFIDENCE.NORM(0.05,2,100)
+ok 614 - v6 CONFIDENCE.NORM : =CONFIDENCE.NORM(0.05,2,100)
+  ---
+  duration_ms: 0.190574
+  type: 'test'
+  ...
+# Subtest: v6 PHI : =PHI(0)
+ok 615 - v6 PHI : =PHI(0)
+  ---
+  duration_ms: 0.159448
+  type: 'test'
+  ...
+# Subtest: v6 GAUSS : =GAUSS(0)
+ok 616 - v6 GAUSS : =GAUSS(0)
+  ---
+  duration_ms: 0.14753
+  type: 'test'
+  ...
+# Subtest: v6 Z.TEST : =Z.TEST(A1:A5,3)
+ok 617 - v6 Z.TEST : =Z.TEST(A1:A5,3)
+  ---
+  duration_ms: 0.31539
+  type: 'test'
+  ...
+# Subtest: v6 ENCODEURL : =ENCODEURL("a b")
+ok 618 - v6 ENCODEURL : =ENCODEURL("a b")
+  ---
+  duration_ms: 0.238466
+  type: 'test'
+  ...
+# Subtest: v6 ARRAYTOTEXT : =ARRAYTOTEXT(A1:A2)
+ok 619 - v6 ARRAYTOTEXT : =ARRAYTOTEXT(A1:A2)
+  ---
+  duration_ms: 0.233128
+  type: 'test'
+  ...
+# Subtest: v6 VALUETOTEXT : =VALUETOTEXT("cat",1)
+ok 620 - v6 VALUETOTEXT : =VALUETOTEXT("cat",1)
+  ---
+  duration_ms: 0.185016
+  type: 'test'
+  ...
+# Subtest: v6 REGEXEXTRACT : =REGEXEXTRACT("AB123","[0-9]+")
+ok 621 - v6 REGEXEXTRACT : =REGEXEXTRACT("AB123","[0-9]+")
+  ---
+  duration_ms: 0.440797
+  type: 'test'
+  ...
+# Subtest: v6 IFNA : =IFNA(NA(),7)
+ok 622 - v6 IFNA : =IFNA(NA(),7)
+  ---
+  duration_ms: 0.397803
+  type: 'test'
+  ...
+# Subtest: v6 XMATCH : =XMATCH("East",D1:D5)
+ok 623 - v6 XMATCH : =XMATCH("East",D1:D5)
+  ---
+  duration_ms: 0.93584
+  type: 'test'
+  ...
+# Subtest: v6 ROW : =ROW(A4)
+ok 624 - v6 ROW : =ROW(A4)
+  ---
+  duration_ms: 0.369912
+  type: 'test'
+  ...
+# Subtest: v6 COLUMN : =COLUMN(B3)
+ok 625 - v6 COLUMN : =COLUMN(B3)
+  ---
+  duration_ms: 0.278576
+  type: 'test'
+  ...
+# Subtest: v6 FORMULATEXT : =FORMULATEXT(E2)
+ok 626 - v6 FORMULATEXT : =FORMULATEXT(E2)
+  ---
+  duration_ms: 0.299516
+  type: 'test'
+  ...
+# Subtest: v6 ISFORMULA : =ISFORMULA(E2)
+ok 627 - v6 ISFORMULA : =ISFORMULA(E2)
+  ---
+  duration_ms: 0.308129
+  type: 'test'
+  ...
+# Subtest: v6 INDIRECT : =INDIRECT("A3")
+ok 628 - v6 INDIRECT : =INDIRECT("A3")
+  ---
+  duration_ms: 0.329732
+  type: 'test'
+  ...
+# Subtest: v6 OFFSET : =OFFSET(A1,2,1)
+ok 629 - v6 OFFSET : =OFFSET(A1,2,1)
+  ---
+  duration_ms: 0.282251
+  type: 'test'
+  ...
+# Subtest: v6 HYPERLINK : =HYPERLINK("https://example.com","Example")
+ok 630 - v6 HYPERLINK : =HYPERLINK("https://example.com","Example")
+  ---
+  duration_ms: 0.345955
+  type: 'test'
+  ...
+# Subtest: v6 AREAS : =AREAS(A1:A5)
+ok 631 - v6 AREAS : =AREAS(A1:A5)
+  ---
+  duration_ms: 0.333748
+  type: 'test'
+  ...
+# Subtest: v6 NA : =NA()
+ok 632 - v6 NA : =NA()
+  ---
+  duration_ms: 0.40217
+  type: 'test'
+  ...
+# Subtest: v6 ERROR.TYPE : =ERROR.TYPE(1/0)
+ok 633 - v6 ERROR.TYPE : =ERROR.TYPE(1/0)
+  ---
+  duration_ms: 0.542869
+  type: 'test'
+  ...
+# Subtest: v6 ISREF : =ISREF(A1)
+ok 634 - v6 ISREF : =ISREF(A1)
+  ---
+  duration_ms: 0.254189
+  type: 'test'
+  ...
+# Subtest: v6 CELL : =CELL("address",B3)
+ok 635 - v6 CELL : =CELL("address",B3)
+  ---
+  duration_ms: 0.302801
+  type: 'test'
+  ...
+# Subtest: v6 CUMIPMT : =CUMIPMT(0.01,12,1000,1,1,0)
+ok 636 - v6 CUMIPMT : =CUMIPMT(0.01,12,1000,1,1,0)
+  ---
+  duration_ms: 0.384474
+  type: 'test'
+  ...
+# Subtest: v6 CUMPRINC : =CUMPRINC(0.01,12,1000,1,1,0)
+ok 637 - v6 CUMPRINC : =CUMPRINC(0.01,12,1000,1,1,0)
+  ---
+  duration_ms: 0.374999
+  type: 'test'
+  ...
+# Subtest: v6 ISPMT : =ISPMT(0.05,2,12,1000)
+ok 638 - v6 ISPMT : =ISPMT(0.05,2,12,1000)
+  ---
+  duration_ms: 0.333658
+  type: 'test'
+  ...
+# Subtest: v6 DB : =DB(10000,1000,5,1)
+ok 639 - v6 DB : =DB(10000,1000,5,1)
+  ---
+  duration_ms: 0.423932
+  type: 'test'
+  ...
+# Subtest: v6 VDB : =VDB(10000,1000,5,0,1)
+ok 640 - v6 VDB : =VDB(10000,1000,5,0,1)
+  ---
+  duration_ms: 1.158157
+  type: 'test'
+  ...
+# Subtest: v6 PDURATION : =PDURATION(0.1,1000,2000)
+ok 641 - v6 PDURATION : =PDURATION(0.1,1000,2000)
+  ---
+  duration_ms: 0.274028
+  type: 'test'
+  ...
+# Subtest: v6 DOLLARDE : =DOLLARDE(1.02,16)
+ok 642 - v6 DOLLARDE : =DOLLARDE(1.02,16)
+  ---
+  duration_ms: 0.304524
+  type: 'test'
+  ...
+# Subtest: v6 DOLLARFR : =DOLLARFR(1.125,16)
+ok 643 - v6 DOLLARFR : =DOLLARFR(1.125,16)
+  ---
+  duration_ms: 0.30878
+  type: 'test'
+  ...
+# Subtest: v6 PRICEDISC : =PRICEDISC(45000,45100,0.05,100)
+ok 644 - v6 PRICEDISC : =PRICEDISC(45000,45100,0.05,100)
+  ---
+  duration_ms: 0.264354
+  type: 'test'
+  ...
+# Subtest: v6 DISC : =DISC(45000,45100,98,100)
+ok 645 - v6 DISC : =DISC(45000,45100,98,100)
+  ---
+  duration_ms: 0.336262
+  type: 'test'
+  ...
+# Subtest: v6 WORKDAY.INTL : =WORKDAY.INTL(DATE(2026,10,19),5,1)
+ok 646 - v6 WORKDAY.INTL : =WORKDAY.INTL(DATE(2026,10,19),5,1)
+  ---
+  duration_ms: 0.421428
+  type: 'test'
+  ...
+# Subtest: v6 NETWORKDAYS.INTL : =NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),1)
+ok 647 - v6 NETWORKDAYS.INTL : =NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),1)
+  ---
+  duration_ms: 0.350212
+  type: 'test'
+  ...
+# Subtest: v6 dynamic INDIRECT dependency invalidates when target changes
+ok 648 - v6 dynamic INDIRECT dependency invalidates when target changes
+  ---
+  duration_ms: 0.434107
+  type: 'test'
+  ...
+# Subtest: v6 IFNA only catches N/A, and reference arguments are not prematurely evaluated
+ok 649 - v6 IFNA only catches N/A, and reference arguments are not prematurely evaluated
+  ---
+  duration_ms: 0.615027
+  type: 'test'
+  ...
+# Subtest: v6 formulas reject invalid probability and unsupported array spill
+ok 650 - v6 formulas reject invalid probability and unsupported array spill
+  ---
+  duration_ms: 0.526265
+  type: 'test'
+  ...
+# Subtest: v9 registry has exactly 100 genuinely new function names and categories
+ok 651 - v9 registry has exactly 100 genuinely new function names and categories
+  ---
+  duration_ms: 2.798973
+  type: 'test'
+  ...
+# Subtest: v9 BETADIST executes with worksheet values
+ok 652 - v9 BETADIST executes with worksheet values
+  ---
+  duration_ms: 4.757572
+  type: 'test'
+  ...
+# Subtest: v9 BETAINV executes with worksheet values
+ok 653 - v9 BETAINV executes with worksheet values
+  ---
+  duration_ms: 1.192728
+  type: 'test'
+  ...
+# Subtest: v9 BIN2DEC executes with worksheet values
+ok 654 - v9 BIN2DEC executes with worksheet values
+  ---
+  duration_ms: 0.818089
+  type: 'test'
+  ...
+# Subtest: v9 BIN2HEX executes with worksheet values
+ok 655 - v9 BIN2HEX executes with worksheet values
+  ---
+  duration_ms: 1.655018
+  type: 'test'
+  ...
+# Subtest: v9 BIN2OCT executes with worksheet values
+ok 656 - v9 BIN2OCT executes with worksheet values
+  ---
+  duration_ms: 0.546395
+  type: 'test'
+  ...
+# Subtest: v9 BINOMDIST executes with worksheet values
+ok 657 - v9 BINOMDIST executes with worksheet values
+  ---
+  duration_ms: 0.595989
+  type: 'test'
+  ...
+# Subtest: v9 CHIDIST executes with worksheet values
+ok 658 - v9 CHIDIST executes with worksheet values
+  ---
+  duration_ms: 0.641412
+  type: 'test'
+  ...
+# Subtest: v9 CHIINV executes with worksheet values
+ok 659 - v9 CHIINV executes with worksheet values
+  ---
+  duration_ms: 1.599084
+  type: 'test'
+  ...
+# Subtest: v9 CHITEST executes with worksheet values
+ok 660 - v9 CHITEST executes with worksheet values
+  ---
+  duration_ms: 1.768797
+  type: 'test'
+  ...
+# Subtest: v9 COMPLEX executes with worksheet values
+ok 661 - v9 COMPLEX executes with worksheet values
+  ---
+  duration_ms: 3.906744
+  type: 'test'
+  ...
+# Subtest: v9 CONFIDENCE executes with worksheet values
+ok 662 - v9 CONFIDENCE executes with worksheet values
+  ---
+  duration_ms: 1.362291
+  type: 'test'
+  ...
+# Subtest: v9 CONVERT executes with worksheet values
+ok 663 - v9 CONVERT executes with worksheet values
+  ---
+  duration_ms: 0.304444
+  type: 'test'
+  ...
+# Subtest: v9 COVAR executes with worksheet values
+ok 664 - v9 COVAR executes with worksheet values
+  ---
+  duration_ms: 0.49009
+  type: 'test'
+  ...
+# Subtest: v9 CRITBINOM executes with worksheet values
+ok 665 - v9 CRITBINOM executes with worksheet values
+  ---
+  duration_ms: 0.899601
+  type: 'test'
+  ...
+# Subtest: v9 DAVERAGE executes with worksheet values
+ok 666 - v9 DAVERAGE executes with worksheet values
+  ---
+  duration_ms: 10.054699
+  type: 'test'
+  ...
+# Subtest: v9 DCOUNT executes with worksheet values
+ok 667 - v9 DCOUNT executes with worksheet values
+  ---
+  duration_ms: 0.419095
+  type: 'test'
+  ...
+# Subtest: v9 DCOUNTA executes with worksheet values
+ok 668 - v9 DCOUNTA executes with worksheet values
+  ---
+  duration_ms: 0.480867
+  type: 'test'
+  ...
+# Subtest: v9 DEC2BIN executes with worksheet values
+ok 669 - v9 DEC2BIN executes with worksheet values
+  ---
+  duration_ms: 0.317493
+  type: 'test'
+  ...
+# Subtest: v9 DEC2HEX executes with worksheet values
+ok 670 - v9 DEC2HEX executes with worksheet values
+  ---
+  duration_ms: 0.300638
+  type: 'test'
+  ...
+# Subtest: v9 DEC2OCT executes with worksheet values
+ok 671 - v9 DEC2OCT executes with worksheet values
+  ---
+  duration_ms: 0.318064
+  type: 'test'
+  ...
+# Subtest: v9 DGET executes with worksheet values
+ok 672 - v9 DGET executes with worksheet values
+  ---
+  duration_ms: 0.371804
+  type: 'test'
+  ...
+# Subtest: v9 DMAX executes with worksheet values
+ok 673 - v9 DMAX executes with worksheet values
+  ---
+  duration_ms: 5.963871
+  type: 'test'
+  ...
+# Subtest: v9 DMIN executes with worksheet values
+ok 674 - v9 DMIN executes with worksheet values
+  ---
+  duration_ms: 4.028065
+  type: 'test'
+  ...
+# Subtest: v9 DPRODUCT executes with worksheet values
+ok 675 - v9 DPRODUCT executes with worksheet values
+  ---
+  duration_ms: 0.282211
+  type: 'test'
+  ...
+# Subtest: v9 DSTDEV executes with worksheet values
+ok 676 - v9 DSTDEV executes with worksheet values
+  ---
+  duration_ms: 0.328019
+  type: 'test'
+  ...
+# Subtest: v9 DSTDEVP executes with worksheet values
+ok 677 - v9 DSTDEVP executes with worksheet values
+  ---
+  duration_ms: 0.263913
+  type: 'test'
+  ...
+# Subtest: v9 DSUM executes with worksheet values
+ok 678 - v9 DSUM executes with worksheet values
+  ---
+  duration_ms: 0.377783
+  type: 'test'
+  ...
+# Subtest: v9 DURATION executes with worksheet values
+ok 679 - v9 DURATION executes with worksheet values
+  ---
+  duration_ms: 0.43595
+  type: 'test'
+  ...
+# Subtest: v9 DVAR executes with worksheet values
+ok 680 - v9 DVAR executes with worksheet values
+  ---
+  duration_ms: 0.54984
+  type: 'test'
+  ...
+# Subtest: v9 DVARP executes with worksheet values
+ok 681 - v9 DVARP executes with worksheet values
+  ---
+  duration_ms: 0.412465
+  type: 'test'
+  ...
+# Subtest: v9 ECMA.CEILING executes with worksheet values
+ok 682 - v9 ECMA.CEILING executes with worksheet values
+  ---
+  duration_ms: 0.46279
+  type: 'test'
+  ...
+# Subtest: v9 EXPONDIST executes with worksheet values
+ok 683 - v9 EXPONDIST executes with worksheet values
+  ---
+  duration_ms: 0.383902
+  type: 'test'
+  ...
+# Subtest: v9 FALSE executes with worksheet values
+ok 684 - v9 FALSE executes with worksheet values
+  ---
+  duration_ms: 0.237164
+  type: 'test'
+  ...
+# Subtest: v9 FDIST executes with worksheet values
+ok 685 - v9 FDIST executes with worksheet values
+  ---
+  duration_ms: 0.188431
+  type: 'test'
+  ...
+# Subtest: v9 FINV executes with worksheet values
+ok 686 - v9 FINV executes with worksheet values
+  ---
+  duration_ms: 12.357558
+  type: 'test'
+  ...
+# Subtest: v9 FREQUENCY executes with worksheet values
+ok 687 - v9 FREQUENCY executes with worksheet values
+  ---
+  duration_ms: 0.414608
+  type: 'test'
+  ...
+# Subtest: v9 FTEST executes with worksheet values
+ok 688 - v9 FTEST executes with worksheet values
+  ---
+  duration_ms: 0.274639
+  type: 'test'
+  ...
+# Subtest: v9 GAMMADIST executes with worksheet values
+ok 689 - v9 GAMMADIST executes with worksheet values
+  ---
+  duration_ms: 0.352305
+  type: 'test'
+  ...
+# Subtest: v9 GAMMAINV executes with worksheet values
+ok 690 - v9 GAMMAINV executes with worksheet values
+  ---
+  duration_ms: 0.463361
+  type: 'test'
+  ...
+# Subtest: v9 GROWTH executes with worksheet values
+ok 691 - v9 GROWTH executes with worksheet values
+  ---
+  duration_ms: 0.431644
+  type: 'test'
+  ...
+# Subtest: v9 HEX2BIN executes with worksheet values
+ok 692 - v9 HEX2BIN executes with worksheet values
+  ---
+  duration_ms: 0.504993
+  type: 'test'
+  ...
+# Subtest: v9 HEX2DEC executes with worksheet values
+ok 693 - v9 HEX2DEC executes with worksheet values
+  ---
+  duration_ms: 0.191275
+  type: 'test'
+  ...
+# Subtest: v9 HEX2OCT executes with worksheet values
+ok 694 - v9 HEX2OCT executes with worksheet values
+  ---
+  duration_ms: 0.215952
+  type: 'test'
+  ...
+# Subtest: v9 HYPGEOMDIST executes with worksheet values
+ok 695 - v9 HYPGEOMDIST executes with worksheet values
+  ---
+  duration_ms: 0.147901
+  type: 'test'
+  ...
+# Subtest: v9 IMABS executes with worksheet values
+ok 696 - v9 IMABS executes with worksheet values
+  ---
+  duration_ms: 0.283994
+  type: 'test'
+  ...
+# Subtest: v9 IMAGINARY executes with worksheet values
+ok 697 - v9 IMAGINARY executes with worksheet values
+  ---
+  duration_ms: 0.232096
+  type: 'test'
+  ...
+# Subtest: v9 IMARGUMENT executes with worksheet values
+ok 698 - v9 IMARGUMENT executes with worksheet values
+  ---
+  duration_ms: 0.270613
+  type: 'test'
+  ...
+# Subtest: v9 IMCONJUGATE executes with worksheet values
+ok 699 - v9 IMCONJUGATE executes with worksheet values
+  ---
+  duration_ms: 0.14736
+  type: 'test'
+  ...
+# Subtest: v9 IMCOS executes with worksheet values
+ok 700 - v9 IMCOS executes with worksheet values
+  ---
+  duration_ms: 0.205477
+  type: 'test'
+  ...
+# Subtest: v9 IMDIV executes with worksheet values
+ok 701 - v9 IMDIV executes with worksheet values
+  ---
+  duration_ms: 0.540736
+  type: 'test'
+  ...
+# Subtest: v9 IMEXP executes with worksheet values
+ok 702 - v9 IMEXP executes with worksheet values
+  ---
+  duration_ms: 0.24179
+  type: 'test'
+  ...
+# Subtest: v9 IMLN executes with worksheet values
+ok 703 - v9 IMLN executes with worksheet values
+  ---
+  duration_ms: 0.290854
+  type: 'test'
+  ...
+# Subtest: v9 IMLOG10 executes with worksheet values
+ok 704 - v9 IMLOG10 executes with worksheet values
+  ---
+  duration_ms: 0.187719
+  type: 'test'
+  ...
+# Subtest: v9 IMLOG2 executes with worksheet values
+ok 705 - v9 IMLOG2 executes with worksheet values
+  ---
+  duration_ms: 0.428769
+  type: 'test'
+  ...
+# Subtest: v9 IMPOWER executes with worksheet values
+ok 706 - v9 IMPOWER executes with worksheet values
+  ---
+  duration_ms: 0.242502
+  type: 'test'
+  ...
+# Subtest: v9 IMPRODUCT executes with worksheet values
+ok 707 - v9 IMPRODUCT executes with worksheet values
+  ---
+  duration_ms: 0.297303
+  type: 'test'
+  ...
+# Subtest: v9 IMREAL executes with worksheet values
+ok 708 - v9 IMREAL executes with worksheet values
+  ---
+  duration_ms: 0.14771
+  type: 'test'
+  ...
+# Subtest: v9 IMSIN executes with worksheet values
+ok 709 - v9 IMSIN executes with worksheet values
+  ---
+  duration_ms: 0.262241
+  type: 'test'
+  ...
+# Subtest: v9 IMSQRT executes with worksheet values
+ok 710 - v9 IMSQRT executes with worksheet values
+  ---
+  duration_ms: 0.1609
+  type: 'test'
+  ...
+# Subtest: v9 IMSUB executes with worksheet values
+ok 711 - v9 IMSUB executes with worksheet values
+  ---
+  duration_ms: 0.139388
+  type: 'test'
+  ...
+# Subtest: v9 IMSUM executes with worksheet values
+ok 712 - v9 IMSUM executes with worksheet values
+  ---
+  duration_ms: 0.210134
+  type: 'test'
+  ...
+# Subtest: v9 LINEST executes with worksheet values
+ok 713 - v9 LINEST executes with worksheet values
+  ---
+  duration_ms: 0.195502
+  type: 'test'
+  ...
+# Subtest: v9 LOGEST executes with worksheet values
+ok 714 - v9 LOGEST executes with worksheet values
+  ---
+  duration_ms: 0.170905
+  type: 'test'
+  ...
+# Subtest: v9 LOGINV executes with worksheet values
+ok 715 - v9 LOGINV executes with worksheet values
+  ---
+  duration_ms: 0.190173
+  type: 'test'
+  ...
+# Subtest: v9 LOGNORMDIST executes with worksheet values
+ok 716 - v9 LOGNORMDIST executes with worksheet values
+  ---
+  duration_ms: 0.193949
+  type: 'test'
+  ...
+# Subtest: v9 MDETERM executes with worksheet values
+ok 717 - v9 MDETERM executes with worksheet values
+  ---
+  duration_ms: 0.341749
+  type: 'test'
+  ...
+# Subtest: v9 MDURATION executes with worksheet values
+ok 718 - v9 MDURATION executes with worksheet values
+  ---
+  duration_ms: 0.543961
+  type: 'test'
+  ...
+# Subtest: v9 MINVERSE executes with worksheet values
+ok 719 - v9 MINVERSE executes with worksheet values
+  ---
+  duration_ms: 0.381159
+  type: 'test'
+  ...
+# Subtest: v9 MMULT executes with worksheet values
+ok 720 - v9 MMULT executes with worksheet values
+  ---
+  duration_ms: 0.502509
+  type: 'test'
+  ...
+# Subtest: v9 NEGBINOMDIST executes with worksheet values
+ok 721 - v9 NEGBINOMDIST executes with worksheet values
+  ---
+  duration_ms: 0.276172
+  type: 'test'
+  ...
+# Subtest: v9 OCT2BIN executes with worksheet values
+ok 722 - v9 OCT2BIN executes with worksheet values
+  ---
+  duration_ms: 0.265987
+  type: 'test'
+  ...
+# Subtest: v9 OCT2DEC executes with worksheet values
+ok 723 - v9 OCT2DEC executes with worksheet values
+  ---
+  duration_ms: 0.139168
+  type: 'test'
+  ...
+# Subtest: v9 OCT2HEX executes with worksheet values
+ok 724 - v9 OCT2HEX executes with worksheet values
+  ---
+  duration_ms: 0.130615
+  type: 'test'
+  ...
+# Subtest: v9 POISSON executes with worksheet values
+ok 725 - v9 POISSON executes with worksheet values
+  ---
+  duration_ms: 0.363943
+  type: 'test'
+  ...
+# Subtest: v9 PRICE executes with worksheet values
+ok 726 - v9 PRICE executes with worksheet values
+  ---
+  duration_ms: 0.323392
+  type: 'test'
+  ...
+# Subtest: v9 PRICEMAT executes with worksheet values
+ok 727 - v9 PRICEMAT executes with worksheet values
+  ---
+  duration_ms: 0.144124
+  type: 'test'
+  ...
+# Subtest: v9 PROB executes with worksheet values
+ok 728 - v9 PROB executes with worksheet values
+  ---
+  duration_ms: 0.225376
+  type: 'test'
+  ...
+# Subtest: v9 RAND executes with worksheet values
+ok 729 - v9 RAND executes with worksheet values
+  ---
+  duration_ms: 0.336341
+  type: 'test'
+  ...
+# Subtest: v9 RANDBETWEEN executes with worksheet values
+ok 730 - v9 RANDBETWEEN executes with worksheet values
+  ---
+  duration_ms: 3.294811
+  type: 'test'
+  ...
+# Subtest: v9 RECEIVED executes with worksheet values
+ok 731 - v9 RECEIVED executes with worksheet values
+  ---
+  duration_ms: 0.372535
+  type: 'test'
+  ...
+# Subtest: v9 STDEVA executes with worksheet values
+ok 732 - v9 STDEVA executes with worksheet values
+  ---
+  duration_ms: 0.319387
+  type: 'test'
+  ...
+# Subtest: v9 STDEVPA executes with worksheet values
+ok 733 - v9 STDEVPA executes with worksheet values
+  ---
+  duration_ms: 0.608016
+  type: 'test'
+  ...
+# Subtest: v9 SUBTOTAL executes with worksheet values
+ok 734 - v9 SUBTOTAL executes with worksheet values
+  ---
+  duration_ms: 0.363102
+  type: 'test'
+  ...
+# Subtest: v9 TBILLEQ executes with worksheet values
+ok 735 - v9 TBILLEQ executes with worksheet values
+  ---
+  duration_ms: 0.438444
+  type: 'test'
+  ...
+# Subtest: v9 TBILLPRICE executes with worksheet values
+ok 736 - v9 TBILLPRICE executes with worksheet values
+  ---
+  duration_ms: 0.151787
+  type: 'test'
+  ...
+# Subtest: v9 TBILLYIELD executes with worksheet values
+ok 737 - v9 TBILLYIELD executes with worksheet values
+  ---
+  duration_ms: 0.184295
+  type: 'test'
+  ...
+# Subtest: v9 TDIST executes with worksheet values
+ok 738 - v9 TDIST executes with worksheet values
+  ---
+  duration_ms: 0.18797
+  type: 'test'
+  ...
+# Subtest: v9 TINV executes with worksheet values
+ok 739 - v9 TINV executes with worksheet values
+  ---
+  duration_ms: 0.91208
+  type: 'test'
+  ...
+# Subtest: v9 TRANSPOSE executes with worksheet values
+ok 740 - v9 TRANSPOSE executes with worksheet values
+  ---
+  duration_ms: 0.306346
+  type: 'test'
+  ...
+# Subtest: v9 TREND executes with worksheet values
+ok 741 - v9 TREND executes with worksheet values
+  ---
+  duration_ms: 0.403441
+  type: 'test'
+  ...
+# Subtest: v9 TRUE executes with worksheet values
+ok 742 - v9 TRUE executes with worksheet values
+  ---
+  duration_ms: 0.253378
+  type: 'test'
+  ...
+# Subtest: v9 TTEST executes with worksheet values
+ok 743 - v9 TTEST executes with worksheet values
+  ---
+  duration_ms: 0.323092
+  type: 'test'
+  ...
+# Subtest: v9 VARA executes with worksheet values
+ok 744 - v9 VARA executes with worksheet values
+  ---
+  duration_ms: 0.289211
+  type: 'test'
+  ...
+# Subtest: v9 VARPA executes with worksheet values
+ok 745 - v9 VARPA executes with worksheet values
+  ---
+  duration_ms: 0.278185
+  type: 'test'
+  ...
+# Subtest: v9 WEIBULL executes with worksheet values
+ok 746 - v9 WEIBULL executes with worksheet values
+  ---
+  duration_ms: 0.356711
+  type: 'test'
+  ...
+# Subtest: v9 YIELD executes with worksheet values
+ok 747 - v9 YIELD executes with worksheet values
+  ---
+  duration_ms: 0.752672
+  type: 'test'
+  ...
+# Subtest: v9 YIELDDISC executes with worksheet values
+ok 748 - v9 YIELDDISC executes with worksheet values
+  ---
+  duration_ms: 0.353387
+  type: 'test'
+  ...
+# Subtest: v9 YIELDMAT executes with worksheet values
+ok 749 - v9 YIELDMAT executes with worksheet values
+  ---
+  duration_ms: 1.535098
+  type: 'test'
+  ...
+# Subtest: v9 ZTEST executes with worksheet values
+ok 750 - v9 ZTEST executes with worksheet values
+  ---
+  duration_ms: 0.451353
+  type: 'test'
+  ...
+# Subtest: v9 BINOM.INV executes with worksheet values
+ok 751 - v9 BINOM.INV executes with worksheet values
+  ---
+  duration_ms: 0.408098
+  type: 'test'
+  ...
+# Subtest: v9 selected numerical results agree with known examples
+ok 752 - v9 selected numerical results agree with known examples
+  ---
+  duration_ms: 9.154638
+  type: 'test'
+  ...
+# Subtest: v9 error diagnostics reject invalid security, matrix and complex inputs
+ok 753 - v9 error diagnostics reject invalid security, matrix and complex inputs
+  ---
+  duration_ms: 1.93197
+  type: 'test'
+  ...
+# Subtest: v6 macros: cross-sheet edit + source-relative copying + sort + formatting + preview
+ok 754 - v6 macros: cross-sheet edit + source-relative copying + sort + formatting + preview
+  ---
+  duration_ms: 28.338606
+  type: 'test'
+  ...
+# Subtest: v6 macros: invalid later step leaves both sheets unchanged
+ok 755 - v6 macros: invalid later step leaves both sheets unchanged
+  ---
+  duration_ms: 0.94588
+  type: 'test'
+  ...
+# Subtest: v6 macros: legacy v1 schema imports and preserves return structure
+ok 756 - v6 macros: legacy v1 schema imports and preserves return structure
+  ---
+  duration_ms: 0.726634
+  type: 'test'
+  ...
+# Subtest: v6 macros: unsafe unknown actions, scripts, invalid edits, and large operations rejected
+ok 757 - v6 macros: unsafe unknown actions, scripts, invalid edits, and large operations rejected
+  ---
+  duration_ms: 0.436871
+  type: 'test'
+  ...
+# Subtest: v6 macros: clear contents and styles without formula evaluation
+ok 758 - v6 macros: clear contents and styles without formula evaluation
+  ---
+  duration_ms: 0.995003
+  type: 'test'
+  ...
+# Subtest: Full-registry parity suite contains exactly one formula targeting every registered function
+ok 759 - Full-registry parity suite contains exactly one formula targeting every registered function
+  ---
+  duration_ms: 22.882914
+  type: 'test'
+  ...
+# Subtest: All 506 GridForge cases completed without a crash; NA() intentionally returns \#N/A
+ok 760 - All 506 GridForge cases completed without a crash; NA() intentionally returns \#N/A
+  ---
+  duration_ms: 0.456661
+  type: 'test'
+  ...
+# Subtest: REGRESSION: deterministic edits only recalculate affected dependencies
+ok 761 - REGRESSION: deterministic edits only recalculate affected dependencies
+  ---
+  duration_ms: 13.292677
+  type: 'test'
+  ...
+# Subtest: REGRESSION: after undo, a new edit clears obsolete redo history
+ok 762 - REGRESSION: after undo, a new edit clears obsolete redo history
+  ---
+  duration_ms: 0.580034
+  type: 'test'
+  ...
+# Subtest: REGRESSION: bad style inside transaction cannot partially change cell data
+ok 763 - REGRESSION: bad style inside transaction cannot partially change cell data
+  ---
+  duration_ms: 0.890538
+  type: 'test'
+  ...
+# Subtest: REGRESSION: sorting formula rows recomputes references, styles and exact undo state
+ok 764 - REGRESSION: sorting formula rows recomputes references, styles and exact undo state
+  ---
+  duration_ms: 2.088713
+  type: 'test'
+  ...
+# Subtest: REGRESSION: cycle recovery removes \#CYCLE! from old dependency graph
+ok 765 - REGRESSION: cycle recovery removes \#CYCLE! from old dependency graph
+  ---
+  duration_ms: 0.913021
+  type: 'test'
+  ...
+# Subtest: REGRESSION: relative vs locked references preserve expected positions
+ok 766 - REGRESSION: relative vs locked references preserve expected positions
+  ---
+  duration_ms: 0.182001
+  type: 'test'
+  ...
+# Subtest: REGRESSION: restored multi-sheet document does not share caches or styles
+ok 767 - REGRESSION: restored multi-sheet document does not share caches or styles
+  ---
+  duration_ms: 1.218717
+  type: 'test'
+  ...
+# Subtest: REGRESSION: XLSX export remains a valid Office ZIP with correct parts
+ok 768 - REGRESSION: XLSX export remains a valid Office ZIP with correct parts
+  ---
+  duration_ms: 3.436853
+  type: 'test'
+  ...
+# Subtest: v2 cell styling is sparse and persists across JSON roundtrip
+ok 769 - v2 cell styling is sparse and persists across JSON roundtrip
+  ---
+  duration_ms: 17.18608
+  type: 'test'
+  ...
+# Subtest: formatting can be toggled off and number format reset
+ok 770 - formatting can be toggled off and number format reset
+  ---
+  duration_ms: 0.424312
+  type: 'test'
+  ...
+# Subtest: undo and redo include formatting transactions
+ok 771 - undo and redo include formatting transactions
+  ---
+  duration_ms: 0.344754
+  type: 'test'
+  ...
+# Subtest: copy/paste-style multi-edit transaction is one undoable action
+ok 772 - copy/paste-style multi-edit transaction is one undoable action
+  ---
+  duration_ms: 1.223074
+  type: 'test'
+  ...
+# Subtest: cell styles do not invalidate unrelated dependency caches
+ok 773 - cell styles do not invalidate unrelated dependency caches
+  ---
+  duration_ms: 0.404272
+  type: 'test'
+  ...
+# Subtest: bad formatting is rejected on loading JSON
+ok 774 - bad formatting is rejected on loading JSON
+  ---
+  duration_ms: 0.686944
+  type: 'test'
+  ...
+# Subtest: number formats support percentage, currency, integer, and fixed decimals
+ok 775 - number formats support percentage, currency, integer, and fixed decimals
+  ---
+  duration_ms: 0.622118
+  type: 'test'
+  ...
+# Subtest: independent sheets have isolated cell values, calculation caches and formats
+ok 776 - independent sheets have isolated cell values, calculation caches and formats
+  ---
+  duration_ms: 0.79765
+  type: 'test'
+  ...
+# Subtest: sheet duplication creates independent content including styles
+ok 777 - sheet duplication creates independent content including styles
+  ---
+  duration_ms: 0.89219
+  type: 'test'
+  ...
+# Subtest: workbook document export, import, and v1 legacy data migration
+ok 778 - workbook document export, import, and v1 legacy data migration
+  ---
+  duration_ms: 0.922545
+  type: 'test'
+  ...
+# Subtest: deleting last worksheet and illegal name fails safely
+ok 779 - deleting last worksheet and illegal name fails safely
+  ---
+  duration_ms: 0.320337
+  type: 'test'
+  ...
+# Subtest: find and replace defaults to protecting formula sources
+ok 780 - find and replace defaults to protecting formula sources
+  ---
+  duration_ms: 0.5632
+  type: 'test'
+  ...
+# Subtest: case sensitive search and explicit formula-source replacement
+ok 781 - case sensitive search and explicit formula-source replacement
+  ---
+  duration_ms: 0.369921
+  type: 'test'
+  ...
+# Subtest: sort selected rows in numeric order (not lexicographic) with stable rows
+ok 782 - sort selected rows in numeric order (not lexicographic) with stable rows
+  ---
+  duration_ms: 0.926451
+  type: 'test'
+  ...
+# Subtest: sorting rows repositions formulas and shifts their relative references
+ok 783 - sorting rows repositions formulas and shifts their relative references
+  ---
+  duration_ms: 0.461348
+  type: 'test'
+  ...
+# Subtest: selection analytics counts blanks errors and duplicate values
+ok 784 - selection analytics counts blanks errors and duplicate values
+  ---
+  duration_ms: 0.437602
+  type: 'test'
+  ...
+# Subtest: ZIP writer and reader roundtrip UTF-8, verifies entry payloads
+ok 785 - ZIP writer and reader roundtrip UTF-8, verifies entry payloads
+  ---
+  duration_ms: 1.223834
+  type: 'test'
+  ...
+# Subtest: ZIP checksum catches corrupted bytes
+ok 786 - ZIP checksum catches corrupted bytes
+  ---
+  duration_ms: 0.684411
+  type: 'test'
+  ...
+# Subtest: ZIP ignores arbitrary attachments but rejects traversal paths
+ok 787 - ZIP ignores arbitrary attachments but rejects traversal paths
+  ---
+  duration_ms: 0.294429
+  type: 'test'
+  ...
+# Subtest: XLSX writer emits real multi-sheet Office XML with formulas and styles
+ok 788 - XLSX writer emits real multi-sheet Office XML with formulas and styles
+  ---
+  duration_ms: 5.834639
+  type: 'test'
+  ...
+# Subtest: filter returns only matching values in data region while preserving source
+ok 789 - filter returns only matching values in data region while preserving source
+  ---
+  duration_ms: 1.103746
+  type: 'test'
+  ...
+# Subtest: conditional rules compare numeric values only and respect exact selected rectangle
+ok 790 - conditional rules compare numeric values only and respect exact selected rectangle
+  ---
+  duration_ms: 0.195932
+  type: 'test'
+  ...
+# Subtest: v2 JSON imports into v3 and serializes sheet feature state
+ok 791 - v2 JSON imports into v3 and serializes sheet feature state
+  ---
+  duration_ms: 1.256162
+  type: 'test'
+  ...
+# Subtest: malformed filter/rules are rejected on workbook restore
+ok 792 - malformed filter/rules are rejected on workbook restore
+  ---
+  duration_ms: 0.196493
+  type: 'test'
+  ...
+# Subtest: challenge capacity: at least 10,000 addressable cells
+ok 793 - challenge capacity: at least 10,000 addressable cells
+  ---
+  duration_ms: 1.137857
+  type: 'test'
+  ...
+# Subtest: original 56 functions remain registered after expansion
+ok 794 - original 56 functions remain registered after expansion
+  ---
+  duration_ms: 0.489379
+  type: 'test'
+  ...
+# Subtest: lexer recognizes references, range punctuation and quoted commas
+ok 795 - lexer recognizes references, range punctuation and quoted commas
+  ---
+  duration_ms: 1.610792
+  type: 'test'
+  ...
+# Subtest: Pratt parser honors precedence and right associative exponent
+ok 796 - Pratt parser honors precedence and right associative exponent
+  ---
+  duration_ms: 3.801388
+  type: 'test'
+  ...
+# Subtest: arithmetic, unary, string concatenation and comparisons
+ok 797 - arithmetic, unary, string concatenation and comparisons
+  ---
+  duration_ms: 0.857839
+  type: 'test'
+  ...
+# Subtest: range aggregations and blank handling
+ok 798 - range aggregations and blank handling
+  ---
+  duration_ms: 2.14693
+  type: 'test'
+  ...
+# Subtest: conditional logic avoids evaluating unused branch
+ok 799 - conditional logic avoids evaluating unused branch
+  ---
+  duration_ms: 0.980252
+  type: 'test'
+  ...
+# Subtest: VLOOKUP exact, MATCH, INDEX, and nested aggregation
+ok 800 - VLOOKUP exact, MATCH, INDEX, and nested aggregation
+  ---
+  duration_ms: 8.091122
+  type: 'test'
+  ...
+# Subtest: SUMIF COUNTIF AVERAGEIF match predicates
+ok 801 - SUMIF COUNTIF AVERAGEIF match predicates
+  ---
+  duration_ms: 0.636789
+  type: 'test'
+  ...
+# Subtest: numeric utility functions
+ok 802 - numeric utility functions
+  ---
+  duration_ms: 1.052219
+  type: 'test'
+  ...
+# Subtest: text manipulation functions
+ok 803 - text manipulation functions
+  ---
+  duration_ms: 0.863778
+  type: 'test'
+  ...
+# Subtest: statistics and type predicates
+ok 804 - statistics and type predicates
+  ---
+  duration_ms: 1.304194
+  type: 'test'
+  ...
+# Subtest: parse error has caret position and actionable suggestion
+ok 805 - parse error has caret position and actionable suggestion
+  ---
+  duration_ms: 0.323181
+  type: 'test'
+  ...
+# Subtest: unknown function, division zero, bad reference, bad argument
+ok 806 - unknown function, division zero, bad reference, bad argument
+  ---
+  duration_ms: 0.421618
+  type: 'test'
+  ...
+# Subtest: direct and indirect cycles terminate and report \#CYCLE!
+ok 807 - direct and indirect cycles terminate and report \#CYCLE!
+  ---
+  duration_ms: 0.282151
+  type: 'test'
+  ...
+# Subtest: dependency invalidation only touches affected chain, not unrelated formulas
+ok 808 - dependency invalidation only touches affected chain, not unrelated formulas
+  ---
+  duration_ms: 0.424814
+  type: 'test'
+  ...
+# Subtest: switching dependencies detaches old graph edges
+ok 809 - switching dependencies detaches old graph edges
+  ---
+  duration_ms: 0.191856
+  type: 'test'
+  ...
+# Subtest: undo and redo for one edit and grouped edits
+ok 810 - undo and redo for one edit and grouped edits
+  ---
+  duration_ms: 0.340197
+  type: 'test'
+  ...
+# Subtest: relative fill respects absolute row and column locks
+ok 811 - relative fill respects absolute row and column locks
+  ---
+  duration_ms: 0.294349
+  type: 'test'
+  ...
+# Subtest: non-destructive what-if preview provides a diff
+ok 812 - non-destructive what-if preview provides a diff
+  ---
+  duration_ms: 0.870067
+  type: 'test'
+  ...
+# Subtest: JSON roundtrip preserves raw formulas, values and 20,800-cell dimensions
+ok 813 - JSON roundtrip preserves raw formulas, values and 20,800-cell dimensions
+  ---
+  duration_ms: 0.349301
+  type: 'test'
+  ...
+# Subtest: malformed JSON workbooks are rejected
+ok 814 - malformed JSON workbooks are rejected
+  ---
+  duration_ms: 0.304243
+  type: 'test'
+  ...
+# Subtest: CSV quoted commas, newlines and quote escapes roundtrip
+ok 815 - CSV quoted commas, newlines and quote escapes roundtrip
+  ---
+  duration_ms: 0.28814
+  type: 'test'
+  ...
+# Subtest: CSV rejects unterminated quoted fields
+ok 816 - CSV rejects unterminated quoted fields
+  ---
+  duration_ms: 0.163854
+  type: 'test'
+  ...
+# Subtest: address conversion AA52 / locks
+ok 817 - address conversion AA52 / locks
+  ---
+  duration_ms: 0.100349
+  type: 'test'
+  ...
+# Subtest: large workbook: 12k populated cells, isolated recalculation is selective
+ok 818 - large workbook: 12k populated cells, isolated recalculation is selective
+  ---
+  duration_ms: 57.779336
+  type: 'test'
+  ...
+1..818
+# tests 818
+# suites 0
+# pass 818
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 834.974962

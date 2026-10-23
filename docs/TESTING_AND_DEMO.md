@@ -23,7 +23,7 @@ Open `http://localhost:4174`. Note the Node.js version (`node --version`) and br
 
 `tests/workbook.test.mjs` and `tests/upgrade.test.mjs` run using Node's built-in test runner (no Jest dependency). The test suite covers these categories:
 
-1. Address capacity >= 10,000, 56 built-in functions and lexer coverage.
+1. Address capacity >= 10,000, 136 built-in functions and lexer coverage.
 2. Operator precedence, right-associated power, unary operators, concatenation and comparisons.
 3. SUM, AVERAGE, COUNT, COUNTA, COUNTBLANK, MEDIAN, PRODUCT.
 4. Short-circuit `IF`/`IFERROR`; AND/OR/NOT.
@@ -87,7 +87,7 @@ If your machine already has a Chrome/Chromium executable, set `GRIDFORGE_CHROMIU
 
 ## 4. Short demo-video storyboard (~3–4 minutes)
 
-**0:00–0:15** Introduce GridForge as an explainable custom TypeScript spreadsheet with 20,800 virtualized cells and 56 functions.
+**0:00–0:15** Introduce GridForge as an explainable custom TypeScript spreadsheet with 20,800 virtualized cells and 136 functions.
 
 **0:15–0:40** Enter `225` into B4. Show D4, F4, and total formulas react immediately. Point out recalculated cell count.
 

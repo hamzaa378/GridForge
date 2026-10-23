@@ -47,6 +47,7 @@ export class Workbook {
     parseErrors = new Map();
     deps = new Map();
     rev = new Map();
+    dynamicDeps = new Map();
     cache = new Map();
     dirty = new Set();
     undoStack = [];
@@ -102,6 +103,7 @@ export class Workbook {
                 this.rev.delete(oldRef);
         }
         this.deps.delete(ref);
+        this.clearDynamic(ref);
         this.ast.delete(ref);
         this.parseErrors.delete(ref);
         if (raw)
@@ -125,6 +127,36 @@ export class Workbook {
                 this.parseErrors.set(ref, d);
             }
         }
+    }
+    clearDynamic(owner) {
+        for (const dep of this.dynamicDeps.get(owner) ?? []) {
+            this.rev.get(dep)?.delete(owner);
+            if (this.rev.get(dep)?.size === 0)
+                this.rev.delete(dep);
+        }
+        this.dynamicDeps.delete(owner);
+    }
+    trackDynamic(owner, dependency) {
+        const ref = known(dependency, this.rows, this.cols);
+        if (!this.dynamicDeps.has(owner))
+            this.dynamicDeps.set(owner, new Set());
+        if (this.deps.get(owner)?.has(ref))
+            return;
+        this.dynamicDeps.get(owner).add(ref);
+        if (!this.rev.has(ref))
+            this.rev.set(ref, new Set());
+        this.rev.get(ref).add(owner);
+    }
+    referenceArg(n, visiting, allowText = false) {
+        if (!n)
+            error('#ARG!', 'Missing reference argument.');
+        if (n.type === 'ref')
+            return known(n.ref, this.rows, this.cols);
+        if (allowText) {
+            const val = this.evaluateScalar(n, visiting);
+            return known(text(val).replace(/\$/g, ''), this.rows, this.cols);
+        }
+        return error('#VALUE!', 'A cell reference is required.');
     }
     invalidate(refs) {
         const queue = [...refs], affected = new Set(queue);
@@ -224,6 +256,7 @@ export class Workbook {
         if (!ast)
             output = { value: simple(this.raw.get(ref) ?? '') };
         else {
+            this.clearDynamic(ref);
             try {
                 const value = this.evaluate(ast, [...visiting, ref]);
                 if (Array.isArray(value))
@@ -320,6 +353,100 @@ export class Workbook {
                 const candidates = Object.keys(functions).filter(x => x.startsWith(n.name.slice(0, 2))).slice(0, 4);
                 return error('#NAME?', `Unknown function ${n.name}.${candidates.length ? ` Did you mean ${candidates.join(' or ')}?` : ''}`);
             }
+            if (n.name === 'IFNA') {
+                if (n.args.length !== 2)
+                    error('#ARG!', 'IFNA takes a value and a fallback.');
+                try {
+                    return this.evaluate(n.args[0], visiting);
+                }
+                catch (e) {
+                    if (e instanceof SheetError && e.code === '#N/A')
+                        return this.evaluate(n.args[1], visiting);
+                    throw e;
+                }
+            }
+            if (n.name === 'ERROR.TYPE') {
+                if (n.args.length !== 1)
+                    error('#ARG!', 'ERROR.TYPE needs one argument.');
+                try {
+                    this.evaluate(n.args[0], visiting);
+                }
+                catch (e) {
+                    if (e instanceof SheetError) {
+                        const errors = { '#NULL!': 1, '#DIV/0!': 2, '#VALUE!': 3, '#REF!': 4, '#NAME?': 5, '#NUM!': 6, '#N/A': 7, '#GETTING_DATA': 8 };
+                        return errors[e.code] ?? error('#N/A', 'Unrecognized error code.');
+                    }
+                    throw e;
+                }
+                return error('#N/A', 'The argument is not an error.');
+            }
+            if (n.name === 'ISREF') {
+                if (n.args.length !== 1)
+                    error('#ARG!', 'ISREF needs one argument.');
+                return n.args[0].type === 'ref' || n.args[0].type === 'range';
+            }
+            if (n.name === 'ROW' || n.name === 'COLUMN') {
+                if (n.args.length > 1)
+                    error('#ARG!', `${n.name} takes zero or one reference.`);
+                const ref = n.args.length ? this.referenceArg(n.args[0], visiting) : visiting[visiting.length - 1];
+                const p = parseRef(ref);
+                return n.name === 'ROW' ? p.row + 1 : p.col + 1;
+            }
+            if (n.name === 'ISFORMULA' || n.name === 'FORMULATEXT') {
+                if (n.args.length !== 1)
+                    error('#ARG!', `${n.name} takes one reference.`);
+                const ref = this.referenceArg(n.args[0], visiting), raw = this.getRaw(ref);
+                if (n.name === 'ISFORMULA')
+                    return raw.startsWith('=');
+                if (!raw.startsWith('='))
+                    return error('#N/A', 'Referenced cell does not contain a formula.');
+                return raw;
+            }
+            if (n.name === 'CELL') {
+                if (n.args.length !== 2)
+                    error('#ARG!', 'CELL(info_type, reference) requires 2 arguments.');
+                const kind = text(this.evaluateScalar(n.args[0], visiting)).toLowerCase(), ref = this.referenceArg(n.args[1], visiting), p = parseRef(ref);
+                if (kind === 'address')
+                    return `$${colToName(p.col)}$${p.row + 1}`;
+                if (kind === 'row')
+                    return p.row + 1;
+                if (kind === 'col')
+                    return p.col + 1;
+                if (kind === 'contents')
+                    return this.getValue(ref, visiting).value;
+                if (kind === 'type') {
+                    const v = this.getValue(ref, visiting);
+                    return v.error ? 'e' : v.value === null ? 'b' : typeof v.value === 'string' ? 'l' : 'v';
+                }
+                return error('#VALUE!', `CELL info type '${kind}' not supported.`);
+            }
+            if (n.name === 'INDIRECT' || n.name === 'OFFSET') {
+                const owner = visiting[visiting.length - 1];
+                let ref;
+                if (n.name === 'INDIRECT') {
+                    if (n.args.length < 1 || n.args.length > 2)
+                        error('#ARG!', 'INDIRECT(address, [a1]) takes 1–2 arguments.');
+                    if (n.args.length === 2 && !bool(this.evaluateScalar(n.args[1], visiting)))
+                        error('#VALUE!', 'R1C1 references are not supported.');
+                    ref = known(text(this.evaluateScalar(n.args[0], visiting)).replace(/\$/g, ''), this.rows, this.cols);
+                }
+                else {
+                    if (n.args.length < 3 || n.args.length > 5)
+                        error('#ARG!', 'OFFSET(reference, rows, cols, [height], [width]) requires 3–5 arguments.');
+                    const base = parseRef(this.referenceArg(n.args[0], visiting));
+                    if ((n.args.length >= 4 && number(this.evaluateScalar(n.args[3], visiting)) !== 1) || (n.args.length === 5 && number(this.evaluateScalar(n.args[4], visiting)) !== 1))
+                        error('#VALUE!', 'GridForge supports scalar 1×1 OFFSET results.');
+                    const r = base.row + Math.trunc(number(this.evaluateScalar(n.args[1], visiting))), c = base.col + Math.trunc(number(this.evaluateScalar(n.args[2], visiting)));
+                    ref = known(`${colToName(c)}${r + 1}`, this.rows, this.cols);
+                }
+                if (ref === owner || visiting.includes(ref))
+                    error('#CYCLE!', `Circular dynamic reference through ${ref}.`);
+                this.trackDynamic(owner, ref);
+                const res = this.getValue(ref, visiting);
+                if (res.error)
+                    error(res.error.code, res.error.message);
+                return res.value;
+            }
             if (n.name === 'IF') {
                 if (n.args.length < 2 || n.args.length > 3)
                     error('#ARG!', 'IF(condition, true_value, false_value) takes 2–3 arguments.');
@@ -335,6 +462,78 @@ export class Workbook {
                 catch {
                     return this.evaluate(n.args[1], visiting);
                 }
+            }
+            if (n.name === 'XLOOKUP' && n.args.length === 4) {
+                const firstThree = n.args.slice(0, 3).map(arg => this.evaluate(arg, visiting));
+                try {
+                    return f.run(firstThree);
+                }
+                catch (e) {
+                    if (e instanceof SheetError && e.code === '#N/A')
+                        return this.evaluate(n.args[3], visiting);
+                    throw e;
+                }
+            }
+            if (['ISERR', 'ISERROR', 'ISNA'].includes(n.name)) {
+                if (n.args.length !== 1)
+                    error('#ARG!', `${n.name} takes one argument.`);
+                try {
+                    this.evaluate(n.args[0], visiting);
+                    return false;
+                }
+                catch (e) {
+                    const code = e instanceof SheetError ? e.code : e instanceof FormulaSyntaxError ? '#PARSE!' : '#ERROR!';
+                    return n.name === 'ISERROR' || (n.name === 'ISERR' && code !== '#N/A') || (n.name === 'ISNA' && code === '#N/A');
+                }
+            }
+            if (n.name === 'CHOOSE') {
+                if (n.args.length < 2)
+                    error('#ARG!', 'CHOOSE requires index and at least one value.');
+                const idx = Math.trunc(number(this.evaluateScalar(n.args[0], visiting)));
+                if (idx < 1 || idx >= n.args.length)
+                    error('#VALUE!', 'CHOOSE index is out of range.');
+                return this.evaluate(n.args[idx], visiting);
+            }
+            if (n.name === 'IFS') {
+                if (n.args.length < 2 || n.args.length % 2 !== 0)
+                    error('#ARG!', 'IFS needs condition, value pairs.');
+                for (let i = 0; i < n.args.length; i += 2)
+                    if (bool(this.evaluateScalar(n.args[i], visiting)))
+                        return this.evaluate(n.args[i + 1], visiting);
+                return error('#N/A', 'IFS did not match any condition.');
+            }
+            if (n.name === 'SWITCH') {
+                if (n.args.length < 3)
+                    error('#ARG!', 'SWITCH(expression, case, result, [default]) needs at least 3 arguments.');
+                const target = this.evaluateScalar(n.args[0], visiting), hasDefault = n.args.length % 2 === 0;
+                const finish = hasDefault ? n.args.length - 1 : n.args.length;
+                for (let i = 1; i < finish; i += 2) {
+                    const candidate = this.evaluateScalar(n.args[i], visiting);
+                    if (typeof target === 'number' && typeof candidate === 'number' ? target === candidate : text(target).toLowerCase() === text(candidate).toLowerCase())
+                        return this.evaluate(n.args[i + 1], visiting);
+                }
+                return hasDefault ? this.evaluate(n.args[n.args.length - 1], visiting) : error('#N/A', 'SWITCH has no matching case.');
+            }
+            // Excel treats numeric text and booleans typed directly into aggregation
+            // calls differently from the same values held in referenced cells.
+            // Preserve range/reference semantics while coercing direct literals.
+            if (['SUM', 'COUNT', 'AVERAGE', 'PRODUCT', 'MIN', 'MAX'].includes(n.name)) {
+                const evaluated = n.args.map(arg => {
+                    const value = this.evaluate(arg, visiting);
+                    if (arg.type !== 'literal')
+                        return value;
+                    if (typeof value === 'boolean')
+                        return value ? 1 : 0;
+                    if (typeof value === 'string' && value.trim() !== '') {
+                        const parsed = Number(value);
+                        if (Number.isFinite(parsed))
+                            return parsed;
+                        if (n.name !== 'COUNT')
+                            error('#VALUE!', `Cannot convert direct text argument '${value}' to a number.`);
+                    }
+                    return value;
+                });
+                return f.run(evaluated);
             }
             return f.run(n.args.map(arg => this.evaluate(arg, visiting)));
         }

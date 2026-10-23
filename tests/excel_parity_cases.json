@@ -1,0 +1,1254 @@
+{
+  "schema": "gridforge-excel-parity/1",
+  "description": "Deterministic cross-engine formula probes; Excel execution required for true differential results.",
+  "comparisonCell": "K5",
+  "cases": [
+    {
+      "id": "round-positive-half",
+      "formula": "=ROUND(1.5,0)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "round-negative-half",
+      "formula": "=ROUND(-1.5,0)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -2
+    },
+    {
+      "id": "round-negative-two-half",
+      "formula": "=ROUND(-2.5,0)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -3
+    },
+    {
+      "id": "round-negative-decimal",
+      "formula": "=ROUND(-1.475,2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -1.48
+    },
+    {
+      "id": "round-positive-one",
+      "formula": "=ROUND(2.15,1)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 2.2
+    },
+    {
+      "id": "round-negative-digits",
+      "formula": "=ROUND(626.3,-3)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 1000
+    },
+    {
+      "id": "roundup-negative",
+      "formula": "=ROUNDUP(-3.14159,1)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -3.2
+    },
+    {
+      "id": "rounddown-negative",
+      "formula": "=ROUNDDOWN(-3.99,1)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -3.9
+    },
+    {
+      "id": "abs-negative",
+      "formula": "=ABS(-19)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 19
+    },
+    {
+      "id": "int-negative",
+      "formula": "=INT(-3.2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -4
+    },
+    {
+      "id": "sqrt-perfect",
+      "formula": "=SQRT(81)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 9
+    },
+    {
+      "id": "power-integer",
+      "formula": "=POWER(2,8)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 256
+    },
+    {
+      "id": "mod-negative-divisor",
+      "formula": "=MOD(3,-2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -1
+    },
+    {
+      "id": "mod-negative-numerator",
+      "formula": "=MOD(-3,2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 1
+    },
+    {
+      "id": "sign-negative",
+      "formula": "=SIGN(-4)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": -1
+    },
+    {
+      "id": "factorial-five",
+      "formula": "=FACT(5)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 120
+    },
+    {
+      "id": "floor-positive",
+      "formula": "=FLOOR(13,5)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 10
+    },
+    {
+      "id": "ceiling-positive",
+      "formula": "=CEILING(13,5)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 15
+    },
+    {
+      "id": "logten",
+      "formula": "=LOG10(100)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "ln-one",
+      "formula": "=LN(1)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 0
+    },
+    {
+      "id": "sin-zero",
+      "formula": "=SIN(0)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 0
+    },
+    {
+      "id": "cos-zero",
+      "formula": "=COS(0)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 1
+    },
+    {
+      "id": "min-simple",
+      "formula": "=MIN(1,4,2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 1
+    },
+    {
+      "id": "max-simple",
+      "formula": "=MAX(1,4,2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 4
+    },
+    {
+      "id": "average-three",
+      "formula": "=AVERAGE(1,2,3)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "product-three",
+      "formula": "=PRODUCT(2,3,4)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 24
+    },
+    {
+      "id": "sum-three",
+      "formula": "=SUM(2,3,4)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 9
+    },
+    {
+      "id": "count-literal",
+      "formula": "=COUNT(3,5)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "sum-coercion-text",
+      "formula": "=SUM(\"3\",4)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 7
+    },
+    {
+      "id": "sum-coercion-boolean",
+      "formula": "=SUM(TRUE,2)",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 3
+    },
+    {
+      "id": "count-coercion-text",
+      "formula": "=COUNT(3,\"4\")",
+      "inputs": {},
+      "category": "math",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "add",
+      "formula": "=2+3",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 5
+    },
+    {
+      "id": "precedence",
+      "formula": "=2+3*4",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 14
+    },
+    {
+      "id": "parens",
+      "formula": "=(2+3)*4",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 20
+    },
+    {
+      "id": "divide",
+      "formula": "=9/3",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 3
+    },
+    {
+      "id": "exponent",
+      "formula": "=2^3",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 8
+    },
+    {
+      "id": "concatenate",
+      "formula": "=\"ab\"&\"cd\"",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "abcd"
+    },
+    {
+      "id": "equality",
+      "formula": "=3=3",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": true
+    },
+    {
+      "id": "less-than",
+      "formula": "=2<3",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": true
+    },
+    {
+      "id": "boolean-if",
+      "formula": "=IF(TRUE,10,20)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 10
+    },
+    {
+      "id": "if-short-circuit",
+      "formula": "=IF(TRUE,100,1/0)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 100
+    },
+    {
+      "id": "iferror-short-circuit",
+      "formula": "=IFERROR(10,1/0)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 10
+    },
+    {
+      "id": "iferror-handles",
+      "formula": "=IFERROR(1/0,9)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 9
+    },
+    {
+      "id": "ifna-handles",
+      "formula": "=IFNA(NA(),7)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 7
+    },
+    {
+      "id": "logic-and",
+      "formula": "=AND(TRUE,TRUE,FALSE)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": false
+    },
+    {
+      "id": "logic-or",
+      "formula": "=OR(FALSE,TRUE)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": true
+    },
+    {
+      "id": "logic-not",
+      "formula": "=NOT(TRUE)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": false
+    },
+    {
+      "id": "len-ascii",
+      "formula": "=LEN(\"hello\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 5
+    },
+    {
+      "id": "left-text",
+      "formula": "=LEFT(\"hello\",2)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "he"
+    },
+    {
+      "id": "right-text",
+      "formula": "=RIGHT(\"hello\",2)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "lo"
+    },
+    {
+      "id": "mid-text",
+      "formula": "=MID(\"hello\",2,3)",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "ell"
+    },
+    {
+      "id": "upper",
+      "formula": "=UPPER(\"MiXeD\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "MIXED"
+    },
+    {
+      "id": "lower",
+      "formula": "=LOWER(\"MiXeD\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "mixed"
+    },
+    {
+      "id": "trim",
+      "formula": "=TRIM(\"  a   b  \")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "a b"
+    },
+    {
+      "id": "substitute",
+      "formula": "=SUBSTITUTE(\"abab\",\"ab\",\"x\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "xx"
+    },
+    {
+      "id": "find",
+      "formula": "=FIND(\"lo\",\"hello\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 4
+    },
+    {
+      "id": "exact-case",
+      "formula": "=EXACT(\"A\",\"a\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": false
+    },
+    {
+      "id": "textjoin",
+      "formula": "=TEXTJOIN(\",\",TRUE,\"a\",\"b\",\"c\")",
+      "inputs": {},
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": "a,b,c"
+    },
+    {
+      "id": "sumproduct",
+      "formula": "=SUMPRODUCT(A1:A3,B1:B3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3,
+        "B1": 4,
+        "B2": 5,
+        "B3": 6
+      },
+      "category": "logic-text",
+      "kind": "scalar",
+      "referenceExpected": 32
+    },
+    {
+      "id": "range-sum",
+      "formula": "=SUM(A1:A4)",
+      "inputs": {
+        "A1": 2,
+        "A2": 3,
+        "A3": 4,
+        "A4": 5
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 14
+    },
+    {
+      "id": "range-blank-count",
+      "formula": "=COUNTBLANK(A1:A4)",
+      "inputs": {
+        "A1": 2,
+        "A3": 4
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "range-count-numeric",
+      "formula": "=COUNT(A1:A4)",
+      "inputs": {
+        "A1": 2,
+        "A2": "foo",
+        "A3": 4,
+        "A4": 5
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 3
+    },
+    {
+      "id": "range-text-ignored",
+      "formula": "=SUM(A1:A3)",
+      "inputs": {
+        "A1": 2,
+        "A2": {
+          "text": "3"
+        },
+        "A3": 4
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 6
+    },
+    {
+      "id": "range-average",
+      "formula": "=AVERAGE(A1:A4)",
+      "inputs": {
+        "A1": 2,
+        "A2": 4,
+        "A3": 6,
+        "A4": 8
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 5
+    },
+    {
+      "id": "range-sample-stdev",
+      "formula": "=STDEV.S(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 1
+    },
+    {
+      "id": "range-var-s",
+      "formula": "=VAR.S(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 1
+    },
+    {
+      "id": "range-var-p",
+      "formula": "=VAR.P(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 0.6666666666666666
+    },
+    {
+      "id": "sumif-north",
+      "formula": "=SUMIF(A1:A4,\"North\",B1:B4)",
+      "inputs": {
+        "A1": "North",
+        "A2": "South",
+        "A3": "North",
+        "A4": "East",
+        "B1": 4,
+        "B2": 7,
+        "B3": 5,
+        "B4": 9
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 9
+    },
+    {
+      "id": "countif-ten",
+      "formula": "=COUNTIF(A1:A4,\">10\")",
+      "inputs": {
+        "A1": 7,
+        "A2": 11,
+        "A3": 12,
+        "A4": 4
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "vlookup-exact",
+      "formula": "=VLOOKUP(\"Mouse\",A1:B3,2,FALSE)",
+      "inputs": {
+        "A1": "Mouse",
+        "B1": 12,
+        "A2": "Keyboard",
+        "B2": 14,
+        "A3": "Monitor",
+        "B3": 99
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 12
+    },
+    {
+      "id": "index-lookup",
+      "formula": "=INDEX(A1:B3,2,2)",
+      "inputs": {
+        "A1": 1,
+        "B1": 2,
+        "A2": 3,
+        "B2": 4,
+        "A3": 5,
+        "B3": 6
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 4
+    },
+    {
+      "id": "match-exact",
+      "formula": "=MATCH(\"B\",A1:A3,0)",
+      "inputs": {
+        "A1": "A",
+        "A2": "B",
+        "A3": "C"
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "absolute-ref",
+      "formula": "=A1+$B$1",
+      "inputs": {
+        "A1": 2,
+        "B1": 3
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 5
+    },
+    {
+      "id": "formula-dependency",
+      "formula": "=SUM(A1:A3)*2",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 12
+    },
+    {
+      "id": "countif-wildcard",
+      "formula": "=COUNTIF(A1:A3,\"A*\")",
+      "inputs": {
+        "A1": "Apple",
+        "A2": "Apricot",
+        "A3": "Banana"
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "sumifs-multi",
+      "formula": "=SUMIFS(C1:C4,A1:A4,\"North\",B1:B4,\">5\")",
+      "inputs": {
+        "A1": "North",
+        "A2": "South",
+        "A3": "North",
+        "A4": "North",
+        "B1": 3,
+        "B2": 6,
+        "B3": 7,
+        "B4": 9,
+        "C1": 2,
+        "C2": 4,
+        "C3": 6,
+        "C4": 8
+      },
+      "category": "references",
+      "kind": "scalar",
+      "referenceExpected": 14
+    },
+    {
+      "id": "date-march-1900",
+      "formula": "=DATE(1900,3,1)",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 61
+    },
+    {
+      "id": "date-2020",
+      "formula": "=DATE(2020,1,1)",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 43831
+    },
+    {
+      "id": "year-from-date",
+      "formula": "=YEAR(DATE(2024,2,1))",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 2024
+    },
+    {
+      "id": "month-from-date",
+      "formula": "=MONTH(DATE(2024,2,1))",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 2
+    },
+    {
+      "id": "day-from-date",
+      "formula": "=DAY(DATE(2024,2,29))",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 29
+    },
+    {
+      "id": "days-simple",
+      "formula": "=DAYS(DATE(2024,1,10),DATE(2024,1,1))",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 9
+    },
+    {
+      "id": "edate-month",
+      "formula": "=EDATE(DATE(2024,1,31),1)",
+      "inputs": {},
+      "category": "dates",
+      "kind": "scalar",
+      "referenceExpected": 45351
+    },
+    {
+      "id": "division-zero",
+      "formula": "=1/0",
+      "inputs": {},
+      "category": "errors",
+      "kind": "scalar",
+      "referenceExpected": "#DIV/0!"
+    },
+    {
+      "id": "negative-sqrt",
+      "formula": "=SQRT(-1)",
+      "inputs": {},
+      "category": "errors",
+      "kind": "scalar",
+      "referenceExpected": "#NUM!"
+    },
+    {
+      "id": "unknown-function",
+      "formula": "=NOTAFUNCTION(5)",
+      "inputs": {},
+      "category": "errors",
+      "kind": "scalar",
+      "referenceExpected": "#NAME?"
+    },
+    {
+      "id": "na",
+      "formula": "=NA()",
+      "inputs": {},
+      "category": "errors",
+      "kind": "scalar",
+      "referenceExpected": "#N/A"
+    },
+    {
+      "id": "bad-ref",
+      "formula": "=INDEX(A1:B2,10,1)",
+      "inputs": {},
+      "category": "errors",
+      "kind": "scalar",
+      "referenceExpected": "#REF!"
+    },
+    {
+      "id": "math-sum-0",
+      "formula": "=SUM(0,2,4)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 6
+    },
+    {
+      "id": "math-divide-0",
+      "formula": "=(5*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 10
+    },
+    {
+      "id": "math-round-neg-0",
+      "formula": "=ROUND(-0.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -1
+    },
+    {
+      "id": "math-sum-1",
+      "formula": "=SUM(1,3,5)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 9
+    },
+    {
+      "id": "math-divide-1",
+      "formula": "=(6*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 12
+    },
+    {
+      "id": "math-round-neg-1",
+      "formula": "=ROUND(-1.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -2
+    },
+    {
+      "id": "math-sum-2",
+      "formula": "=SUM(2,4,6)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 12
+    },
+    {
+      "id": "math-divide-2",
+      "formula": "=(7*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 14
+    },
+    {
+      "id": "math-round-neg-2",
+      "formula": "=ROUND(-2.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -3
+    },
+    {
+      "id": "math-sum-3",
+      "formula": "=SUM(3,5,7)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 15
+    },
+    {
+      "id": "math-divide-3",
+      "formula": "=(8*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 16
+    },
+    {
+      "id": "math-round-neg-3",
+      "formula": "=ROUND(-3.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -4
+    },
+    {
+      "id": "math-sum-5",
+      "formula": "=SUM(5,7,9)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 21
+    },
+    {
+      "id": "math-divide-5",
+      "formula": "=(10*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 20
+    },
+    {
+      "id": "math-round-neg-5",
+      "formula": "=ROUND(-5.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -6
+    },
+    {
+      "id": "math-sum-7",
+      "formula": "=SUM(7,9,11)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 27
+    },
+    {
+      "id": "math-divide-7",
+      "formula": "=(12*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 24
+    },
+    {
+      "id": "math-round-neg-7",
+      "formula": "=ROUND(-7.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -8
+    },
+    {
+      "id": "math-sum-13",
+      "formula": "=SUM(13,15,17)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 45
+    },
+    {
+      "id": "math-divide-13",
+      "formula": "=(18*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 36
+    },
+    {
+      "id": "math-round-neg-13",
+      "formula": "=ROUND(-13.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -14
+    },
+    {
+      "id": "math-sum-17",
+      "formula": "=SUM(17,19,21)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 57
+    },
+    {
+      "id": "math-divide-17",
+      "formula": "=(22*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 44
+    },
+    {
+      "id": "math-round-neg-17",
+      "formula": "=ROUND(-17.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -18
+    },
+    {
+      "id": "math-sum-29",
+      "formula": "=SUM(29,31,33)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 93
+    },
+    {
+      "id": "math-divide-29",
+      "formula": "=(34*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 68
+    },
+    {
+      "id": "math-round-neg-29",
+      "formula": "=ROUND(-29.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -30
+    },
+    {
+      "id": "math-sum-37",
+      "formula": "=SUM(37,39,41)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 117
+    },
+    {
+      "id": "math-divide-37",
+      "formula": "=(42*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 84
+    },
+    {
+      "id": "math-round-neg-37",
+      "formula": "=ROUND(-37.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -38
+    },
+    {
+      "id": "math-sum-43",
+      "formula": "=SUM(43,45,47)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 135
+    },
+    {
+      "id": "math-divide-43",
+      "formula": "=(48*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 96
+    },
+    {
+      "id": "math-round-neg-43",
+      "formula": "=ROUND(-43.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -44
+    },
+    {
+      "id": "math-sum-71",
+      "formula": "=SUM(71,73,75)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 219
+    },
+    {
+      "id": "math-divide-71",
+      "formula": "=(76*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 152
+    },
+    {
+      "id": "math-round-neg-71",
+      "formula": "=ROUND(-71.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -72
+    },
+    {
+      "id": "math-sum-97",
+      "formula": "=SUM(97,99,101)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 297
+    },
+    {
+      "id": "math-divide-97",
+      "formula": "=(102*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 204
+    },
+    {
+      "id": "math-round-neg-97",
+      "formula": "=ROUND(-97.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -98
+    },
+    {
+      "id": "math-sum-127",
+      "formula": "=SUM(127,129,131)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 387
+    },
+    {
+      "id": "math-divide-127",
+      "formula": "=(132*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 264
+    },
+    {
+      "id": "math-round-neg-127",
+      "formula": "=ROUND(-127.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -128
+    },
+    {
+      "id": "math-sum-199",
+      "formula": "=SUM(199,201,203)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 603
+    },
+    {
+      "id": "math-divide-199",
+      "formula": "=(204*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 408
+    },
+    {
+      "id": "math-round-neg-199",
+      "formula": "=ROUND(-199.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -200
+    },
+    {
+      "id": "math-sum-255",
+      "formula": "=SUM(255,257,259)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 771
+    },
+    {
+      "id": "math-divide-255",
+      "formula": "=(260*6)/3",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": 520
+    },
+    {
+      "id": "math-round-neg-255",
+      "formula": "=ROUND(-255.5,0)",
+      "inputs": {},
+      "category": "generated-math",
+      "kind": "scalar",
+      "referenceExpected": -256
+    },
+    {
+      "id": "dynamic-sequence-spill",
+      "formula": "=SEQUENCE(2,2)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 1,
+        "B1": 1,
+        "B2": 0,
+        "B3": 1
+      },
+      "category": "dynamic-arrays",
+      "kind": "expected-gap",
+      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+    },
+    {
+      "id": "dynamic-filter-spill",
+      "formula": "=FILTER(A1:A3,B1:B3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 1,
+        "B1": 1,
+        "B2": 0,
+        "B3": 1
+      },
+      "category": "dynamic-arrays",
+      "kind": "expected-gap",
+      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+    },
+    {
+      "id": "dynamic-unique-spill",
+      "formula": "=UNIQUE(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 1,
+        "B1": 1,
+        "B2": 0,
+        "B3": 1
+      },
+      "category": "dynamic-arrays",
+      "kind": "expected-gap",
+      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+    },
+    {
+      "id": "dynamic-textsplit-spill",
+      "formula": "=TEXTSPLIT(\"A,B\",\",\")",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 1,
+        "B1": 1,
+        "B2": 0,
+        "B3": 1
+      },
+      "category": "dynamic-arrays",
+      "kind": "expected-gap",
+      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+    }
+  ]
+}

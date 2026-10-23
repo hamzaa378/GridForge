@@ -1,0 +1,1680 @@
+{
+  "schema": "gridforge-excel-parity-result/1",
+  "engine": "GridForge v10 audit",
+  "excelExecuted": false,
+  "generatedAt": "2026-10-21T06:27:58.505Z",
+  "cases": [
+    {
+      "id": "round-positive-half",
+      "category": "math",
+      "formula": "=ROUND(1.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "round-negative-half",
+      "category": "math",
+      "formula": "=ROUND(-1.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -2
+      },
+      "referenceExpected": -2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "round-negative-two-half",
+      "category": "math",
+      "formula": "=ROUND(-2.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -3
+      },
+      "referenceExpected": -3,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "round-negative-decimal",
+      "category": "math",
+      "formula": "=ROUND(-1.475,2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -1.48
+      },
+      "referenceExpected": -1.48,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "round-positive-one",
+      "category": "math",
+      "formula": "=ROUND(2.15,1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2.2
+      },
+      "referenceExpected": 2.2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "round-negative-digits",
+      "category": "math",
+      "formula": "=ROUND(626.3,-3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 1000
+      },
+      "referenceExpected": 1000,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "roundup-negative",
+      "category": "math",
+      "formula": "=ROUNDUP(-3.14159,1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -3.2
+      },
+      "referenceExpected": -3.2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "rounddown-negative",
+      "category": "math",
+      "formula": "=ROUNDDOWN(-3.99,1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -3.9
+      },
+      "referenceExpected": -3.9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "abs-negative",
+      "category": "math",
+      "formula": "=ABS(-19)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 19
+      },
+      "referenceExpected": 19,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "int-negative",
+      "category": "math",
+      "formula": "=INT(-3.2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -4
+      },
+      "referenceExpected": -4,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sqrt-perfect",
+      "category": "math",
+      "formula": "=SQRT(81)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "referenceExpected": 9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "power-integer",
+      "category": "math",
+      "formula": "=POWER(2,8)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 256
+      },
+      "referenceExpected": 256,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "mod-negative-divisor",
+      "category": "math",
+      "formula": "=MOD(3,-2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -1
+      },
+      "referenceExpected": -1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "mod-negative-numerator",
+      "category": "math",
+      "formula": "=MOD(-3,2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "referenceExpected": 1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sign-negative",
+      "category": "math",
+      "formula": "=SIGN(-4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -1
+      },
+      "referenceExpected": -1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "factorial-five",
+      "category": "math",
+      "formula": "=FACT(5)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 120
+      },
+      "referenceExpected": 120,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "floor-positive",
+      "category": "math",
+      "formula": "=FLOOR(13,5)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "referenceExpected": 10,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "ceiling-positive",
+      "category": "math",
+      "formula": "=CEILING(13,5)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 15
+      },
+      "referenceExpected": 15,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "logten",
+      "category": "math",
+      "formula": "=LOG10(100)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "ln-one",
+      "category": "math",
+      "formula": "=LN(1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "referenceExpected": 0,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sin-zero",
+      "category": "math",
+      "formula": "=SIN(0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "referenceExpected": 0,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "cos-zero",
+      "category": "math",
+      "formula": "=COS(0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "referenceExpected": 1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "min-simple",
+      "category": "math",
+      "formula": "=MIN(1,4,2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "referenceExpected": 1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "max-simple",
+      "category": "math",
+      "formula": "=MAX(1,4,2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "referenceExpected": 4,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "average-three",
+      "category": "math",
+      "formula": "=AVERAGE(1,2,3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "product-three",
+      "category": "math",
+      "formula": "=PRODUCT(2,3,4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 24
+      },
+      "referenceExpected": 24,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sum-three",
+      "category": "math",
+      "formula": "=SUM(2,3,4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "referenceExpected": 9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "count-literal",
+      "category": "math",
+      "formula": "=COUNT(3,5)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sum-coercion-text",
+      "category": "math",
+      "formula": "=SUM(\"3\",4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "referenceExpected": 7,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sum-coercion-boolean",
+      "category": "math",
+      "formula": "=SUM(TRUE,2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "referenceExpected": 3,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "count-coercion-text",
+      "category": "math",
+      "formula": "=COUNT(3,\"4\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "add",
+      "category": "logic-text",
+      "formula": "=2+3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "referenceExpected": 5,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "precedence",
+      "category": "logic-text",
+      "formula": "=2+3*4",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "referenceExpected": 14,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "parens",
+      "category": "logic-text",
+      "formula": "=(2+3)*4",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "referenceExpected": 20,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "divide",
+      "category": "logic-text",
+      "formula": "=9/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "referenceExpected": 3,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "exponent",
+      "category": "logic-text",
+      "formula": "=2^3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 8
+      },
+      "referenceExpected": 8,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "concatenate",
+      "category": "logic-text",
+      "formula": "=\"ab\"&\"cd\"",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "abcd"
+      },
+      "referenceExpected": "abcd",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "equality",
+      "category": "logic-text",
+      "formula": "=3=3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "referenceExpected": true,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "less-than",
+      "category": "logic-text",
+      "formula": "=2<3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "referenceExpected": true,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "boolean-if",
+      "category": "logic-text",
+      "formula": "=IF(TRUE,10,20)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "referenceExpected": 10,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "if-short-circuit",
+      "category": "logic-text",
+      "formula": "=IF(TRUE,100,1/0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 100
+      },
+      "referenceExpected": 100,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "iferror-short-circuit",
+      "category": "logic-text",
+      "formula": "=IFERROR(10,1/0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "referenceExpected": 10,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "iferror-handles",
+      "category": "logic-text",
+      "formula": "=IFERROR(1/0,9)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "referenceExpected": 9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "ifna-handles",
+      "category": "logic-text",
+      "formula": "=IFNA(NA(),7)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "referenceExpected": 7,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "logic-and",
+      "category": "logic-text",
+      "formula": "=AND(TRUE,TRUE,FALSE)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "referenceExpected": false,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "logic-or",
+      "category": "logic-text",
+      "formula": "=OR(FALSE,TRUE)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "referenceExpected": true,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "logic-not",
+      "category": "logic-text",
+      "formula": "=NOT(TRUE)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "referenceExpected": false,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "len-ascii",
+      "category": "logic-text",
+      "formula": "=LEN(\"hello\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "referenceExpected": 5,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "left-text",
+      "category": "logic-text",
+      "formula": "=LEFT(\"hello\",2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "he"
+      },
+      "referenceExpected": "he",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "right-text",
+      "category": "logic-text",
+      "formula": "=RIGHT(\"hello\",2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "lo"
+      },
+      "referenceExpected": "lo",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "mid-text",
+      "category": "logic-text",
+      "formula": "=MID(\"hello\",2,3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "ell"
+      },
+      "referenceExpected": "ell",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "upper",
+      "category": "logic-text",
+      "formula": "=UPPER(\"MiXeD\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "MIXED"
+      },
+      "referenceExpected": "MIXED",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "lower",
+      "category": "logic-text",
+      "formula": "=LOWER(\"MiXeD\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "mixed"
+      },
+      "referenceExpected": "mixed",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "trim",
+      "category": "logic-text",
+      "formula": "=TRIM(\"  a   b  \")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "a b"
+      },
+      "referenceExpected": "a b",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "substitute",
+      "category": "logic-text",
+      "formula": "=SUBSTITUTE(\"abab\",\"ab\",\"x\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "xx"
+      },
+      "referenceExpected": "xx",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "find",
+      "category": "logic-text",
+      "formula": "=FIND(\"lo\",\"hello\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "referenceExpected": 4,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "exact-case",
+      "category": "logic-text",
+      "formula": "=EXACT(\"A\",\"a\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "referenceExpected": false,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "textjoin",
+      "category": "logic-text",
+      "formula": "=TEXTJOIN(\",\",TRUE,\"a\",\"b\",\"c\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "string",
+        "value": "a,b,c"
+      },
+      "referenceExpected": "a,b,c",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sumproduct",
+      "category": "logic-text",
+      "formula": "=SUMPRODUCT(A1:A3,B1:B3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 32
+      },
+      "referenceExpected": 32,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-sum",
+      "category": "references",
+      "formula": "=SUM(A1:A4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "referenceExpected": 14,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-blank-count",
+      "category": "references",
+      "formula": "=COUNTBLANK(A1:A4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-count-numeric",
+      "category": "references",
+      "formula": "=COUNT(A1:A4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "referenceExpected": 3,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-text-ignored",
+      "category": "references",
+      "formula": "=SUM(A1:A3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "referenceExpected": 6,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-average",
+      "category": "references",
+      "formula": "=AVERAGE(A1:A4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "referenceExpected": 5,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-sample-stdev",
+      "category": "references",
+      "formula": "=STDEV.S(A1:A3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "referenceExpected": 1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-var-s",
+      "category": "references",
+      "formula": "=VAR.S(A1:A3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "referenceExpected": 1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "range-var-p",
+      "category": "references",
+      "formula": "=VAR.P(A1:A3)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6666666666666666
+      },
+      "referenceExpected": 0.6666666666666666,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sumif-north",
+      "category": "references",
+      "formula": "=SUMIF(A1:A4,\"North\",B1:B4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "referenceExpected": 9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "countif-ten",
+      "category": "references",
+      "formula": "=COUNTIF(A1:A4,\">10\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "vlookup-exact",
+      "category": "references",
+      "formula": "=VLOOKUP(\"Mouse\",A1:B3,2,FALSE)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "referenceExpected": 12,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "index-lookup",
+      "category": "references",
+      "formula": "=INDEX(A1:B3,2,2)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "referenceExpected": 4,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "match-exact",
+      "category": "references",
+      "formula": "=MATCH(\"B\",A1:A3,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "absolute-ref",
+      "category": "references",
+      "formula": "=A1+$B$1",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "referenceExpected": 5,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "formula-dependency",
+      "category": "references",
+      "formula": "=SUM(A1:A3)*2",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "referenceExpected": 12,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "countif-wildcard",
+      "category": "references",
+      "formula": "=COUNTIF(A1:A3,\"A*\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "sumifs-multi",
+      "category": "references",
+      "formula": "=SUMIFS(C1:C4,A1:A4,\"North\",B1:B4,\">5\")",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "referenceExpected": 14,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "date-march-1900",
+      "category": "dates",
+      "formula": "=DATE(1900,3,1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 61
+      },
+      "referenceExpected": 61,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "date-2020",
+      "category": "dates",
+      "formula": "=DATE(2020,1,1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 43831
+      },
+      "referenceExpected": 43831,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "year-from-date",
+      "category": "dates",
+      "formula": "=YEAR(DATE(2024,2,1))",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2024
+      },
+      "referenceExpected": 2024,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "month-from-date",
+      "category": "dates",
+      "formula": "=MONTH(DATE(2024,2,1))",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "referenceExpected": 2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "day-from-date",
+      "category": "dates",
+      "formula": "=DAY(DATE(2024,2,29))",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 29
+      },
+      "referenceExpected": 29,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "days-simple",
+      "category": "dates",
+      "formula": "=DAYS(DATE(2024,1,10),DATE(2024,1,1))",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "referenceExpected": 9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "edate-month",
+      "category": "dates",
+      "formula": "=EDATE(DATE(2024,1,31),1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 45351
+      },
+      "referenceExpected": 45351,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "division-zero",
+      "category": "errors",
+      "formula": "=1/0",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "error",
+        "value": "#DIV/0!"
+      },
+      "referenceExpected": "#DIV/0!",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "negative-sqrt",
+      "category": "errors",
+      "formula": "=SQRT(-1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "referenceExpected": "#NUM!",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "unknown-function",
+      "category": "errors",
+      "formula": "=NOTAFUNCTION(5)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "referenceExpected": "#NAME?",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "na",
+      "category": "errors",
+      "formula": "=NA()",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "error",
+        "value": "#N/A"
+      },
+      "referenceExpected": "#N/A",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "bad-ref",
+      "category": "errors",
+      "formula": "=INDEX(A1:B2,10,1)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "error",
+        "value": "#REF!"
+      },
+      "referenceExpected": "#REF!",
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-0",
+      "category": "generated-math",
+      "formula": "=SUM(0,2,4)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "referenceExpected": 6,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-0",
+      "category": "generated-math",
+      "formula": "=(5*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "referenceExpected": 10,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-0",
+      "category": "generated-math",
+      "formula": "=ROUND(-0.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -1
+      },
+      "referenceExpected": -1,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-1",
+      "category": "generated-math",
+      "formula": "=SUM(1,3,5)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "referenceExpected": 9,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-1",
+      "category": "generated-math",
+      "formula": "=(6*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "referenceExpected": 12,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-1",
+      "category": "generated-math",
+      "formula": "=ROUND(-1.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -2
+      },
+      "referenceExpected": -2,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-2",
+      "category": "generated-math",
+      "formula": "=SUM(2,4,6)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "referenceExpected": 12,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-2",
+      "category": "generated-math",
+      "formula": "=(7*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "referenceExpected": 14,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-2",
+      "category": "generated-math",
+      "formula": "=ROUND(-2.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -3
+      },
+      "referenceExpected": -3,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-3",
+      "category": "generated-math",
+      "formula": "=SUM(3,5,7)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 15
+      },
+      "referenceExpected": 15,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-3",
+      "category": "generated-math",
+      "formula": "=(8*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 16
+      },
+      "referenceExpected": 16,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-3",
+      "category": "generated-math",
+      "formula": "=ROUND(-3.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -4
+      },
+      "referenceExpected": -4,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-5",
+      "category": "generated-math",
+      "formula": "=SUM(5,7,9)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 21
+      },
+      "referenceExpected": 21,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-5",
+      "category": "generated-math",
+      "formula": "=(10*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "referenceExpected": 20,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-5",
+      "category": "generated-math",
+      "formula": "=ROUND(-5.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -6
+      },
+      "referenceExpected": -6,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-7",
+      "category": "generated-math",
+      "formula": "=SUM(7,9,11)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 27
+      },
+      "referenceExpected": 27,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-7",
+      "category": "generated-math",
+      "formula": "=(12*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 24
+      },
+      "referenceExpected": 24,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-7",
+      "category": "generated-math",
+      "formula": "=ROUND(-7.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -8
+      },
+      "referenceExpected": -8,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-13",
+      "category": "generated-math",
+      "formula": "=SUM(13,15,17)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 45
+      },
+      "referenceExpected": 45,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-13",
+      "category": "generated-math",
+      "formula": "=(18*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 36
+      },
+      "referenceExpected": 36,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-13",
+      "category": "generated-math",
+      "formula": "=ROUND(-13.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -14
+      },
+      "referenceExpected": -14,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-17",
+      "category": "generated-math",
+      "formula": "=SUM(17,19,21)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 57
+      },
+      "referenceExpected": 57,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-17",
+      "category": "generated-math",
+      "formula": "=(22*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 44
+      },
+      "referenceExpected": 44,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-17",
+      "category": "generated-math",
+      "formula": "=ROUND(-17.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -18
+      },
+      "referenceExpected": -18,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-29",
+      "category": "generated-math",
+      "formula": "=SUM(29,31,33)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 93
+      },
+      "referenceExpected": 93,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-29",
+      "category": "generated-math",
+      "formula": "=(34*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 68
+      },
+      "referenceExpected": 68,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-29",
+      "category": "generated-math",
+      "formula": "=ROUND(-29.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -30
+      },
+      "referenceExpected": -30,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-37",
+      "category": "generated-math",
+      "formula": "=SUM(37,39,41)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 117
+      },
+      "referenceExpected": 117,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-37",
+      "category": "generated-math",
+      "formula": "=(42*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 84
+      },
+      "referenceExpected": 84,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-37",
+      "category": "generated-math",
+      "formula": "=ROUND(-37.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -38
+      },
+      "referenceExpected": -38,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-43",
+      "category": "generated-math",
+      "formula": "=SUM(43,45,47)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 135
+      },
+      "referenceExpected": 135,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-43",
+      "category": "generated-math",
+      "formula": "=(48*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 96
+      },
+      "referenceExpected": 96,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-43",
+      "category": "generated-math",
+      "formula": "=ROUND(-43.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -44
+      },
+      "referenceExpected": -44,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-71",
+      "category": "generated-math",
+      "formula": "=SUM(71,73,75)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 219
+      },
+      "referenceExpected": 219,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-71",
+      "category": "generated-math",
+      "formula": "=(76*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 152
+      },
+      "referenceExpected": 152,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-71",
+      "category": "generated-math",
+      "formula": "=ROUND(-71.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -72
+      },
+      "referenceExpected": -72,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-97",
+      "category": "generated-math",
+      "formula": "=SUM(97,99,101)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 297
+      },
+      "referenceExpected": 297,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-97",
+      "category": "generated-math",
+      "formula": "=(102*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 204
+      },
+      "referenceExpected": 204,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-97",
+      "category": "generated-math",
+      "formula": "=ROUND(-97.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -98
+      },
+      "referenceExpected": -98,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-127",
+      "category": "generated-math",
+      "formula": "=SUM(127,129,131)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 387
+      },
+      "referenceExpected": 387,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-127",
+      "category": "generated-math",
+      "formula": "=(132*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 264
+      },
+      "referenceExpected": 264,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-127",
+      "category": "generated-math",
+      "formula": "=ROUND(-127.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -128
+      },
+      "referenceExpected": -128,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-199",
+      "category": "generated-math",
+      "formula": "=SUM(199,201,203)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 603
+      },
+      "referenceExpected": 603,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-199",
+      "category": "generated-math",
+      "formula": "=(204*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 408
+      },
+      "referenceExpected": 408,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-199",
+      "category": "generated-math",
+      "formula": "=ROUND(-199.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -200
+      },
+      "referenceExpected": -200,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-sum-255",
+      "category": "generated-math",
+      "formula": "=SUM(255,257,259)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 771
+      },
+      "referenceExpected": 771,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-divide-255",
+      "category": "generated-math",
+      "formula": "=(260*6)/3",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": 520
+      },
+      "referenceExpected": 520,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "math-round-neg-255",
+      "category": "generated-math",
+      "formula": "=ROUND(-255.5,0)",
+      "kind": "scalar",
+      "gridforge": {
+        "type": "number",
+        "value": -256
+      },
+      "referenceExpected": -256,
+      "staticReferenceMatch": true
+    },
+    {
+      "id": "dynamic-sequence-spill",
+      "category": "dynamic-arrays",
+      "formula": "=SEQUENCE(2,2)",
+      "kind": "expected-gap",
+      "gridforge": {
+        "type": "error",
+        "value": "#VALUE!"
+      }
+    },
+    {
+      "id": "dynamic-filter-spill",
+      "category": "dynamic-arrays",
+      "formula": "=FILTER(A1:A3,B1:B3)",
+      "kind": "expected-gap",
+      "gridforge": {
+        "type": "error",
+        "value": "#VALUE!"
+      }
+    },
+    {
+      "id": "dynamic-unique-spill",
+      "category": "dynamic-arrays",
+      "formula": "=UNIQUE(A1:A3)",
+      "kind": "expected-gap",
+      "gridforge": {
+        "type": "error",
+        "value": "#VALUE!"
+      }
+    },
+    {
+      "id": "dynamic-textsplit-spill",
+      "category": "dynamic-arrays",
+      "formula": "=TEXTSPLIT(\"A,B\",\",\")",
+      "kind": "expected-gap",
+      "gridforge": {
+        "type": "error",
+        "value": "#VALUE!"
+      }
+    }
+  ]
+}

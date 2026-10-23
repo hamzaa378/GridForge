@@ -1,62 +1,54 @@
-# GridForge v3.0 (2026-10-19)
+# GridForge v8.0 release notes
 
-- Added native multi-sheet XLSX import/export using self-authored OOXML ZIP adapter. Browser import handles stored/DEFLATE ZIP, shared strings, shared formulas, supported styling and sheet metadata. Excel formula evaluation still uses GridForge’s own parser.
-- Added one-column non-destructive table filtering with row virtualization, freeze top row/first column, live numeric conditional formatting, AutoSum and custom right-click extensions.
-- Extended v3 JSON with sheet tools while retaining v2 JSON import. Added an XLSX import report and a reproducible example workbook.
-- Baseline: TypeScript PASS, 57/57 automated tests PASS; browser regression and compressed XLSX round-trip PASS, 10,000 formula benchmark PASS.
-- Limitations: Excel subset, not complete compatibility. Sheet-local formulas only; advanced Excel features unsupported.
-
----
-
-## Historical notes from v2.1 and earlier
-
-# v2.1 — Context menu & custom sorting
-
-- Excel-inspired accessible right-click menu on virtualized cells.
-- Right-click respects rectangular selection; keyboard Shift+F10 and Up/Down/Escape supported.
-- Editing, clipboard, styling, searching, analytics and formula inspection from the menu.
-- Header-aware Custom Sort dialog with a selectable key column inside the range.
-- Sorting values and cell formatting in a single undoable transaction.
-- Internal Cut is deferred until successful Paste; overlapping moves and cross-sheet safety tested.
-- Default server port 4174 with automatic fallback to 4184 when PORT is unspecified.
-- Added separate sort/clipboard tests and browser interactions to the optional smoke script.
-- Formula engine, workbook JSON v2 serialization and all 56 functions unchanged.
-
-## Limitations
-
-This is not full Excel parity. `.xlsx` is not supported. Selected ranges are not auto-expanded on sort. Complex formula rewriting during sort or cut/move is simplified. Cut across sheets is implemented as copy to avoid unintentional deletion. Context Paste uses the internal clipboard snapshot; Ctrl+V accepts external TSV. Browser clipboard access may require user permissions.
+- Added **100 distinct Excel-style Data Studio operations** across 10 categories, searchable with preview and one-action undo/redo.
+- Added right-click entry, confirmation before replacing populated aggregate result cells, formula-preserving cleanup, relative formula shifting in fill/rearrangement, 12K-cell selection guard and square-range validation.
+- Added 107 automated test cases (100 specific action tests and 7 cross-cutting checks), for 447 total unit tests.
+- Added 10,000-cell stress test and v8 Data Studio browser regression checks.
+- Fixed duplicate-row comparison of identical formula source strings, initial action selection in the modal, and outdated footer version label.
+- Preserved 306 formula functions, original v7 XLSX/XLSM and GridForge macro support and optional trusted Windows Excel bridge.
+- Documented limitations and outstanding Windows storage/VBA acceptance tests.
 
 ---
 
-# GridForge v2.0 — Release Notes
+# Release notes
 
-Date: 19 October 2026. Scope: GDG Tech Wildcard Entry, Frontend Task 2.
+## v4.0.0 — 80 extra Excel-style functions (136 total)
 
-## Added
+- Added 24 math/trig, 16 statistics/regression, 12 text, 16 date/time, 8 logic/lookup/conditional and 4 financial functions.
+- Implemented lazy `IFS`, `SWITCH` and `XLOOKUP` not-found evaluation.
+- Fixed `LOG10(...)` function / cell-reference tokenizer ambiguity without changing the handwritten parser architecture.
+- Improved modern Excel `_xlfn.` XLSX import/export handling.
+- Added 91 automated tests to the original 65 (156 total) and one new browser check (15 total).
+- Preserved the existing Python-only launcher, virtualized grid, dependency graph, sorting, formatting, filtering and multi-sheet workbook.
+- Full reference: `docs/FUNCTION_REFERENCE.md`; category guide: `docs/V4_FUNCTION_EXPANSION.md`.
 
-- Multi-worksheet document container; add, switch, rename, duplicate, delete up to 12 worksheets.
-- Per-cell formatting: bold/italic/underline, font and fill hex colors, alignment, display-oriented number formats.
-- Undoable formatting changes and combined raw-content plus style paste transaction.
-- Formula-aware same-application clipboard with relative/absolute address shift and plain TSV interoperability.
-- Paste Values from the most recent internal clipboard copy.
-- Selected-range ascending/descending sorting, numeric key handling, shifted relative formulas.
-- Find All, clickable results, protected Replace All (raw formulas opt-in).
-- Data Quality Lens with selection statistics and inline bar chart.
-- v2 multi-sheet JSON format; legacy v1 workbook import and localStorage migration.
-- GitHub Actions CI, GitHub Pages deployment workflow, repository deployment guide, optional browser smoke script.
 
-## Preserved
+## v3.0.2 — Final GitHub submission and Python-only setup
 
-- Entire v1 handwritten formula parser, 56 functions, dependency tracking, caching, cycle and parsing errors, What-if, Impact and Inspector.
-- 400 × 52 default grid, virtualization, formula bar, editing/selection, drag fill, per-sheet undo/redo, CSV support.
+- Adds Python 3 standard-library local web server so the compiled app can run with **no installed npm or pip modules**.
+- Adds Windows one-click launcher and macOS/Linux launch script.
+- Adds Python static-site smoke test and integrates it into GitHub CI.
+- Includes verified GDG requirement mapping, fresh setup walkthrough, reviewer demo, release evidence, corrected GitHub instructions and an updated handover.
+- Keeps TypeScript spreadsheet engine, browser features and bundled compiled `dist/` unchanged relative to v3.0.1.
+- Historical v3.0.1 Windows evidence: 65/65 Node tests and 14/14 browser checks passed.
+- Native XLSX interoperability is a supported subset; cross-sheet formula evaluation and full Excel parity are still not supported.
 
-## Verification at release
+## v3.0.1 — Regression hardening
 
-- `npm run check` succeeded, TypeScript 5.8.3.
-- `npm test`: **42 passing, zero failing**.
-- `npm run benchmark`: verified 10,000 formulas, 10,400 populated cells, 26 affected cells on linked edit, one affected on isolated edit.
-- Compiled-browser smoke: no page exceptions in the tested paths, plus edit/undo, style/undo, two-sheet isolation, find, custom clipboard, sorting, Analyze and exported two-sheet JSON.
+Expanded tests to 65 automated Node cases, 14 Chromium browser checks, full regression orchestrator, benchmark, CI integration and regression docs. No runtime feature changes.
 
-## Not included
+## v3.0 — Excel file support and spreadsheet productivity
 
-No actual Excel `.xlsx` round-trip, cross-sheet formulas, pivot tables, macros, named ranges, true Excel date formats, complex merging, native persistent charts or server-based multi-user collaboration. GitHub Pages workflow is included but no deployed public link has been verified.
+Introduced custom Office Open XML XLSX import/export, basic table filtering, freeze row/column, numeric conditional formatting, AutoSum and import diagnostics on top of v2.1 features.
+
+## v2.1 — Context menu and table sorting
+
+Introduced Excel-inspired custom right-click, sort-by-column with header handling, formatting-preserving sorting, cut/paste operations and browser tests.
+
+## v2 — Everyday spreadsheet tools
+
+Multiple tabs, cell styles, number formats, find/replace, sorting, analysis and charts.
+
+## v1 — Custom formula engine
+
+Virtualized grid, 56 custom functions, Pratt parser, incremental dependency tracking, formula diagnostics and Undo/Redo.

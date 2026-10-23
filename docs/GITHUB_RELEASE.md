@@ -1,34 +1,66 @@
-# GitHub-ready submission: GridForge v3.0
+> **GridForge v10 note:** The current release has 506 registered spreadsheet functions, a persistent Light/Dark switch and Excel familiar/Guided workspace modes. Full v10 behavior and test evidence are in [the v10 release report](V10_RELEASE_EVIDENCE.md). When running with Python alone, use the included compiled `dist/`; Node.js is only needed to rebuild source. Some older sections below retain their historical version numbers.
 
-## Checklist before pushing
+# GridForge v9 release instructions
 
-1. Ensure the extracted ZIP has `package.json`, `src/`, `tests/`, `public/`, `dist/`, `docs/`, `examples/`, `.github/workflows/`, `LICENSE`, `.gitignore` at the top level.
-2. Install Node.js 20+ and run `npm install && npm test && npm run benchmark` on your Windows machine. Expect 57 passing tests and 26 affected cells in the demonstration input-change experiment. Compiler and results may differ with hardware.
-3. Run `npm run dev`, open the printed local URL. Test a real `.xlsx` through Import/Export and ensure the Import Report is visible.
-4. Run the steps in `docs/V3_ACCEPTANCE_CHECKLIST.md`. Capture screenshots/GIF for reviewers if desired.
-5. Ensure no credentials, private datasets, `node_modules/`, `.env` or temporary files were added. Node/browser uses no external spreadsheet engine; dependencies are dev-only TypeScript.
+Extract the `GridForge_v9_406_Functions_Excel_UI_GitHub_Ready.zip` archive and upload its **root contents** to a new public GitHub repository. Do not include cache directories or local credentials. The existing workflow under `.github/workflows/` runs Node tests, the Python-only launcher, Chromium regression, XLSM binary tests and local VBA protocol checks. To deploy choose GitHub Pages → GitHub Actions. The Python-only launcher is for local use; Pages serves `dist/`. Python-only use requires no pip packages. Source rebuild and tests require Node.js. See `V9_RELEASE_EVIDENCE.md` and README.
 
-## Push to empty repository
+---
+
+# Latest build: GridForge v8
+
+Upload the **contents of the root folder** after extracting `GridForge_v8_100_Data_Studio_GitHub_Ready.zip` (not a directory containing another nested repository). Keep `dist/`, `.github/workflows/`, `src/`, `scripts/`, `examples/`, and `docs/`. Avoid `node_modules`, `__pycache__`, local secrets, browser profiles, `.git`, and temporary logs. Github Pages serves the static compiled `dist/` folder. CI runs the full v8 regression suite (447 unit tests, 100 actions, 26 browser checks and benchmarks).
+
+---
+
+# GitHub submission and deployment — GridForge v5.0.0
+
+The final ZIP contains **the repository files themselves** at archive root; there is no extra top-level parent directory. GitHub will **not extract an uploaded ZIP automatically**. First extract it to a folder and upload/push its contents. Preserve hidden `.github/workflows/` files.
+
+## Upload via Git (recommended)
+
+Prerequisites: Git installed (`git --version`). You do **not** need Git for running the spreadsheet with Python; Git is only one way to upload to GitHub.
+
+1. Create a **public, empty** repository on GitHub, without pre-creating a README or .gitignore.
+2. In the extracted root (where `package.json` and `README.md` exist), run:
 
 ```powershell
 git init
 git add .
-git commit -m "GridForge v3.0: XLSX interoperability and Excel-style tools"
+git commit -m "GridForge v5.0.0: final GDG submission"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/GridForge.git
 git push -u origin main
 ```
 
-Replace the remote URL with your actual repository. Create it first, without auto-generated README. If Git warns `remote origin already exists`, inspect `git remote -v` and use `git remote set-url origin ...` only if needed. Do not push to an unrelated repository.
+Replace the URL with the actual new repository URL. If Git requests identity, configure `git config --global user.name "Your Name"` and `git config --global user.email "you@example.com"` with **your own** identity. GitHub authentication normally uses browser or a credential helper, not your password.
 
-## Deployment
+## Without Git installed
 
-The source contains `.github/workflows/ci.yml` (typecheck, tests, benchmark and compiled artifact) and `.github/workflows/pages.yml` (tests and static-site publication). In GitHub **Settings → Pages**, set source to **GitHub Actions** and wait for the Actions `Deploy GridForge to GitHub Pages` run. The resulting Pages URL is returned by GitHub; no deployment URL is pre-filled because it cannot be known before you publish it.
+You can use GitHub's website (**Add file → Upload files**) or GitHub Desktop. Extract the archive first and upload the **project contents**, not the ZIP as a single file. Carefully preserve nested folders, especially `.github/workflows`, `src/engine`, `dist/engine`, `tests`, `docs`, and `examples`. Git/GitHub Desktop is recommended for a project with this many files.
 
-## Reviewer demo (2–3 minutes)
+## Confirm the repository is correct
 
-Start with the bundled `examples/sample_sales.xlsx`, import into GridForge and close the Import Report. Show two tabs and a formula `=B2*C2`. Filter the Sales header table to `Mouse` and show all. Apply a live greater-than threshold, change a referenced value and watch the highlight. Freeze the top row and first column while scrolling. Export as `.xlsx`, import the output and inspect preserved formulas/styles. End with the Formula Inspector and dependency benchmark output. Explain that formulas and recalc are custom implemented and that Excel interoperability is a **supported subset**, not all Excel features.
+The **root** must show `README.md`, `package.json`, `src`, `dist`, `docs`, `examples`, `run_gridforge.py`, `START_HERE_WINDOWS.bat`, `.github/workflows`, `.gitignore`, and `LICENSE`. There should be no `node_modules/`, private datasets, browser profiles, passwords or `.env` secrets. Check GitHub Actions after pushing.
 
-## GitHub Actions caveats
+## Continuous integration
 
-GitHub's CI runner installs the declared development tool `typescript` with `npm install`; it has Internet access for that. The optional Playwright/Chromium smoke test is not part of CI unless you explicitly install Chromium in the workflow. The included compiled `dist/` lets reviewers run the app with `node scripts/serve.mjs` even without installing dependencies. If GitHub Pages URLs need a non-root base path, the app loads its `./main.js`, `./styles.css` and relative JS imports from the deployment directory.
+- `.github/workflows/ci.yml`: installs Node, Python Playwright and Chromium; runs TypeScript check, 241 Node tests, 10,000-formula benchmark and 21 browser checks via `npm run regression`. Also runs Python-only static server smoke validation. Actual totals may increase if tests are added.
+- `.github/workflows/pages.yml`: builds and publishes `dist/` as a static app after tests.
+
+GitHub-hosted actions have to download their development/testing tools; **that does not mean end users need them to run the precompiled app**.
+
+## Publish on GitHub Pages
+
+1. Open the repository → **Settings → Pages**.
+2. Under **Build and deployment**, choose **GitHub Actions** as Source.
+3. Open **Actions → Deploy GridForge to GitHub Pages** and wait for the run to complete.
+4. Use the published URL shown by GitHub. There is **no verified live URL** until deployment finishes.
+5. On the live site, manually test input, formula evaluation, `examples/sample_sales.xlsx` import, and workbook download. The app uses relative asset paths and runs fully in the browser.
+
+## Recommended README details in submission
+
+State that the engine is custom TypeScript, has 216 functions and dependency-driven recalculation, documents the limited Excel interoperability, and explains the VBA-safe XLSM and JSON action-macro limitations, and includes both a Python-only launch for non-developers and a full Node/Playwright regression for developers. Link the acceptance and function reference docs. Do not promise full Excel compatibility.
+
+## Release verification
+
+See `docs/TECHNICAL_COMPLIANCE.md`, `docs/V5_RELEASE_EVIDENCE.md` and `docs/SETUP_FROM_ZERO.md`. The earlier Windows log recorded 65 unit tests and 14 browser checks for the v3 baseline. The v5 engine has new functions and safe macro behavior, with 241 unit tests and 21 browser checks passing in the packaging environment. Real `.xlsm` compatibility and the browser storage reload should be tested on Windows before final submission.

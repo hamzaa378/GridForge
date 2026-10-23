@@ -1,124 +1,141 @@
-# GridForge v3.0 — Spreadsheet Intelligence
+# GridForge v10.3 — Excel-familiar, local-first spreadsheet
 
-![GridForge v3 spreadsheet with Excel-style grid and frozen panes](docs/preview_v3.png)
+> **Verified compatibility progress:** Against saved, user-generated Microsoft Excel 16.0 (build 20430.0) results, GridForge v10.3 now matches **450/456** comparable single-case tests (**98.68%**), compared with **418/456 (91.67%)** in v10.2. **32/34** unexpected differences were resolved without regression among 418 previously matching cases. Two mismatches and four known semantic gaps remain. This is **not** full Excel equivalence. See [repair audit](docs/V10_3_EXCEL_REPAIR_AUDIT.md).
 
-**GDG Tech Wildcard Entry — Frontend Task 2.** A browser-based, virtualized spreadsheet written in TypeScript. Features a **handwritten lexer, Pratt parser, evaluator with 56 functions, incremental dependency graph and cyclic-formula diagnostics**. GridForge v3 adds native `.xlsx` read/write, filtered tables, freeze panes, live conditional formatting and AutoSum. **No existing spreadsheet formula engine is used.**
+**GDG Tech Wildcard · Frontend Task 2 · TypeScript · MIT**
 
-## Quick start: Windows / macOS / Linux
+GridForge is an offline-first browser spreadsheet with a **handwritten TypeScript parser/evaluator**, a virtualized **400 × 52 cell grid**, dependency tracking, formula diagnostics, multi-sheet editing, XLSX/XLSM exchange and optional desktop-Excel VBA integration. Its **506 registered formulas** include functions with narrower support than desktop Excel; the custom formula engine has not been replaced with an off-the-shelf library.
 
-Install Node.js **20+**, unzip the GitHub package, then run in its directory:
+![Clean Excel/Sheets-inspired default interface](docs/preview_v10_3_clean.png)
 
-```bash
+## Start with only Python installed
+
+1. Unzip the repository into a folder.
+2. Double-click `START_HERE_WINDOWS.bat`, or run `python run_gridforge.py`.
+3. Open the displayed local URL (usually `http://127.0.0.1:4174`).
+4. Click a cell to edit, type `=SUM(B4:B11)` for a formula, use **Ctrl+O** for Excel import, **Ctrl+S** for XLSX export, **Ctrl+Shift+S** for JSON backup.
+
+The release includes prebuilt `dist/`; you do **not** need Node.js, npm or pip packages just to run it. Workbook auto-save is browser-origin-local; **export a backup before upgrading, switching ports, or clearing browser data**.
+
+## Easier for Excel / Sheets users
+
+- **Clean Home tab:** Open, Save Excel, Undo/Redo, Find, and familiar cell formatting. File/Formulas/Data/Tools/View/More reveal other commands when needed.
+- **Light-first, dark optional:** A persistent user-selectable theme; old saved preferences remain respected.
+- **Optional Insights:** Formula Inspector, Impact, What-if and benchmark counters are hidden by default and can be opened with one click. Nothing was deleted.
+- **Two workspaces:** Excel familiar and Guided & simple; switching doesn't change the workbook.
+- **Editing:** Keyboard navigation, selections, drag fill, paste, undo/redo, right-click, sorting, filtering, conditional formatting, sheet tabs and XLSX import/export.
+
+[Excel / Sheets UI walkthrough](docs/V10_3_EXCEL_SHEETS_UI.md) · [Repair audit](docs/V10_3_EXCEL_REPAIR_AUDIT.md) · [Project handover](docs/V10_3_HANDOVER.md)
+
+## Development, verification and GitHub
+
+Node.js 20+ is needed for development. With the full browser dependencies installed, run:
+
+```powershell
+npm install
+npm run check
+npm test
+npm run parity:snapshot
+npm run regression
+```
+
+For the actual Windows Excel recheck, install `pywin32` into the active Python interpreter (requires installed desktop Excel), then run `python scripts/excel_focus_v10_3.py`. See `docs/V10_3_EXCEL_REPAIR_AUDIT.md`. **VBA does not execute inside the browser.**
+
+The ZIP is a repository root: upload it to GitHub as a normal source repository. `dist/` is intentionally included for a zero-install Python-served launch. GitHub Actions and Pages workflows remain in `.github/workflows`.
+
+## 100 more Excel-style function names
+
+The custom function registry contains **506 unique names**. V10 introduces 100 names spanning probability distributions, finance and coupon dates, matrix/array operations, text, information, and offline-safe data helpers. These are actual callable implementations, with automated fixture tests for all 100, not inert menu entries.
+
+Some names represent **limited Excel-compatible subsets**, not parity with Microsoft Excel: arrays return in-memory matrices and require `INDEX()` (no spill into adjacent cells); `LET`/`LAMBDA` and higher-order functions do not execute full Excel lambda closures; `FORECAST.ETS` currently uses a linear-trend approximation; `IMAGE` returns text instead of a rendered image; offline translation and locale helpers are restricted. Several financial conventions have improved, but specialized bonds and edge cases remain limited. Do not use these limited functions for financial or statistical decisions without comparing outputs against Excel.
+
+```excel
+=BETA.DIST(0.5,2,2,TRUE)
+=INDEX(SEQUENCE(3,2),2,2)
+=INDEX(TEXTSPLIT("red,blue",","),1,2)
+=INDEX(FILTER(A2:B4,C2:C4),1,2)
+=ISBETWEEN(5,1,10)
+=EUROCONVERT(100,"EUR","DEM")
+```
+
+- [Complete generated 506-function reference](docs/FUNCTION_REFERENCE.md)
+- [v10 new function families and compatibility boundaries](docs/V10_FUNCTIONS_AND_LIMITATIONS.md)
+- [v10 gallery: 100 function descriptions and 30 evaluated examples (XLSX)](examples/v10_100_function_reference.xlsx)
+- [v10 gallery: native JSON](examples/v10_100_function_reference.json)
+- [Bounded missing-function report](docs/V10_EXCEL_FUNCTION_GAP.md)
+
+**Function comparison:** In the **frozen 475-name reference list**, GridForge registers 465 and lacks 10. This is **not** a count of all functions in the latest Microsoft Excel. A registered name does not imply full behavioral equivalence. Source list: `docs/excel_comparison_catalog.json`.
+
+## Development and automated tests
+
+Development requires Node.js **20+** and npm:
+
+```powershell
 npm install
 npm run dev
 ```
 
-Open the printed address. The default port is **4174**, with fallback to 4175–4184 when occupied. In PowerShell you may set an explicit port:
+Complete regression testing also requires Python 3.10+, Playwright and Chromium:
 
 ```powershell
-$env:PORT = "4190"
-npm run dev
+python -m pip install playwright
+python -m playwright install chromium
+npm run regression
 ```
 
-Windows users can run `run_windows.bat` to serve the **included precompiled `dist/`** with Node; it does not need `npm install`. For Unix use `bash run_unix.sh`. GridForge is a static web app, **no backend/database/cloud account required**. Data autosaves per browser origin in `localStorage`; export JSON/XLSX for portable backups.
+On Windows, `py -3` may replace `python`; on Linux/macOS `python3` is typical. If Chromium is already installed, set `GRIDFORGE_CHROMIUM` to its executable path. Use `npm run regression:core` for checks that do not require browser dependencies.
 
-## Excel features now implemented
+At the v10.3 checkpoint: **821/821 unit tests**, **31/31 browser UI checks**, 10,000-formula benchmark, 10,000-cell Data Studio stress test, XLSM binary preservation, bridge validation, and Python-only startup **passed**. The hosted browser could not test storage persistence across a genuine navigation; test that separately in an ordinary browser. Real Windows Excel VBA execution also requires acceptance testing with desktop Excel. See [release evidence](docs/V10_RELEASE_EVIDENCE.md).
 
-| Feature | How to use | Important scope |
-| --- | --- | --- |
-| **XLSX export** | **XLSX** in the upper toolbar | All sheets, formulas, cell styles and supported table view/rules; Office Open XML workbook |
-| **XLSX import** | **Import** and choose `.xlsx` | Standard, unencrypted OOXML; shared strings, inline strings, basic formulas/styles, supported freeze/filter/conditional formatting; review import report |
-| **Filter** | Select table including header, click **Filter**, choose column and substring | Non-destructive; filters a single column; **Show all** restores all rows |
-| **Freeze panes** | **Freeze row**, **Freeze col** in formatting ribbon | Top row and/or first column remain visible while scrolling; click again to unfreeze |
-| **Conditional formatting** | Select numbers → **Conditional** → choose >, < or =, threshold, color | Live numeric comparison; up to 30 rules per sheet; persists in JSON and XLSX |
-| **AutoSum** | Click total cell below contiguous numbers, then **∑ AutoSum** or `Alt+=` | Inserts a real `SUM` formula. Selecting a vertical range inserts below selection |
-| Custom Sort | Select entire table, right-click → **Custom sort** | Choose column, ascending/descending, and whether the selection has a header; formats move with rows |
-| Find & Replace | `Ctrl+F` | Case-sensitive option; formula source protected by default |
-| Right-click | Mouse right-click or `Shift+F10` | Copy, cut, paste, values-only, formatting, sorting, Analyze, Inspector, AutoSum, Filter |
-| More common tools | Formatting ribbon | Bold/italic/underline, text/fill color, alignment, numeric/currency/percent formats, undo/redo |
-| Multiple sheets | Tabs at bottom | Up to 12 independent tabs; create, switch, rename, duplicate, delete |
-| Import/export fallback | CSV and JSON | CSV exports values; JSON round-trips GridForge workbook with formulas, styles, filters, freeze and rules |
+## GitHub submission
 
-The application also includes drag-to-fill, formula bar, cell selection, relative/absolute references, VLOOKUP, IF, SUM, conditional aggregations, Find, data-quality analytics, Formula Inspector, Dependency Impact Explorer, What-if previews and keyboard shortcuts.
+This ZIP is a repository root: open it directly, do not upload a parent folder. `dist/` is intentionally included for Python-only execution. The CI workflow rebuilds and tests the source, and the Pages workflow is prepared for deployment.
 
-**Spreadsheet size:** default grid is 400 rows × 52 columns = 20,800 addressable cells per sheet, with viewport rendering (virtualization). Imported sheets may grow up to 1,000 rows × 104 columns; up to 12 sheets.
-
-## Try the included XLSX file
-
-1. Click **Import** → `examples/sample_sales.xlsx`.
-2. Close the **XLSX import report**. Check the **Sales** and **Summary** tabs.
-3. On Sales, select `A1:D5`. Choose **Filter** → column A → Contains `Mouse`. Only the header and Mouse row remain visible; **Show all** returns every row.
-4. Select `D2:D5` → **Conditional** → greater than `100000` → choose color. Changing a revenue formula changes the highlight automatically.
-5. Scroll down/right with Freeze row/col active. Click **XLSX** to export, then import the downloaded workbook again.
-6. Test `=SUM(B2:B5)`, `=IF(D2>1000,"High","Low")` and the right-click Formula Inspector.
-
-For a complete reproducible acceptance walk-through, see [`docs/V3_ACCEPTANCE_CHECKLIST.md`](docs/V3_ACCEPTANCE_CHECKLIST.md).
-
-## Engineering evidence
-
-| Check | Result in development environment |
-| --- | --- |
-| TypeScript strict type checking | PASS |
-| Automated Node tests | **57/57 passing** (v2.1 had 49) |
-| Chromium v3 browser regression | PASS: editing, formatting, multi-sheet, right-click menu, freeze, filtering, conditional formatting, AutoSum, XLSX export/import |
-| XLSX round-trip compatibility | PASS: exported stored-ZIP OOXML, recompressed to normal DEFLATE `.xlsx`, imported via file picker; supported formulas, styles, panes and rules verified |
-| ZIP archive validation | PASS (CRC and archive part verification) |
-| Dependency stress benchmark | 10,000 formulas; edit to one row's source invalidated/recalculated **26 cells**, not 10,000 |
-
-All timing results are environment-dependent; the reproducible script is `scripts/benchmark.mjs`. Browser smoke testing is optional and needs local Python Playwright and Chromium; it is **not** run by standard `npm test` or GitHub Actions. See [`docs/TESTING_AND_DEMO.md`](docs/TESTING_AND_DEMO.md).
-
-```bash
-npm run check          # TypeScript static checks
-npm test               # builds and runs 57 Node tests
-npm run benchmark      # dependency-recalculation benchmark
-npm run build          # compiles and copies public files into dist/
-npm start              # serves dist/, default http://localhost:4174
-node scripts/generate_sample.mjs   # regenerate example XLSX after a build
-```
-
-## How XLSX works without a spreadsheet engine
-
-`src/engine/xlsx.ts` creates/parses **Office Open XML** parts (workbook, worksheets, relationships, styles) packaged with `src/engine/zip.ts`. The archive writer uses valid **stored** ZIP entries, the importer reads stored and **DEFLATE** entries using the browser `DecompressionStream('deflate-raw')`. Cell formulas are parsed and evaluated **only** by GridForge's own `parser.ts` and `workbook.ts`. Imported formula syntax that GridForge cannot evaluate is shown as a formula error rather than silently evaluated by a library. Unsupported items are disclosed in the import report.
-
-**Interoperability is a supported subset, not full Microsoft Excel compatibility.** Imported charts, pivot tables, macros, cell merges, rich-text runs, external links, password-protected/ZIP64 workbooks, Excel date semantics, complex filter conditions, advanced conditional rules, named ranges, array/spill formulas and cross-sheet formulas are not supported. Large XLSX sheets above GridForge limits are rejected instead of silently truncating values. **JSON is GridForge's loss-minimizing backup format** for its supported features. Verify imported files before overwriting originals. Original `.xlsx` files are never modified in place.
-
-## Repository layout
-
-```text
-.github/workflows/             CI test workflow + GitHub Pages deploy workflow
-src/main.ts                    Spreadsheet UI: virtual grid, dialogs, keyboard/mouse interaction
-src/engine/parser.ts           Handwritten lexer, parser, AST, reference shifting
-src/engine/functions.ts        Custom 56-function library
-src/engine/workbook.ts         Sparse cells, dependency graph, cycles, undo/redo
-src/engine/document.ts         Multi-sheet container, v2 JSON compatibility, v3 metadata
-src/engine/sheettools.ts       Non-destructive filters, freeze/conditional rule state
-src/engine/xlsx.ts             OOXML workbook import and export (no formula engine)
-src/engine/zip.ts              Minimal CRC-verified ZIP import/export
-src/engine/operations.ts       Search, replace, sorting
-src/engine/clipboard.ts        Formula-aware cut/copy/paste
-public/                        HTML and CSS, including theme/virtualized grid
-scripts/                       Static server, build helper, benchmark, optional browser smoke
-examples/sample_sales.xlsx     Self-generated, importable sample workbook
-tests/                         Node tests for parser, engine, sorting, ZIP/XLSX, views
-dist/                         Generated runnable static site (included for Windows launcher)
-docs/                          Architecture, release notes, demo, troubleshooting and handover
-```
-
-## Push to GitHub and deploy
-
-Create a **new empty GitHub repository** first. From the extracted root (the directory containing `package.json`):
-
-```bash
+```powershell
 git init
 git add .
-git commit -m "GridForge v3: XLSX interoperability and spreadsheet productivity"
+git commit -m "GridForge v10.3: Excel parity repairs and cleaner desktop UI"
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
+git remote add origin YOUR_GITHUB_REPOSITORY_URL
 git push -u origin main
 ```
 
-Replace the GitHub URL with the actual empty repository's URL. Both `.github/workflows/ci.yml` and `.github/workflows/pages.yml` are included. After pushing, go to **GitHub → Settings → Pages → Build and deployment → GitHub Actions** and check the Actions logs for the deployment URL. See [`docs/GITHUB_RELEASE.md`](docs/GITHUB_RELEASE.md). Do not upload `node_modules` or any private data.
+See [GitHub publishing guide](docs/GITHUB_RELEASE.md), [security model](docs/SECURITY.md) and [project handover](docs/PROJECT_HANDOVER.md).
 
-**Evaluation:** This project satisfies the GDG task's custom-formula-engine rule: the formulas and recalculation logic are authored locally, not delegated to SheetJS, ExcelJS or another spreadsheet evaluator. Be ready to explain parsing, dependency propagation, and v3 XLSX boundaries.
+## Scope and safety
 
-Licensed MIT; see `LICENSE`.
+- **No VBA executes in the browser.** The optional Python bridge invokes trusted macros only via desktop Microsoft Excel on Windows (requires `pywin32`, Excel and explicit approval). Actual Excel VBA execution is not verified in this release environment.
+- XLSM round-trips preserve embedded VBA and apply supported cell/formula edits, but advanced workbook changes, formula types, and signatures can be incompatible. Keep originals and validate exported files in Excel.
+- Dynamic-array spilling, full formula parity, cross-sheet references, native pivot engine, external OLAP/market feeds, and real-time web-service functions remain unsupported.
+- The 100 Data Studio editing actions from v8 and all v9 command groups are retained.
+
+**License:** MIT. No external font files are redistributed.
+
+## Microsoft Excel behavior comparison (v10.1)
+
+For a transparent, repeatable comparison against **real desktop Excel**, use `RUN_EXCEL_PARITY_WINDOWS.bat` on Windows with Excel installed and `pywin32`, or read `docs/EXCEL_PARITY_WINDOWS_GUIDE.md`. A Python-only user can run the provided app and the parity comparison; Node.js is needed only to rebuild TypeScript. The Excel runner is optional and never executes VBA.
+
+```powershell
+py -3 -m pip install pywin32
+py -3 scripts\excel_parity_desktop.py
+py -3 scripts\excel_parity_compare.py
+```
+
+The existing application still launches through `START_HERE_WINDOWS.bat` or `python run_gridforge.py`.
+
+## Full 506-function Excel differential audit
+
+This release contains a **506-name fixture manifest** and a new Windows runner for measuring how the GridForge formula engine compares against installed Microsoft Excel. It supplements the earlier 140-case parity sample without replacing it.
+
+**Already verified here:** all 506 registered names were exercised through the actual GridForge Workbook evaluator; 505 returned values, `NA()` returned its intentional `#N/A` error, and zero uncaught exceptions occurred. **Actual Excel results are still pending Windows execution.** The updated Node unit suite passes 818/818 tests.
+
+On a Windows computer with Microsoft Excel and `pywin32` installed, run:
+
+```powershell
+python scripts\excel_parity_506_desktop.py
+python scripts\excel_parity_506_compare.py
+```
+
+You can also use `RUN_ALL_506_EXCEL_PARITY_WINDOWS.bat` if your Python environment can already import `win32com.client`.
+
+Read [`docs/PARITY_506_WINDOWS_GUIDE.md`](docs/PARITY_506_WINDOWS_GUIDE.md) for result categories, the three default cloud-function exclusions, limitations, and report paths. `docs/PARITY_506_COVERAGE.csv` lists all names with their exact test formulas. This suite makes **no claim of full Microsoft Excel compatibility** from its one-case-per-function results.

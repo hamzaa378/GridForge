@@ -1,0 +1,14 @@
+{
+  "registered": 506,
+  "executed": 506,
+  "successful": 505,
+  "errors": 1,
+  "exceptions": 0,
+  "scope": {
+    "scalar": 445,
+    "limited-semantics": 29,
+    "array-index": 27,
+    "volatile": 5
+  }
+}
+NA =NA() -> error #N/A

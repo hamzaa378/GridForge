@@ -1,0 +1,6 @@
+127.0.0.1 "GET /health HTTP/1.1" 200 -
+127.0.0.1 "POST /run HTTP/1.1" 403 -
+127.0.0.1 "POST /run HTTP/1.1" 403 -
+127.0.0.1 "POST /run HTTP/1.1" 400 -
+127.0.0.1 "POST /run HTTP/1.1" 400 -
+PASS VBA bridge authentication, origin restriction, macro-name validation, and XLSM preflight (8 checks)

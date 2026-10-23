@@ -1,0 +1,51 @@
+{
+  "scope": "Focused Excel live recheck; not full 506-run",
+  "cases": [
+    {
+      "case": "IMPOWER",
+      "formula": "=IMPOWER(\"1+i\",\"2\")",
+      "excelVersion": "16.0",
+      "value": "1.22514845490862E-16+2i",
+      "display": "1.22514845490862E-16+2i",
+      "inputs": {}
+    },
+    {
+      "case": "XNPV_fixture",
+      "formula": "=XNPV(0,F1:F5,G1:G5)",
+      "excelVersion": "16.0",
+      "value": -2146826252,
+      "display": "#NUM!",
+      "inputs": {
+        "F1": -1000,
+        "F2": 300,
+        "F3": 400,
+        "F4": 500,
+        "F5": 200,
+        "G1": "=DATE(2020,1,1)",
+        "G2": "=DATE(2021,1,1)",
+        "G3": "=DATE(2022,1,1)",
+        "G4": "=DATE(2023,1,1)",
+        "G5": "=DATE(2024,1,1)"
+      }
+    },
+    {
+      "case": "XNPV_serials",
+      "formula": "=XNPV(0,F1:F5,G1:G5)",
+      "excelVersion": "16.0",
+      "value": -2146826252,
+      "display": "#NUM!",
+      "inputs": {
+        "F1": -1000,
+        "F2": 300,
+        "F3": 400,
+        "F4": 500,
+        "F5": 200,
+        "G1": 43831,
+        "G2": 44197,
+        "G3": 44562,
+        "G4": 44927,
+        "G5": 45292
+      }
+    }
+  ]
+}

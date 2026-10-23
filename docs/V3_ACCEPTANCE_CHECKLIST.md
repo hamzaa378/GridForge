@@ -23,7 +23,7 @@ Run `npm install && npm run dev`, then open the URL printed by the server (norma
 | C5 | Import exported `.xlsx` into GridForge | Supported data, formula strings, styles, filter range and freeze state survive |
 | C6 | Export JSON, reopen in a new origin, import JSON | Custom formula data plus all native GridForge v3 view/rule metadata survive |
 | D1 | `npm run check` | Exit code 0 |
-| D2 | `npm test` | 57/57 tests pass |
+| D2 | `npm test` | 65/65 tests pass |
 | D3 | `npm run benchmark` | A source edit invalidates only its affected dependents (26 in provided benchmark) |
 | D4 | GitHub Action CI / Pages workflow | Build and deployment both show green only after actual GitHub run |
 

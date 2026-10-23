@@ -4,3 +4,12 @@ node_modules/
 coverage/
 .env
 *.local
+__pycache__/
+*.pyc
+.pytest_cache/
+playwright-report/
+test-results/
+# Actual Excel parity outputs are user-machine-specific; never present stale results as local proof.
+docs/PARITY_EXCEL_RESULTS.json
+docs/PARITY_COMPARISON.json
+docs/PARITY_COMPARISON.md

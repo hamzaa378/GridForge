@@ -1,0 +1,19 @@
+
+> gridforge-gdg-frontend-task2@10.3.0 benchmark:tools
+> npm run build && node scripts/benchmark_tools_v8.mjs
+
+
+> gridforge-gdg-frontend-task2@10.3.0 build
+> tsc -p tsconfig.json && node scripts/copy-static.mjs
+
+Static assets copied to dist/.
+{
+  "features": 100,
+  "selectedCells": 10000,
+  "edited": 10000,
+  "previewMs": 28.7,
+  "applyMs": 36,
+  "undoVerified": true,
+  "unrelatedPreserved": true,
+  "oversizeRejected": true
+}

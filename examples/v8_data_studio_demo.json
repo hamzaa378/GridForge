@@ -1,0 +1,73 @@
+{
+  "format": "gridforge",
+  "version": 3,
+  "activeId": "s1",
+  "sheets": [
+    {
+      "id": "s1",
+      "name": "Sheet 1",
+      "workbook": {
+        "version": 2,
+        "rows": 400,
+        "cols": 52,
+        "cells": {
+          "A1": "DATA STUDIO · v8",
+          "A2": "Select cells, choose an action, Preview and Apply",
+          "A4": "Name",
+          "B4": "Revenue",
+          "C4": "Priority",
+          "D4": "Calculated",
+          "F4": "EXAMPLE OPERATIONS",
+          "F5": "A5:A9: Title Case / Trim / Deduplicate cells",
+          "F6": "B5:B9: Increase 10% / Round / Quick SUM",
+          "F7": "A5:D9: Fill and rearrange / flip",
+          "F8": "Always preview and use Ctrl+Z to undo",
+          "A5": "  aLiCe  ",
+          "B5": "120",
+          "C5": "High",
+          "D5": "=B5*1.1",
+          "A6": "BOB",
+          "B6": "84",
+          "C6": "Low",
+          "D6": "=B6*1.1",
+          "A7": "carol smith",
+          "B7": "158",
+          "C7": "High",
+          "D7": "=B7*1.1",
+          "A8": "DÁVID",
+          "B8": "90",
+          "C8": "Medium",
+          "D8": "=B8*1.1",
+          "A9": "Alice",
+          "B9": "120",
+          "C9": "High",
+          "D9": "=B9*1.1"
+        },
+        "styles": {
+          "A1": {
+            "bold": true,
+            "color": "#53d3bb"
+          },
+          "A4": {
+            "bold": true
+          },
+          "B4": {
+            "bold": true
+          },
+          "C4": {
+            "bold": true
+          },
+          "D4": {
+            "bold": true
+          }
+        }
+      },
+      "tools": {
+        "freezeRows": 0,
+        "freezeCols": 0,
+        "filter": null,
+        "conditional": []
+      }
+    }
+  ]
+}

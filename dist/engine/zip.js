@@ -22,12 +22,16 @@ function join(chunks) { let size = 0; for (const c of chunks)
 } return out; }
 /** Stored-entry ZIP writer: larger than deflated ZIP, universally readable by Excel/LibreOffice. */
 export function zipWrite(entries) {
+    return zipWriteBytes(Object.fromEntries(Object.entries(entries).map(([name, value]) => [name, te.encode(value)])));
+}
+/** Repackage all OOXML parts, including binary VBA projects, signatures and media. */
+export function zipWriteBytes(entries) {
     const chunks = [], directory = [];
     let offset = 0;
     for (const [name, content] of Object.entries(entries)) {
         if (!name || name.includes('..') || name.startsWith('/'))
             throw Error('Invalid ZIP part name');
-        const filename = te.encode(name), bytes = te.encode(content);
+        const filename = te.encode(name), bytes = content;
         if (bytes.length > LIMIT_FILE)
             throw Error('ZIP part too large');
         const hash = crc(bytes), local = new Uint8Array(30 + filename.length);
@@ -65,6 +69,15 @@ export function zipWrite(entries) {
     return join([...chunks, ...directory, end]);
 }
 export async function zipRead(data) {
+    const entries = await zipReadBytes(data), out = new Map();
+    for (const [name, bytes] of entries) {
+        if (name.endsWith('.xml') || name.endsWith('.rels'))
+            out.set(name, td.decode(bytes));
+    }
+    return out;
+}
+/** Read and verify binary and XML entries without discarding VBA and unrelated features. */
+export async function zipReadBytes(data) {
     let end = -1;
     for (let p = data.length - 22; p >= Math.max(0, data.length - 65557); p--)
         if (u32(data, p) === 0x06054b50) {
@@ -87,8 +100,8 @@ export async function zipRead(data) {
         at += 46 + len + extra + comment;
         if (uncompressed > LIMIT_FILE || (total += uncompressed) > LIMIT_TOTAL || name.includes('..') || name.startsWith('/'))
             throw Error('Unsafe or oversized XLSX ZIP archive.');
-        if (!name.endsWith('.xml') && !name.endsWith('.rels'))
-            continue;
+        if (!name || name.endsWith('/') || name.includes('\\') || name.includes('..') || name.startsWith('/'))
+            throw Error('Unsafe ZIP entry name.');
         if (u32(data, offset) !== 0x04034b50)
             throw Error('Invalid XLSX local ZIP header.');
         const pos = offset + 30 + u16(data, offset + 26) + u16(data, offset + 28);
@@ -108,7 +121,9 @@ export async function zipRead(data) {
             throw Error('Unsupported ZIP compression method ' + method);
         if (bytes.length !== uncompressed || crc(bytes) !== expectedCrc)
             throw Error(`Invalid XLSX ZIP checksum in ${name}`);
-        out.set(name, td.decode(bytes));
+        if (out.has(name))
+            throw Error('Duplicate OOXML ZIP entry.');
+        out.set(name, new Uint8Array(bytes));
     }
     return out;
 }

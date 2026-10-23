@@ -20,7 +20,7 @@ SpreadsheetDocument (document.ts)
 Workbook (workbook.ts)
  ├─ Map<address,raw>, Map<address,style>
  ├─ lexer/Pratt parser AST from parser.ts
- ├─ 56 custom functions from functions.ts
+ ├─ 56 base functions + 80 more in functions_extra.ts
  ├─ forward/reverse dependency graph, dirty invalidation, cache
  ├─ errors: diagnostics with code, cursor position and suggestion
  └─ grouped undo/redo transaction history
@@ -56,3 +56,16 @@ The grid addresses 400×52 by default, up to 1000×104 on import. `main.ts` comp
 ## Test and performance strategy
 
 Node built-in runner (`tests/`) verifies engine functions, parser/cycles, sorting/transactions, archive integrity, OOXML export structure and sheet metadata. The optional Chromium regression exercises real mouse/keyboard editing, dialog selection, frozen cells, filters, conditional rules, AutoSum and compressed XLSX round-trip. `scripts/benchmark.mjs` builds 10,000 formulas across rows and measures an isolated one-input edit's propagated set. See `docs/PERFORMANCE_REPORT.md` and `docs/V3_XLSX_IO.md`.
+
+---
+
+## v5 extensions: categories, bounded formulas, and safe automation
+
+GridForge v5 registers 80 new scalar/range functions in `src/engine/functions_v5.ts`, bringing the shared registry to 216. `src/engine/categories.ts` assigns every registered function to one Excel-style sidebar category and exposes a Recently added collection. Calculation still routes through the custom `Workbook.evaluate` logic, including lazy behavior for `CHOOSE`, `ISERROR`, `ISERR`, and `ISNA`.
+
+The application uses two distinct macro concepts:
+
+1. **GridForge action recipes**, in `src/engine/macros.ts`: constrained JSON `cells` and `styles` steps; validated and replayed through `Workbook.applyTransaction`, with no arbitrary code evaluation or external network access. The UI records only explicitly supported actions.
+2. **Imported `.xlsm` files**: the normal OOXML worksheet reader loads supported data while ignoring binary VBA parts. `src/main.ts` retains the original uploaded file bytes in memory for unchanged download. The `.xlsx` exporter builds a fresh document with no VBA parts. There is no VBA execution or merger into edited macro-enabled files.
+
+These deliberate boundaries maintain a browser-only architecture and allow reviewers to inspect macro behavior without permitting arbitrary uploaded code to run.

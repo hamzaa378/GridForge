@@ -1,0 +1,28 @@
+
+> gridforge-gdg-frontend-task2@10.3.0 parity:snapshot
+> npm run build && node scripts/verify_excel_snapshot.mjs
+
+
+> gridforge-gdg-frontend-task2@10.3.0 build
+> tsc -p tsconfig.json && node scripts/copy-static.mjs
+
+Static assets copied to dist/.
+{
+  "baselineMatches": 418,
+  "baselineDifferences": 34,
+  "newlyMatching": 32,
+  "currentMatches": 450,
+  "comparable": 456,
+  "knownSemantics": [
+    "CUBESETCOUNT",
+    "FIELDVALUE",
+    "FORECAST.ETS.SEASONALITY",
+    "INFO"
+  ],
+  "regressions": [],
+  "unresolved": [
+    "IMPOWER",
+    "XNPV"
+  ],
+  "source": "User-supplied actual Excel 16.0 results; new GridForge 10.3 re-evaluated locally. No new Excel session."
+}

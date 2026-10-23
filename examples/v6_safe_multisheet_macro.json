@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "name": "Sample Sales Cleanup",
+  "sheetName": "Sheet 1",
+  "steps": [
+    {
+      "kind": "cells",
+      "edits": [
+        {"ref": "A1", "raw": "PRODUCT"},
+        {"ref": "B1", "raw": "UNITS"},
+        {"ref": "A2", "raw": "Keyboard"},
+        {"ref": "B2", "raw": "5"},
+        {"ref": "A3", "raw": "Mouse"},
+        {"ref": "B3", "raw": "12"},
+        {"ref": "C2", "raw": "=B2*100"}
+      ]
+    },
+    {"kind": "fillDown", "source": "C2", "range": "C3:C3"},
+    {"kind": "styles", "edits": [{"ref": "A1", "style": {"bold": true}}]},
+    {"kind": "sort", "range": "A1:C3", "byColumn": 1, "hasHeader": true, "descending": true}
+  ]
+}

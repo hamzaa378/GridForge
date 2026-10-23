@@ -1,0 +1,19 @@
+127.0.0.1 - - [20/Oct/2026 19:15:20] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [20/Oct/2026 19:15:20] "GET /main.js HTTP/1.1" 200 -
+127.0.0.1 - - [20/Oct/2026 19:15:20] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [20/Oct/2026 19:15:20] "GET /engine/parser.js HTTP/1.1" 200 -
+127.0.0.1 - - [20/Oct/2026 19:15:20] "GET /engine/workbook.js HTTP/1.1" 200 -
+127.0.0.1 - - [20/Oct/2026 19:15:20] code 404, message File not found
+127.0.0.1 - - [20/Oct/2026 19:15:20] "GET /does-not-exist HTTP/1.1" 404 -
+PASS: Bundled precompiled dist/ files are present
+PASS: HTTP 200 /
+PASS: HTTP 200 /main.js
+PASS: JavaScript MIME /main.js
+PASS: HTTP 200 /styles.css
+PASS: HTTP 200 /engine/parser.js
+PASS: JavaScript MIME /engine/parser.js
+PASS: HTTP 200 /engine/workbook.js
+PASS: JavaScript MIME /engine/workbook.js
+PASS: Missing file returns HTTP 404
+
+PYTHON-ONLY SMOKE CHECK: PASS. No third-party Python modules installed.

@@ -1,13 +1,17 @@
 import { Workbook, display, type Edit } from './engine/workbook.js';
 import { parseCSV,encodeCSV } from './engine/csv.js';
 import { colToName, normalizeRef,parseRef,shiftFormula } from './engine/parser.js';
-import { functions,functionNames } from './engine/functions.js';
+import { functions,functionNames,v9FunctionNames,v10FunctionNames } from './engine/functions.js';
+import {functionCategory,categoryNames} from './engine/categories.js';
+import {validateMacro,runActionMacro,type ActionMacro} from './engine/macros.js';
 import {SpreadsheetDocument} from './engine/document.js';
 import {styledDisplay, type CellStyle, type NumberFormat, type CellAlign} from './engine/format.js';
 import {analyzeSelection,findCells,replaceCells,sortRangeTransaction} from './engine/operations.js';
 import {snapshotCells,pasteSnapshot,type ClipboardSnapshot} from './engine/clipboard.js';
 import {exportXlsx,importXlsx,xlsxFileName} from './engine/xlsx.js';
+import {exportEditedXlsm} from './engine/xlsm.js';
 import {filterVisibleRows,ruleColor} from './engine/sheettools.js';
+import {DATA_TOOLS,TOOL_CATEGORIES,previewDataTool} from './engine/tools_v8.js';
 const ROW_H=30, COL_W=126, HEAD_W=54, HEAD_H=34;
 const STORAGE='gridforge:document:v2';
 const LEGACY_STORAGE='gridforge:greeting:workbook:v1';
@@ -46,21 +50,35 @@ let fillDrag=false, rangeDrag=false, dragTarget={...active};
 let lastPointerDown={ref:'',at:0};
 let storeTimeout=0,scrollFrame=0;
 let functionFilter='';
+let functionCategoryFilter='All functions';
+let originalMacroFile:{name:string;bytes:Uint8Array;baseline:SpreadsheetDocument}|null=null;
+let recorder:{name:string;sheetName:string;steps:import('./engine/macros.js').StepV2[]}|null=null;
+let macros:ActionMacro[]=[];
+try{const raw=localStorage.getItem('gridforge:action-macros:v1');if(raw){const parsed=JSON.parse(raw);if(Array.isArray(parsed))macros=parsed.slice(0,30).map(validateMacro);}}catch{macros=[];}
+const saveMacros=()=>{try{localStorage.setItem('gridforge:action-macros:v1',JSON.stringify(macros));}catch{toast('Macro storage full; export your macro JSON.');}};
+
 const root=el<HTMLDivElement>('app');
 root.innerHTML=`
   <header class="topbar">
     <div class="logo"><div class="logo-mark"><span></span><span></span><span></span><span></span></div><span>grid<span class="logo-light">forge</span></span></div>
-    <div class="title-group"><div class="title-line"><span id="book-title">${escapeHtml(workbookTitle)}</span> <span class="tiny-caret">⌄</span></div><div class="title-sub">Personal workspace <span class="dot">•</span> <span id="save-state">Saved locally</span></div></div>
-    <div class="topbar-right"><span class="online"><span class="green-dot"></span> Offline ready</span><button id="btn-shortcuts" class="ghost-btn">⌨ <span>Shortcuts</span></button><span class="avatar">G</span></div>
+    <div class="title-group"><div class="title-line"><span id="book-title">${escapeHtml(workbookTitle)}</span> <span class="tiny-caret">⌄</span></div><div class="title-sub">Spreadsheet <span class="dot">•</span> <span id="save-state">Saved locally</span></div></div>
+    <div class="topbar-right"><span class="online"><span class="green-dot"></span> Saved on device</span><button id="btn-insights" class="ghost-btn" title="Show or hide formulas and calculation insights">☷ <span>Insights</span></button><button id="btn-shortcuts" class="ghost-btn">⌨ <span>Help</span></button><div class="v10-preferences" aria-label="Display preferences"><label for="workspace-switch">Workspace</label><select id="workspace-switch" aria-label="Switch between Excel and guided workspace"><option value="excel">Excel familiar</option><option value="guided">Guided & simple</option></select><button type="button" id="theme-switch" aria-label="Switch light and dark theme" title="Change color theme">☀ Light</button></div><span class="avatar">G</span></div>
   </header>
+  <div class="excel-ribbon-tabs" role="tablist" aria-label="Spreadsheet command groups">
+    <button type="button" class="excel-tab" data-ribbon="File">File</button><button type="button" class="excel-tab active" data-ribbon="Home">Home</button><button type="button" class="excel-tab" data-ribbon="Formulas">Formulas</button><button type="button" class="excel-tab" data-ribbon="Data">Data</button><button type="button" class="excel-tab" data-ribbon="Automate">Tools</button><button type="button" class="excel-tab" data-ribbon="View">View</button><button type="button" class="excel-tab" data-ribbon="All">More ▾</button>
+    <label class="command-search-label" for="command-search">⌕ <input id="command-search" type="search" placeholder="Search tools (e.g. sort, formula, import)" autocomplete="off" aria-label="Search spreadsheet commands"/></label>
+    <button id="btn-first-steps" class="ribbon-help" title="Learn the spreadsheet in three steps">? Start here</button>
+  </div>
+  <div id="ribbon-hint" class="ribbon-hint" role="status">Click a cell to type, enter = to calculate, or open an Excel file.</div>
+  <section id="guided-home" class="guided-home" aria-label="Beginner quick actions"><span class="guided-title">Start with a cell · all changes stay on this device</span><button id="guided-sample" type="button">▤ Load example</button><button id="guided-functions" type="button">fx Browse formulas</button><button id="guided-import" type="button">↧ Open Excel file</button><button id="guided-help" type="button">? Show tutorial</button></section>
   <nav class="toolbar" aria-label="Workbook toolbar">
     <div class="tool-group"><button id="btn-new" class="tool-btn" title="New workbook">＋ <span>New</span></button><button id="btn-sample" class="tool-btn" title="Load demo workbook">▧ <span>Demo</span></button></div>
     <span class="separator"></span><div class="tool-group"><button id="btn-undo" class="tool-btn" title="Undo (Ctrl+Z)">↶ <span>Undo</span></button><button id="btn-redo" class="tool-btn" title="Redo (Ctrl+Y)">↷ <span>Redo</span></button></div>
-    <span class="separator"></span><div class="tool-group"><button id="btn-import" class="tool-btn" title="Import XLSX, CSV or JSON">↧ <span>Import</span></button><button id="btn-xlsx" class="tool-btn" title="Download Excel .xlsx workbook">▦ <span>XLSX</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
-    <span class="separator"></span><div class="tool-group"><button id="btn-sort-asc" class="tool-btn" title="Sort selected rows ascending by first selected column">↑ <span>Sort A–Z</span></button><button id="btn-sort-desc" class="tool-btn" title="Sort selected rows descending by first selected column">↓ <span>Sort Z–A</span></button><button id="btn-sort-custom" class="tool-btn" title="Choose sorting column and header handling">▤ <span>Custom sort</span></button><button id="btn-find" class="tool-btn" title="Find and replace (Ctrl+F)">⌕ <span>Find</span></button><button id="btn-filter" class="tool-btn" title="Filter selected table rows">⛃ <span>Filter</span></button><button id="btn-clear-filter" class="tool-btn" title="Show all filtered rows">◯ <span>Show all</span></button></div><span class="separator"></span><span class="toolbar-tip">Tip: Format, sort, or analyze your selection</span><div class="toolbar-push"></div><span id="grid-size" class="cell-counter"></span>
+    <span class="separator"></span><div class="tool-group"><button id="btn-import" class="tool-btn" title="Open Excel XLSX/XLSM, CSV or JSON (Ctrl+O)">↧ <span>Open file</span></button><button id="btn-data-studio" class="tool-btn" title="100 Excel-style tools for cleanup, numeric transformations, filling, range changes and aggregation">▦ <span>Data Studio</span></button><button id="btn-automate" class="tool-btn" title="Record and replay safe GridForge actions">⚙ <span>Automate</span></button><button id="btn-save-xlsm" class="tool-btn" title="Save edits into a new macro-enabled XLSM (VBA preserved)" hidden>▣ <span>Save XLSM</span></button><button id="btn-original-xlsm" class="tool-btn" title="Download unchanged original macro-enabled workbook" hidden>⇩ <span>Original XLSM</span></button><button id="btn-xlsx" class="tool-btn" title="Save an Excel XLSX copy (Ctrl+S)">▦ <span>Save Excel</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
+    <span class="separator"></span><div class="tool-group"><button id="btn-sort-asc" class="tool-btn" title="Sort selected rows ascending by first selected column">↑ <span>Sort A–Z</span></button><button id="btn-sort-desc" class="tool-btn" title="Sort selected rows descending by first selected column">↓ <span>Sort Z–A</span></button><button id="btn-sort-custom" class="tool-btn" title="Choose sorting column and header handling">▤ <span>Custom sort</span></button><button id="btn-find" class="tool-btn" title="Find and replace (Ctrl+F)">⌕ <span>Find</span></button><button id="btn-filter" class="tool-btn" title="Filter selected table rows">⛃ <span>Filter</span></button><button id="btn-clear-filter" class="tool-btn" title="Show all filtered rows">◯ <span>Show all</span></button></div><span class="separator"></span><span class="toolbar-tip">Select cells and use the ribbon</span><div class="toolbar-push"></div><span id="grid-size" class="cell-counter"></span>
   </nav>
   <div class="format-toolbar" aria-label="Cell formatting toolbar">
-    <span class="format-caption">FORMAT</span><button id="fmt-bold" class="format-btn" title="Bold (Ctrl+B)"><b>B</b></button><button id="fmt-italic" class="format-btn" title="Italic (Ctrl+I)"><i>I</i></button><button id="fmt-underline" class="format-btn" title="Underline (Ctrl+U)"><u>U</u></button>
+    <span class="format-caption">Cell formatting</span><button id="fmt-bold" class="format-btn" title="Bold (Ctrl+B)"><b>B</b></button><button id="fmt-italic" class="format-btn" title="Italic (Ctrl+I)"><i>I</i></button><button id="fmt-underline" class="format-btn" title="Underline (Ctrl+U)"><u>U</u></button>
     <label class="fmt-selector-label">Number <select id="fmt-number" aria-label="Number format"><option value="general">General</option><option value="number">Number (0.00)</option><option value="integer">Integer</option><option value="currency">USD ($)</option><option value="percent">Percent (%)</option></select></label>
     <label class="fmt-selector-label">Align <select id="fmt-align" aria-label="Cell text alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
     <label class="color-field">Text <input id="fmt-color" type="color" value="#d4dbef" title="Font color" aria-label="Font color"/></label>
@@ -77,11 +95,11 @@ root.innerHTML=`
     </section>
     <aside class="sidebar" id="sidebar"><div class="sidebar-top"><div class="sidebar-title"><span class="sidebar-emoji">✧</span><div><strong>Formula intelligence</strong><small>Understand every calculation</small></div></div><button id="sidebar-toggle" class="sidebar-hide" title="Show or hide inspector">☰</button></div>
       <div class="side-tabs" role="tablist"><button data-mode="inspector" class="side-tab chosen">Inspector</button><button data-mode="impact" class="side-tab">Impact</button><button data-mode="scenario" class="side-tab">What-if</button><button data-mode="analyze" class="side-tab">Analyze</button><button data-mode="functions" class="side-tab">Functions</button></div>
-      <div class="sidebar-body" id="sidebar-body"></div><div class="sidebar-footer"><span class="mini-spark">✦</span> Built from scratch in TypeScript <span class="side-version">v3.0</span></div>
+      <div class="sidebar-body" id="sidebar-body"></div><div class="sidebar-footer"><span class="mini-spark">✦</span> Formula details · Optional <span class="side-version">v10.3</span></div>
     </aside>
   </div>
   <footer class="statusbar"><span class="status-left"><span class="green-dot"></span> Auto-saved in this browser</span><span id="status-text">Custom formula engine · No external spreadsheet library</span><span id="selection-aggregate"></span><span class="status-right">Up to 12 sheets <span class="dot">•</span> ${functionNames.length} functions</span></footer>
-  <input type="file" id="file-picker" accept=".csv,.json,.xlsx,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden/>
+  <input type="file" id="file-picker" accept=".csv,.json,.xlsx,.xlsm,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden/>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="cell-context-menu" class="cell-context-menu" role="menu" aria-label="Cell actions" hidden>
     <div class="context-heading" id="context-heading">CELL ACTIONS</div>
@@ -99,6 +117,7 @@ root.innerHTML=`
     <button role="menuitem" data-context="sort-asc"><span class="menu-glyph">↑</span> Sort A–Z</button>
     <button role="menuitem" data-context="sort-desc"><span class="menu-glyph">↓</span> Sort Z–A</button>
     <button role="menuitem" data-context="autosum"><span class="menu-glyph">∑</span> AutoSum</button><button role="menuitem" data-context="filter"><span class="menu-glyph">⛃</span> Filter selection…</button><button role="menuitem" data-context="conditional"><span class="menu-glyph">◈</span> Conditional formatting…</button>
+    <button role="menuitem" data-context="data-studio"><span class="menu-glyph">▦</span> Data Studio (100 actions)</button>
     <button role="menuitem" data-context="sort-custom"><span class="menu-glyph">▤</span> Custom sort…</button>
     <button role="menuitem" data-context="find"><span class="menu-glyph">⌕</span> Find and replace <kbd>Ctrl+F</kbd></button>
     <div class="context-separator"></div>
@@ -112,14 +131,38 @@ root.innerHTML=`
     <label class="sort-checkbox"><input type="checkbox" id="sort-header"/> My selection has a header row</label>
     <p id="sort-preview" class="sort-preview"></p><button id="btn-sort-apply" class="primary-button">Sort selection</button>
   </dialog>
+  <dialog id="data-studio-dialog" class="help-dialog studio-dialog" aria-label="Data Studio">
+    <div class="dialog-top"><h2>Data Studio <span class="studio-counter">100 actions</span></h2><button type="button" class="tool-btn" id="close-data-studio" aria-label="Close Data Studio">✕</button></div>
+    <p>Excel-style, single-step operations on your selection. Preview before applying. Every change is a single undoable transaction. Formula cells are skipped by text/numeric cleanup tools, while fill and arrangement tools translate relative formulas.</p>
+    <div class="studio-search"><label for="studio-category">Category</label><select id="studio-category" class="context-select"></select><label for="studio-search">Search</label><input id="studio-search" class="scenario-input" placeholder="Search 100 spreadsheet actions"/></div>
+    <label for="studio-action">Action</label><select id="studio-action" class="context-select" size="9" aria-label="Available Data Studio actions"></select>
+    <div class="studio-description" id="studio-description" aria-live="polite">Choose an action to see its description.</div>
+    <div class="studio-description" id="studio-preview" aria-live="polite">Select cells and choose Preview.</div>
+    <div class="find-actions"><button class="secondary-button" id="studio-preview-button">Preview changes</button><button class="primary-button" id="studio-apply" disabled>Apply selection</button></div>
+    <p class="studio-warning">This is a GridForge editing toolkit, not an Excel add-in. Original VBA is never run by these actions. Save a backup before exporting XLSM because style and worksheet-structure round-trip support is limited.</p>
+  </dialog>
   <dialog id="find-dialog" class="help-dialog find-dialog"><div class="dialog-top"><h2>Find and replace</h2><button id="close-find" class="tool-btn" aria-label="Close">✕</button></div><label class="field-label" for="find-query">Find in the active worksheet</label><input id="find-query" class="scenario-input" placeholder="Search cell contents or formulas"/>
     <label class="field-label" for="replace-text">Replace with</label><input id="replace-text" class="scenario-input" placeholder="Replacement text"/>
     <div class="find-options"><label><input type="checkbox" id="find-case"/> Match case</label><label><input type="checkbox" id="find-formulas"/> Include formulas in Replace All</label></div>
     <div class="find-actions"><button id="btn-find-all" class="secondary-button">Find all</button><button id="btn-replace-all" class="primary-button">Replace all</button></div><div id="find-results" class="find-results" aria-live="polite"></div></dialog>
+  <dialog id="macro-dialog" class="help-dialog"><div class="dialog-top"><h2>GridForge automation &amp; Excel VBA</h2><button id="close-macros" class="tool-btn" aria-label="Close automation dialog">✕</button></div>
+    <p><b>GridForge action macros</b> record trusted spreadsheet actions in the browser. <b>Excel VBA</b> can only run through an optional, separately started local Microsoft Excel bridge on Windows. VBA execution can change files or run programs; only use workbooks you trust.</p>
+    <label class="field-label" for="macro-name">Macro name</label><input id="macro-name" class="scenario-input" value="Format and populate" maxlength="64"/>
+    <div class="find-actions"><button class="secondary-button" id="macro-record">● Start recording</button><button class="secondary-button" id="macro-stop">■ Save recording</button></div>
+    <label class="field-label" for="macro-select">Saved action macros</label><select id="macro-select" class="context-select"></select>
+    <div class="find-actions"><button id="macro-preview" class="secondary-button">Preview effects</button><button id="macro-run" class="primary-button">▶ Run selected macro</button><button id="macro-export" class="secondary-button">Export macro JSON</button><button id="macro-import" class="secondary-button">Import macro JSON</button></div>
+    <input id="macro-file" type="file" accept=".json,application/json" hidden/><div id="macro-state" class="import-notes-body" aria-live="polite"></div>
+    <div class="vba-bridge-controls"><h3>Run existing Excel VBA (optional Windows bridge)</h3><p>Install Microsoft Excel desktop and pywin32. Start <code>python scripts/excel_vba_bridge.py</code> locally, then paste the one-time token printed in that terminal. Your current edited XLSM is sent only to <code>127.0.0.1:4187</code>. Excel Trust Center must allow your trusted macro; GridForge never bypasses it.</p><label class="field-label" for="vba-token">Local bridge session token</label><input id="vba-token" class="scenario-input" type="password" placeholder="Paste token from Windows bridge" autocomplete="off"/><label class="field-label" for="vba-macro-name">Existing VBA procedure (no arguments)</label><input id="vba-macro-name" class="scenario-input" placeholder="Module1.GenerateReport" autocomplete="off"/><div class="find-actions"><button id="run-excel-vba" class="primary-button">Run selected VBA in desktop Excel</button></div><p id="vba-status" class="import-notes-body" aria-live="polite"></p></div><p><b>XLSM round-trip:</b> Save XLSM keeps embedded VBA and unrelated Office parts while applying supported cell content/formula changes. Formatting edits, worksheet structure changes, and changes to Excel shared-formula cells are not fully supported in this mode. Use a backup and verify in Excel.</p>
+  </dialog>
   <dialog id="import-notes-dialog" class="help-dialog"><div class="dialog-top"><h2>XLSX import report</h2><button class="tool-btn" id="close-import-notes">✕</button></div><p>GridForge imported the supported worksheet content. Review any formula or feature differences before editing or exporting.</p><div id="import-notes-body" class="import-notes-body"></div><button id="confirm-import-notes" class="primary-button">Continue to workbook</button></dialog>
   <dialog id="filter-dialog" class="help-dialog"><div class="dialog-top"><h2>Filter table rows</h2><button class="tool-btn" id="close-filter">✕</button></div><p>Select a header and data rectangle, choose a column, and show rows containing a value. The data is never deleted.</p><label class="field-label" for="filter-column">Filter by column</label><select id="filter-column" class="context-select"></select><label class="field-label" for="filter-query">Contains (case-insensitive)</label><input id="filter-query" class="scenario-input" placeholder="Example: Review"/><button id="apply-filter" class="primary-button">Apply filter</button></dialog>
   <dialog id="conditional-dialog" class="help-dialog"><div class="dialog-top"><h2>Conditional formatting</h2><button class="tool-btn" id="close-conditional">✕</button></div><p>Color selected numeric cells based on their actual numeric values. Rules recalculate automatically after edits.</p><label class="field-label">Condition</label><select class="context-select" id="rule-op"><option value="gt">Greater than</option><option value="lt">Less than</option><option value="eq">Equal to</option></select><label class="field-label">Numeric threshold</label><input id="rule-threshold" type="number" step="any" value="100" class="scenario-input"/><label class="field-label">Highlight color</label><input type="color" id="rule-color" value="#276a53"/><button class="primary-button" id="apply-conditional">Apply to selection</button><button class="secondary-button" id="clear-conditional">Clear rules on this sheet</button></dialog>
-  <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Navigate cells</span><kbd>Arrow keys</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Cell context menu</span><kbd>Right-click / Shift+F10</kbd><span>AutoSum</span><kbd>Alt + =</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward</span><kbd>Ctrl + D</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Search cell address</span><kbd>Ctrl + L</kbd></div></dialog>
+  <dialog id="welcome-dialog" class="help-dialog welcome-dialog" aria-label="Getting started with GridForge"><div class="dialog-top"><h2>Welcome to GridForge</h2><button type="button" id="close-welcome" class="tool-btn" aria-label="Close getting started">✕</button></div>
+    <p>Excel experience? GridForge uses the same cells, worksheet tabs, formula bar, and familiar editing shortcuts.</p>
+    <ol class="onboarding-steps"><li><b>Enter data</b><span>Click A1, type 10, then press Enter. Move with arrows, use F2 to edit.</span></li><li><b>Use a formula</b><span>Click another cell and type =SUM(A1:A5). The fx bar and Functions tab help you find formulas.</span></li><li><b>Open an Excel file</b><span>Choose File → Import for XLSX/XLSM; File → XLSX to export. Save a JSON copy for GridForge-only settings.</span></li></ol>
+    <p class="welcome-note">VBA: macro-enabled workbook edits can be saved back to XLSM, but running VBA requires the optional Windows Excel bridge.</p><div class="welcome-actions"><button class="primary-button" id="welcome-functions">Browse functions</button><button class="secondary-button" id="welcome-import">Import Excel file</button></div>
+  </dialog>
+  <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Open workbook</span><kbd>Ctrl + O</kbd><span>Save Excel file</span><kbd>Ctrl + S</kbd><span>Save GridForge backup</span><kbd>Ctrl + Shift + S</kbd><span>Navigate cells</span><kbd>Arrow keys</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Cell context menu</span><kbd>Right-click / Shift+F10</kbd><span>AutoSum</span><kbd>Alt + =</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward</span><kbd>Ctrl + D</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Search cell address</span><kbd>Ctrl + L</kbd></div></dialog>
 `;
 const grid=el<HTMLDivElement>('grid-scroll');const surface=el<HTMLDivElement>('grid-surface');
 const formulaInput=el<HTMLInputElement>('formula'),nameBox=el<HTMLInputElement>('name-box');
@@ -153,7 +196,7 @@ function renderFormatControls(){
   el<HTMLInputElement>('fmt-fill').value=style.background??'#131b2d';
 }
 function selectionRefs(){const b=sel(),refs:string[]=[];for(let r=b.r1;r<=b.r2;r++)for(let c=b.c1;c<=b.c2;c++)refs.push(asRef(r,c));return refs;}
-function applyStyle(patch:Partial<CellStyle>){try{book.patchStyles(selectionRefs(),patch);save();refresh();}catch(e){toast(e instanceof Error?e.message:'Invalid format');}}
+function applyStyle(patch:Partial<CellStyle>){try{const selected=selectionRefs();book.patchStyles(selected,patch);if(recorder)recorder.steps.push({kind:'styles',sheetName:doc.active.name,edits:selected.map(ref=>({ref,style:book.getStyle(ref)}))});save();refresh();}catch(e){toast(e instanceof Error?e.message:'Invalid format');}}
 function renderGrid(){
   const visibleRowsMap=visibleRows(),tools=doc.active.tools;
   surface.style.width=`${HEAD_W+book.cols*COL_W}px`;surface.style.height=`${HEAD_H+visibleRowsMap.length*ROW_H}px`;
@@ -208,7 +251,7 @@ function gridPointerCell(clientX:number,clientY:number):{r:number;c:number}|null
   const r=visibleRows()[viewR];return r===undefined||!inBounds(r,viewC)?null:{r,c:viewC};
 }
 
-function apply(edits:Edit[]){try{book.applyEdits(edits);save();refresh();}catch(e){toast(e instanceof Error?e.message:'Unable to modify cells.');}}
+function apply(edits:Edit[]){try{book.applyEdits(edits);if(recorder&&edits.length)recorder.steps.push({kind:'cells',sheetName:doc.active.name,edits:edits.map(e=>({...e}))});save();refresh();}catch(e){toast(e instanceof Error?e.message:'Unable to modify cells.');}}
 function commitEdit(move:{r:number;c:number}|null=null){if(!editing)return;const text=editing.value,ref=editingRef;editing=null;editingRef='';apply([{ref,raw:text}]);if(move)select(Math.min(book.rows-1,Math.max(0,move.r)),Math.min(book.cols-1,Math.max(0,move.c)));}
 function beginEdit(replace?:string){if(editing)return;const ref=currentRef();const node=surface.querySelector<HTMLElement>(`.cell[data-ref="${ref}"]`);if(!node)return;
   const inp=document.createElement('input');inp.className='cell-editor';inp.value=replace??book.getRaw(ref);inp.spellcheck=false;inp.setAttribute('aria-label',`Edit ${ref}`);node.replaceChildren(inp);node.classList.add('editing');editing=inp;editingRef=ref;inp.focus();if(replace===undefined)inp.select();
@@ -245,8 +288,9 @@ function renderSidebar(){const ref=currentRef(), info=book.inspect(ref), raw=inf
       <div class="panel-block"><h3>Selection statistics</h3><div class="analysis-stats">${[['Numeric values',data.numbers],['Sum',data.sum],['Average',data.average??'—'],['Minimum',data.min??'—'],['Maximum',data.max??'—'],['Blank cells',data.blanks],['Formula errors',data.errors],['Duplicate values',data.duplicates]].map(([k,v])=>`<div><span>${k}</span><b>${typeof v==='number'?Math.round(v*1e4)/1e4:escapeHtml(String(v))}</b></div>`).join('')}</div></div>
       <div class="panel-block"><h3>Quick chart <span class="hint">First two columns</span></h3>${data.chart.length?`<div class="quick-chart">${data.chart.slice(0,16).map(x=>`<div class="chart-line" title="${escapeHtml(x.label)}: ${x.value}"><span>${escapeHtml(x.label.slice(0,11))}</span><div class="chart-track"><div class="chart-bar ${x.value<0?'negative':''}" style="width:${Math.max(2,100*Math.abs(x.value)/max)}%"></div></div><b>${Math.round(x.value*100)/100}</b></div>`).join('')}</div>`:'<p>Select a rectangle with numeric cells to visualize it. The first column supplies labels and the second supplies values.</p>'}</div><div class="panel-block"><h3>How to use</h3><p>Select a data table, use Sort A–Z or Z–A, then inspect differences here. Analytics never changes your spreadsheet.</p></div>`;
   }else {
-    const filtered=functionNames.filter(name=>name.includes(functionFilter.toUpperCase())||functions[name]!.description.toLowerCase().includes(functionFilter.toLowerCase()));
-    side.innerHTML=`<div class="panel-spotlight"><div class="overline">FUNCTION LIBRARY</div><div class="panel-value">${functionNames.length} built-ins</div><p>Every function is implemented in this repository. Select one to insert a template.</p></div><div class="panel-block"><input class="function-search" id="function-search" aria-label="Filter functions" placeholder="Search formulas…" value="${escapeHtml(functionFilter)}"/><div class="function-list">${filtered.map(f=>`<button class="function-card" data-function="${f}"><div><strong>${f}</strong><span>＋</span></div><small>${escapeHtml(functions[f]!.description)}</small><code>${escapeHtml(functions[f]!.example)}</code></button>`).join('')}</div></div>`;
+    const filtered=functionNames.filter(name=>(functionCategoryFilter==='All functions'||(functionCategoryFilter==='Recently added'?v10FunctionNames.includes(name):functionCategory(name)===functionCategoryFilter))&&(name.includes(functionFilter.toUpperCase())||functions[name]!.description.toLowerCase().includes(functionFilter.toLowerCase())));
+    const groups=new Map<string,string[]>();for(const f of filtered){const category=functionCategory(f);if(!groups.has(category))groups.set(category,[]);groups.get(category)!.push(f);}
+    side.innerHTML=`<div class="panel-spotlight"><div class="overline">EXCEL-STYLE FUNCTION LIBRARY</div><div class="panel-value">${functionNames.length} built-ins</div><p>Browse by function category. The custom TypeScript engine evaluates every registered formula.</p></div><div class="panel-block"><label class="field-label" for="function-category">Function category</label><select id="function-category" class="context-select" aria-label="Function category">${categoryNames.map(c=>`<option value="${escapeHtml(c)}" ${c===functionCategoryFilter?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select><input class="function-search" id="function-search" aria-label="Filter functions" placeholder="Search formulas…" value="${escapeHtml(functionFilter)}"/><div class="function-list">${[...groups].map(([category,names])=>`<div class="function-category-label">${escapeHtml(category)} · ${names.length}</div>${names.map(f=>`<button class="function-card" data-function="${f}"><div><strong>${f}</strong><span>＋</span></div><small>${escapeHtml(functions[f]!.description)}</small><code>${escapeHtml(functions[f]!.example)}</code></button>`).join('')}`).join('')||'<p>No matching functions.</p>'}</div></div>`;
   }
 }
 function jump(ref:string){const p=parseRef(ref);if(p&&inBounds(p.row,p.col))select(p.row,p.col);}
@@ -261,6 +305,7 @@ side.addEventListener('click',ev=>{
   }
   if(target.closest('#btn-apply-preview')){const proposed=el<HTMLInputElement>('scenario-input').value;apply([{ref:currentRef(),raw:proposed}]);toast('Scenario applied to workbook');}
 });
+side.addEventListener('change',e=>{if((e.target as HTMLElement).id==='function-category'){functionCategoryFilter=(e.target as HTMLSelectElement).value;renderSidebar();}});
 side.addEventListener('input',e=>{if((e.target as HTMLElement).id==='function-search'){const input=e.target as HTMLInputElement;const caret=input.selectionStart;functionFilter=input.value;renderSidebar();const restored=el<HTMLInputElement>('function-search');restored.focus();restored.setSelectionRange(caret,caret);}});
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(node=>node.addEventListener('click',()=>setMode(node.dataset.mode as typeof mode)));
 grid.addEventListener('scroll',()=>{if(editing)commitEdit();if(!scrollFrame)scrollFrame=requestAnimationFrame(()=>{scrollFrame=0;renderGrid();});});
@@ -339,6 +384,75 @@ formulaInput.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefa
 el<HTMLButtonElement>('btn-commit').addEventListener('click',()=>{apply([{ref:currentRef(),raw:formulaInput.value}]);grid.focus({preventScroll:true});});
 nameBox.addEventListener('keydown',ev=>{if(ev.key==='Enter'){const p=parseRef(nameBox.value.trim());if(p&&inBounds(p.row,p.col))select(p.row,p.col);else toast('Enter a valid address, e.g. AA120');}if(ev.key==='Escape')nameBox.value=currentRef();});
 function download(name:string,contents:string|Uint8Array,type:string){const url=URL.createObjectURL(new Blob([typeof contents==='string'?contents:new Uint8Array(contents)],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);}
+const macroDlg=el<HTMLDialogElement>('macro-dialog');
+function renderMacroState(){
+  el<HTMLElement>('macro-state').textContent=recorder?`Recording ${recorder.name}: ${recorder.steps.length} action(s), across worksheets.`:`${macros.length} saved action macro(s). VBA execution requires a separately launched local Excel bridge.`;
+  const chosen=el<HTMLSelectElement>('macro-select').value;
+  el<HTMLSelectElement>('macro-select').innerHTML=macros.map((m,i)=>`<option value="${i}">${escapeHtml(m.name)} · ${escapeHtml(m.sheetName)} · ${m.steps.length} step(s)</option>`).join('');
+  if(chosen&&Number(chosen)<macros.length)el<HTMLSelectElement>('macro-select').value=chosen;
+  el<HTMLButtonElement>('macro-record').disabled=!!recorder;el<HTMLButtonElement>('macro-stop').disabled=!recorder;
+}
+el<HTMLButtonElement>('btn-automate').addEventListener('click',()=>{renderMacroState();macroDlg.showModal();});
+el<HTMLButtonElement>('close-macros').addEventListener('click',()=>macroDlg.close());
+el<HTMLButtonElement>('macro-record').addEventListener('click',()=>{const name=el<HTMLInputElement>('macro-name').value.trim();if(!name){toast('Enter a macro name.');return;}recorder={name,sheetName:doc.active.name,steps:[]};renderMacroState();macroDlg.close();toast('Recording cell edits, formatting and sorting across tabs. Open Automate to stop.');});
+el<HTMLButtonElement>('macro-stop').addEventListener('click',()=>{if(!recorder)return;try{const m=validateMacro({version:2,...recorder});macros=[...macros.filter(x=>x.name!==m.name),m].slice(-30);saveMacros();recorder=null;renderMacroState();el<HTMLSelectElement>('macro-select').value=String(macros.findIndex(x=>x.name===m.name));toast('Saved GridForge action macro.');}catch(e){toast(e instanceof Error?e.message:'Macro invalid');}});
+el<HTMLButtonElement>('macro-preview').addEventListener('click',()=>{const m=macros[Number(el<HTMLSelectElement>('macro-select').value)];if(!m)return;try{const report=runActionMacro(doc,m,{dryRun:true});el<HTMLElement>('macro-state').textContent=`Preview: ${report.values} cell edits, ${report.styles} styles across ${report.sheets.join(', ')||'0 sheets'}. No changes applied.`;}catch(e){toast(e instanceof Error?e.message:'Macro preview failed');}});
+el<HTMLButtonElement>('macro-run').addEventListener('click',()=>{const i=Number(el<HTMLSelectElement>('macro-select').value),m=macros[i];if(!m||recorder){toast('Select a saved macro and stop recording first.');return;}try{const result=runActionMacro(doc,m);save();refresh();toast(`Ran ${m.name}: ${result.values} cells, ${result.styles} styles`);}catch(e){toast(e instanceof Error?e.message:'Macro failed');}});
+el<HTMLButtonElement>('macro-export').addEventListener('click',()=>{const m=macros[Number(el<HTMLSelectElement>('macro-select').value)];if(!m)return;download('gridforge-macro.json',JSON.stringify(m,null,2),'application/json');});
+el<HTMLButtonElement>('macro-import').addEventListener('click',()=>el<HTMLInputElement>('macro-file').click());
+el<HTMLInputElement>('macro-file').addEventListener('change',async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;try{const m=validateMacro(JSON.parse(await file.text()));macros=[...macros.filter(x=>x.name!==m.name),m].slice(-30);saveMacros();renderMacroState();el<HTMLSelectElement>('macro-select').value=String(macros.findIndex(x=>x.name===m.name));toast('Imported GridForge action macro.');}catch(ex){toast(ex instanceof Error?ex.message:'Invalid macro JSON');}finally{el<HTMLInputElement>('macro-file').value='';}});
+function showXlsmMessages(warnings:string[]){
+  if(!warnings.length)return;
+  el<HTMLElement>('import-notes-body').innerHTML=`<strong>XLSM compatibility notes</strong><ul>${warnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
+  el<HTMLDialogElement>('import-notes-dialog').showModal();
+}
+async function editedXlsm(){
+  if(!originalMacroFile)throw Error('Import an XLSM file before saving or running VBA.');
+  return exportEditedXlsm(originalMacroFile.bytes,originalMacroFile.baseline,doc);
+}
+el<HTMLButtonElement>('btn-save-xlsm').addEventListener('click',async()=>{
+  try{
+    const output=await editedXlsm();
+    download(workbookTitle.replace(/[^a-z0-9_.-]+/gi,'_')+'_edited.xlsm',output.bytes,'application/vnd.ms-excel.sheet.macroEnabled.12');
+    toast(`Saved XLSM with ${output.editedCells} changed cells; VBA preserved.`);
+    showXlsmMessages(output.warnings);
+  }catch(e){toast(e instanceof Error?e.message:'XLSM export failed');}
+});
+const toBase64=(bytes:Uint8Array):string=>{let encoded='';for(let i=0;i<bytes.length;i+=16384)encoded+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(encoded);};
+const fromBase64=(value:string):Uint8Array=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
+el<HTMLButtonElement>('run-excel-vba').addEventListener('click',async()=>{
+  const status=el<HTMLElement>('vba-status'),button=el<HTMLButtonElement>('run-excel-vba');
+  const macro=el<HTMLInputElement>('vba-macro-name').value.trim();
+  const token=el<HTMLInputElement>('vba-token').value.trim();
+  if(!/^[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*){0,3}$/.test(macro)||!token){status.textContent='Enter a valid VBA macro name and the bridge session token.';return;}
+  if(!confirm(`Run '${macro}' using desktop Microsoft Excel?\n\nVBA is executable code and may change files, connect to networks, or launch programs. Only continue if you trust this workbook and macro. Excel Trust Center restrictions will remain active.`))return;
+  button.disabled=true;status.textContent='Preparing edited XLSM and connecting to the local Excel bridge…';
+  try{
+    const prepared=await editedXlsm();
+    if(prepared.warnings.some(w=>w.includes('formatting changes')))status.textContent='Formatting changes are not included in this XLSM; continuing with cell edits.';
+    const response=await fetch('http://127.0.0.1:4187/run',{method:'POST',headers:{'Content-Type':'application/json','X-GridForge-Token':token},body:JSON.stringify({macro,xlsm_base64:toBase64(prepared.bytes)})});
+    const info=await response.json() as {error?:string;xlsm_base64?:string};
+    if(!response.ok||!info.xlsm_base64)throw Error(info.error??`Excel bridge returned HTTP ${response.status}`);
+    const result=fromBase64(info.xlsm_base64);
+    const newName=workbookTitle.replace(/[^a-z0-9_.-]+/gi,'_')+'_vba_result.xlsm';
+    download(newName,result,'application/vnd.ms-excel.sheet.macroEnabled.12');
+    // A real Excel macro can produce features outside GridForge's importer limits.
+    // Preserve the downloaded result even when re-import cannot display it.
+    try{
+      const imported=await importXlsx(result);
+      doc=imported.document;book=doc.active.book;
+      originalMacroFile={name:newName,bytes:result,baseline:SpreadsheetDocument.fromJSON(doc.toJSON())};
+      el<HTMLButtonElement>('btn-original-xlsm').hidden=false;
+      el<HTMLButtonElement>('btn-save-xlsm').hidden=false;
+      save();select(0,0);status.textContent=`Excel ran ${macro}; downloaded ${newName} and reloaded returned worksheet contents.`;
+      if(imported.warnings.length)showXlsmMessages(imported.warnings);
+    }catch(reimportError){
+      status.textContent=`Excel ran ${macro} and downloaded ${newName}. GridForge cannot display every returned worksheet: ${reimportError instanceof Error?reimportError.message:'unsupported structure'}. Open the saved XLSM in Excel.`;
+    }
+  }catch(e){status.textContent=e instanceof Error?e.message:'Excel VBA execution failed.';}
+  finally{button.disabled=false;}
+});
+el<HTMLButtonElement>('btn-original-xlsm').addEventListener('click',()=>{if(!originalMacroFile){toast('No original .xlsm is loaded.');return;}download(originalMacroFile.name,originalMacroFile.bytes,'application/vnd.ms-excel.sheet.macroEnabled.12');toast('Downloaded unchanged original XLSM. Your GridForge edits are not included.');});
 el<HTMLButtonElement>('btn-xlsx').addEventListener('click',()=>{try{download(xlsxFileName(workbookTitle),exportXlsx(doc),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');toast('Exported multi-sheet XLSX.');}catch(e){toast(e instanceof Error?e.message:'XLSX export failed');}});
 el<HTMLButtonElement>('btn-json').addEventListener('click',()=>download('gridforge-workbook-v3.json',JSON.stringify(doc.toJSON(),null,2),'application/json'));
 el<HTMLButtonElement>('btn-csv').addEventListener('click',()=>{
@@ -350,24 +464,161 @@ el<HTMLButtonElement>('btn-csv').addEventListener('click',()=>{
 });
 el<HTMLButtonElement>('btn-undo').addEventListener('click',()=>{if(book.undo()){save();refresh();}});
 el<HTMLButtonElement>('btn-redo').addEventListener('click',()=>{if(book.redo()){save();refresh();}});
-el<HTMLButtonElement>('btn-new').addEventListener('click',()=>{if(!confirm('Create a blank workbook? Export your current workbook first if you need a copy.'))return;doc=new SpreadsheetDocument();book=doc.active.book;workbookTitle='Untitled Workbook';el<HTMLElement>('book-title').textContent=workbookTitle;save();select(0,0);toast('Blank workbook created');});
-el<HTMLButtonElement>('btn-sample').addEventListener('click',()=>{if(!confirm('Replace current workbook with the demo data?'))return;doc=new SpreadsheetDocument(sample());book=doc.active.book;workbookTitle='Northstar / Q4 Sales';el<HTMLElement>('book-title').textContent=workbookTitle;save();select(3,3);toast('Demo workbook loaded');});
+el<HTMLButtonElement>('btn-new').addEventListener('click',()=>{if(!confirm('Create a blank workbook? Export your current workbook first if you need a copy.'))return;doc=new SpreadsheetDocument();book=doc.active.book;originalMacroFile=null;el<HTMLButtonElement>('btn-original-xlsm').hidden=true;el<HTMLButtonElement>('btn-save-xlsm').hidden=true;workbookTitle='Untitled Workbook';el<HTMLElement>('book-title').textContent=workbookTitle;save();select(0,0);toast('Blank workbook created');});
+el<HTMLButtonElement>('btn-sample').addEventListener('click',()=>{if(!confirm('Replace current workbook with the demo data?'))return;doc=new SpreadsheetDocument(sample());book=doc.active.book;originalMacroFile=null;el<HTMLButtonElement>('btn-original-xlsm').hidden=true;el<HTMLButtonElement>('btn-save-xlsm').hidden=true;workbookTitle='Northstar / Q4 Sales';el<HTMLElement>('book-title').textContent=workbookTitle;save();select(3,3);toast('Demo workbook loaded');});
 const picker=el<HTMLInputElement>('file-picker');el<HTMLButtonElement>('btn-import').addEventListener('click',()=>picker.click());
+window.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey)||e.altKey)return;
+ const key=e.key.toLowerCase();if(key==='o'){e.preventDefault();showRibbon('File');picker.click();}
+ else if(key==='s'){e.preventDefault();el<HTMLButtonElement>(e.shiftKey?'btn-json':'btn-xlsx').click();}
+});
 picker.addEventListener('change',async()=>{const file=picker.files?.[0];if(!file)return;try{
-  const content=file.name.toLowerCase().endsWith('.xlsx')?'':await file.text();if(file.name.toLowerCase().endsWith('.xlsx')){
-    const response=await importXlsx(new Uint8Array(await file.arrayBuffer()));doc=response.document;book=doc.active.book;
+  const macroEnabled=/\.xlsm$/i.test(file.name),isOffice=/\.xlsx?$/i.test(file.name)||macroEnabled;
+  const content=isOffice?'':await file.text();if(isOffice){
+    const bytes=new Uint8Array(await file.arrayBuffer());const response=await importXlsx(bytes);doc=response.document;book=doc.active.book;
+    originalMacroFile=macroEnabled?{name:file.name,bytes,baseline:SpreadsheetDocument.fromJSON(doc.toJSON())}:null;
+    el<HTMLButtonElement>('btn-original-xlsm').hidden=!originalMacroFile;el<HTMLButtonElement>('btn-save-xlsm').hidden=!originalMacroFile;
+    if(macroEnabled)response.warnings.unshift('MACRO SECURITY: VBA is never executed during import. Save XLSM preserves embedded VBA while merging supported cell edits. To run a macro, start the optional trusted desktop Excel bridge and explicitly approve it.');
     if(response.warnings.length){console.warn('XLSX import notes:',response.warnings);
       el<HTMLElement>('import-notes-body').innerHTML=`<strong>${doc.sheets.length} worksheet(s) loaded</strong><ul>${response.warnings.slice(0,20).map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
       el<HTMLDialogElement>('import-notes-dialog').showModal();
     }
-  }else if(file.name.toLowerCase().endsWith('.json')){doc=SpreadsheetDocument.fromJSON(JSON.parse(content));book=doc.active.book;}
-  else {const rows=parseCSV(content);const fresh=new Workbook(Math.max(400,Math.min(1000,rows.length)),Math.max(52,Math.min(104,rows.reduce((longest,row)=>Math.max(longest,row.length),0))));const edits:Edit[]=[];
+  }else if(file.name.toLowerCase().endsWith('.json')){doc=SpreadsheetDocument.fromJSON(JSON.parse(content));book=doc.active.book;originalMacroFile=null;el<HTMLButtonElement>('btn-original-xlsm').hidden=true;el<HTMLButtonElement>('btn-save-xlsm').hidden=true;}
+  else {originalMacroFile=null;el<HTMLButtonElement>('btn-original-xlsm').hidden=true;el<HTMLButtonElement>('btn-save-xlsm').hidden=true;const rows=parseCSV(content);const fresh=new Workbook(Math.max(400,Math.min(1000,rows.length)),Math.max(52,Math.min(104,rows.reduce((longest,row)=>Math.max(longest,row.length),0))));const edits:Edit[]=[];
     rows.forEach((line,r)=>line.forEach((text,c)=>{if(r<fresh.rows&&c<fresh.cols&&text!=='')edits.push({ref:asRef(r,c),raw:text});}));fresh.applyEdits(edits,false);doc=new SpreadsheetDocument(fresh);book=doc.active.book;}
-  workbookTitle=file.name.replace(/\.(csv|json|xlsx)$/i,'').slice(0,45)||'Imported Workbook';el<HTMLElement>('book-title').textContent=workbookTitle;save();select(0,0);toast(`Imported ${file.name}; verify formulas and styles`);
+  workbookTitle=file.name.replace(/\.(csv|json|xlsx|xlsm)$/i,'').slice(0,45)||'Imported Workbook';el<HTMLElement>('book-title').textContent=workbookTitle;save();select(0,0);toast(`Imported ${file.name}; verify formulas and styles`);
 }catch(e){toast(e instanceof Error?e.message:'Import failed');}finally{picker.value='';}});
 for(const id of ['close-import-notes','confirm-import-notes'])el<HTMLButtonElement>(id).addEventListener('click',()=>el<HTMLDialogElement>('import-notes-dialog').close());
+const studioDialog=el<HTMLDialogElement>('data-studio-dialog');
+const studioCat=el<HTMLSelectElement>('studio-category');
+const studioSearch=el<HTMLInputElement>('studio-search');
+const studioAction=el<HTMLSelectElement>('studio-action');
+let studioResult:ReturnType<typeof previewDataTool>|null=null;
+let studioSelection='';
+studioCat.innerHTML='<option value="All">All categories</option>'+TOOL_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+function populateStudio(){
+ const term=studioSearch.value.trim().toLowerCase(),category=studioCat.value,selected=studioAction.value;
+ const options=DATA_TOOLS.filter(x=>(category==='All'||x.category===category)&&(!term||`${x.label} ${x.description} ${x.id}`.toLowerCase().includes(term)));
+ studioAction.innerHTML=options.map(x=>`<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('');
+ if(options.some(x=>x.id===selected))studioAction.value=selected;
+ else if(options.length)studioAction.selectedIndex=0;
+ studioResult=null;el<HTMLButtonElement>('studio-apply').disabled=true;
+ el<HTMLElement>('studio-preview').textContent=`${options.length} actions match. Preview to inspect changes.`;
+ describeStudio();
+}
+function describeStudio(){const tool=DATA_TOOLS.find(x=>x.id===studioAction.value);el<HTMLElement>('studio-description').textContent=tool?`${tool.category} · ${tool.description}`:'No actions match your filter.';studioResult=null;el<HTMLButtonElement>('studio-apply').disabled=true;}
+function openStudio(){populateStudio();studioDialog.showModal();}
+el<HTMLButtonElement>('btn-data-studio').addEventListener('click',openStudio);
+el<HTMLButtonElement>('close-data-studio').addEventListener('click',()=>studioDialog.close());
+studioCat.addEventListener('change',populateStudio);studioSearch.addEventListener('input',populateStudio);studioAction.addEventListener('change',describeStudio);
+el<HTMLButtonElement>('studio-preview-button').addEventListener('click',()=>{
+ try{
+   const rect=sel();studioResult=previewDataTool(book,rect,studioAction.value);
+   studioSelection=`${doc.activeId}|${rect.r1},${rect.r2},${rect.c1},${rect.c2}|${studioAction.value}`;
+   el<HTMLElement>('studio-preview').textContent=`${studioResult.summary} ${studioResult.skipped} incompatible/unchanged cells skipped. ${studioResult.warning??''}`;
+   el<HTMLButtonElement>('studio-apply').disabled=!studioResult.edits.length;
+ }catch(e){studioResult=null;el<HTMLButtonElement>('studio-apply').disabled=true;el<HTMLElement>('studio-preview').textContent=e instanceof Error?e.message:'Unable to preview.';}
+});
+el<HTMLButtonElement>('studio-apply').addEventListener('click',()=>{
+ if(!studioResult)return;
+ const rect=sel(),key=`${doc.activeId}|${rect.r1},${rect.r2},${rect.c1},${rect.c2}|${studioAction.value}`;
+ if(key!==studioSelection){el<HTMLElement>('studio-preview').textContent='Selection changed. Preview again.';el<HTMLButtonElement>('studio-apply').disabled=true;return;}
+ try{
+   const pending=previewDataTool(book,rect,studioAction.value);
+   if(JSON.stringify(pending.edits)!==JSON.stringify(studioResult.edits)){el<HTMLElement>('studio-preview').textContent='Workbook changed. Preview again before applying.';studioResult=null;el<HTMLButtonElement>('studio-apply').disabled=true;return;}
+   if(DATA_TOOLS.find(t=>t.id===studioAction.value)?.kind==='formula'&&pending.edits.some(e=>book.getRaw(e.ref)!=='')&&!confirm('This summary will overwrite values immediately below the selection. Continue?'))return;
+   apply(pending.edits);studioDialog.close();toast(`${pending.edits.length} cells changed · Ctrl+Z to undo`);
+ }catch(e){el<HTMLElement>('studio-preview').textContent=e instanceof Error?e.message:'Unable to apply changes.';}
+});
+const ribbonCommands:Record<string,string[]>={
+ Home:['btn-new','btn-sample','btn-undo','btn-redo','btn-import','btn-xlsx','btn-find'],
+ File:['btn-new','btn-import','btn-xlsx','btn-csv','btn-json','btn-save-xlsm','btn-original-xlsm'],
+ Formulas:['btn-undo','btn-redo'],
+ Data:['btn-data-studio','btn-sort-asc','btn-sort-desc','btn-sort-custom','btn-find','btn-filter','btn-clear-filter'],
+ Automate:['btn-automate','btn-save-xlsm','btn-original-xlsm'],
+ View:['btn-undo','btn-redo']
+};
+const guideText:Record<string,string>={
+ All:'Click a cell to type, enter = to calculate, or open an Excel file.',
+ Home:'Click a cell to edit · Ctrl+O opens Excel · Ctrl+S saves XLSX · Ctrl+Z undoes changes.',
+ File:'Open Excel XLSX/XLSM, CSV, or JSON files; save Excel files with the export buttons.',
+ Formulas:'Type =SUM(A1:A5) into a cell, or browse all 506 functions in the right panel.',
+ Data:'Select a range, then sort, filter, find, or open Data Studio for guided cleanup.',
+ Automate:'Record editing steps, automate workflows, or run VBA through installed Excel.'
+};
+let ribbon='Home';
+function showRibbon(next:string):void{
+ ribbon=next;
+ for(const tab of Array.from(document.querySelectorAll<HTMLButtonElement>('[data-ribbon]'))){
+  const selected=tab.dataset.ribbon===next;tab.classList.toggle('active',selected);tab.setAttribute('aria-selected',String(selected));
+ }
+ for(const group of Array.from(document.querySelectorAll<HTMLElement>('.toolbar .tool-group'))){
+  for(const command of Array.from(group.querySelectorAll<HTMLButtonElement>('button[id]'))){
+   command.classList.toggle('ribbon-hidden',next!=='All'&&!ribbonCommands[next]?.includes(command.id));
+  }
+  group.classList.toggle('ribbon-hidden',!Array.from(group.querySelectorAll('button')).some(node=>!node.classList.contains('ribbon-hidden')));
+ }
+ for(const separator of Array.from(document.querySelectorAll<HTMLElement>('.toolbar .separator')))separator.classList.toggle('ribbon-hidden',next!=='All');
+ el<HTMLElement>('ribbon-hint').textContent=guideText[next]??guideText['All']!;
+ if(next==='Formulas'){functionCategoryFilter='All functions';setMode('functions');setInspectorVisible(true);}
+ if(next==='View')setInspectorVisible(true);
+}
+for(const tab of Array.from(document.querySelectorAll<HTMLButtonElement>('[data-ribbon]')))tab.addEventListener('click',()=>showRibbon(tab.dataset.ribbon??'All'));
+const commandAliases:Record<string,string>={
+ 'sum':'Formulas','formula':'Formulas','function':'Formulas','calculate':'Formulas',
+ 'sort':'Data','filter':'Data','find':'Data','replace':'Data','cleanup':'Data','data studio':'Data',
+ 'save':'File','excel':'File','xlsx':'File','xlsm':'File','import':'File','export':'File','csv':'File',
+ 'record':'Automate','macro':'Automate','vba':'Automate',
+ 'undo':'Home','redo':'Home','new':'Home'
+};
+const commandSearch=el<HTMLInputElement>('command-search');
+commandSearch.addEventListener('keydown',e=>{
+ if(e.key!=='Enter')return;e.preventDefault();const query=commandSearch.value.trim().toLowerCase();
+ const found=Object.entries(commandAliases).find(([alias])=>query.includes(alias));
+ if(!found){el<HTMLElement>('ribbon-hint').textContent='Try: formulas, sort, filter, XLSX, macro, or undo.';return;}
+ showRibbon(found[1]);
+ const target:Record<string,string>={sort:'btn-sort-custom',filter:'btn-filter',find:'btn-find',replace:'btn-find',import:'btn-import',xlsx:'btn-xlsx',xlsm:'btn-save-xlsm',macro:'btn-automate',vba:'btn-automate',undo:'btn-undo'};
+ const shortcut=Object.entries(target).find(([word])=>query.includes(word));
+ if(shortcut)el<HTMLElement>(shortcut[1]).scrollIntoView({behavior:'smooth',block:'nearest',inline:'nearest'});
+});
+el<HTMLButtonElement>('btn-first-steps').addEventListener('click',()=>el<HTMLDialogElement>('welcome-dialog').showModal());
+el<HTMLButtonElement>('close-welcome').addEventListener('click',()=>el<HTMLDialogElement>('welcome-dialog').close());
+el<HTMLButtonElement>('welcome-functions').addEventListener('click',()=>{el<HTMLDialogElement>('welcome-dialog').close();showRibbon('Formulas');});
+el<HTMLButtonElement>('welcome-import').addEventListener('click',()=>{el<HTMLDialogElement>('welcome-dialog').close();showRibbon('File');el<HTMLButtonElement>('btn-import').click();});
+showRibbon('Home');
+// Preferences are independent from workbook persistence and are applied before first paint.
+const themeSwitch=el<HTMLButtonElement>('theme-switch');
+const workspaceSwitch=el<HTMLSelectElement>('workspace-switch');
+function applyTheme(value:'dark'|'light'){
+ document.documentElement.dataset.theme=value;
+ themeSwitch.textContent=value==='dark'?'☀ Light':'☾ Dark';
+ themeSwitch.setAttribute('aria-label',value==='dark'?'Switch to light mode':'Switch to dark mode');
+ themeSwitch.setAttribute('aria-pressed',String(value==='light'));
+ try{localStorage.setItem('gridforge:theme:v10',value);}catch{/* safe in private browsing */}
+}
+function applyWorkspace(value:'excel'|'guided'){
+ document.documentElement.dataset.workspace=value;workspaceSwitch.value=value;
+ try{localStorage.setItem('gridforge:workspace:v10',value);}catch{/* safe in private browsing */}
+ showRibbon('Home');
+}
+themeSwitch.addEventListener('click',()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light'));
+workspaceSwitch.addEventListener('change',()=>applyWorkspace(workspaceSwitch.value==='guided'?'guided':'excel'));
+applyTheme(document.documentElement.dataset.theme==='light'?'light':'dark');
+applyWorkspace(document.documentElement.dataset.workspace==='guided'?'guided':'excel');
+el<HTMLButtonElement>('guided-sample').addEventListener('click',()=>el<HTMLButtonElement>('btn-sample').click());
+el<HTMLButtonElement>('guided-functions').addEventListener('click',()=>showRibbon('Formulas'));
+el<HTMLButtonElement>('guided-import').addEventListener('click',()=>el<HTMLButtonElement>('btn-import').click());
+el<HTMLButtonElement>('guided-help').addEventListener('click',()=>el<HTMLButtonElement>('btn-first-steps').click());
+function setInspectorVisible(visible:boolean){
+ document.documentElement.dataset.inspector=visible?'open':'closed';
+ const control=document.getElementById('btn-insights');if(control){control.setAttribute('aria-pressed',String(visible));control.title=visible?'Hide formula insights':'Show formula insights';}
+ try{localStorage.setItem('gridforge:insights:v10_3',visible?'open':'closed');}catch{}
+ setTimeout(renderGrid,0);
+}
+let initialInsights=false;try{initialInsights=localStorage.getItem('gridforge:insights:v10_3')==='open';}catch{}
+setInspectorVisible(initialInsights);
+el<HTMLButtonElement>('btn-insights').addEventListener('click',()=>setInspectorVisible(document.documentElement.dataset.inspector!=='open'));
 const dialog=el<HTMLDialogElement>('help-dialog');el<HTMLButtonElement>('btn-shortcuts').addEventListener('click',()=>dialog.showModal());el<HTMLButtonElement>('close-help').addEventListener('click',()=>dialog.close());
-el<HTMLButtonElement>('sidebar-toggle').addEventListener('click',()=>{el<HTMLElement>('sidebar').classList.toggle('collapsed');});
+el<HTMLButtonElement>('sidebar-toggle').addEventListener('click',()=>setInspectorVisible(false));
 window.addEventListener('resize',()=>renderGrid());
 // Excel-style selection formatting, with versioned JSON persistence and undo.
 for(const key of ['bold','italic','underline'] as const)el<HTMLButtonElement>(`fmt-${key}`).addEventListener('click',()=>applyStyle({[key]:!book.getStyle(currentRef())[key]}));
@@ -409,7 +660,8 @@ function openCustomSort(){
 el<HTMLButtonElement>('btn-sort-custom').addEventListener('click',openCustomSort);
 el<HTMLButtonElement>('close-sort').addEventListener('click',()=>sortDialog.close());
 el<HTMLButtonElement>('btn-sort-apply').addEventListener('click',()=>{
-  if(sortCurrent(Number(el<HTMLSelectElement>('sort-column').value),el<HTMLSelectElement>('sort-direction').value==='descending',el<HTMLInputElement>('sort-header').checked))sortDialog.close();
+  const col=Number(el<HTMLSelectElement>('sort-column').value),descending=el<HTMLSelectElement>('sort-direction').value==='descending',hasHeader=el<HTMLInputElement>('sort-header').checked,selected=sel();
+  if(sortCurrent(col,descending,hasHeader)){if(recorder)recorder.steps.push({kind:'sort',sheetName:doc.active.name,range:`${asRef(selected.r1,selected.c1)}:${asRef(selected.r2,selected.c2)}`,byColumn:col,descending,hasHeader});sortDialog.close();}
 });
 const contextMenu=el<HTMLDivElement>('cell-context-menu');
 function closeContextMenu(){contextMenu.hidden=true;}
@@ -447,6 +699,7 @@ contextMenu.addEventListener('click',event=>{
     case 'sort-custom':openCustomSort();break;
     case 'autosum':autoSum();break;
     case 'filter':el<HTMLButtonElement>('btn-filter').click();break;
+    case 'data-studio':openStudio();break;
     case 'conditional':el<HTMLButtonElement>('btn-conditional').click();break;
     case 'find':openFind();break;
     case 'inspect':setMode('inspector');break;

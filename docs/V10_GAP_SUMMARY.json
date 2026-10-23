@@ -1,0 +1,21 @@
+{
+  "appRegistered": 506,
+  "addedV10": 100,
+  "catalogCount": 475,
+  "covered": 465,
+  "missingCount": 10,
+  "legacyCount": 355,
+  "missingLegacy": 8,
+  "missing": [
+    "CUBEKPIMEMBER",
+    "CUBEMEMBER",
+    "CUBEMEMBERPROPERTY",
+    "CUBERANKEDMEMBER",
+    "CUBESET",
+    "CUBEVALUE",
+    "GETPIVOTDATA",
+    "RTD",
+    "STOCKHISTORY",
+    "WEBSERVICE"
+  ]
+}

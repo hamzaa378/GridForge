@@ -1,3 +1,9 @@
+import { moreFunctions } from './functions_extra.js';
+import { v5Functions, v5FunctionNames, v5Categories } from './functions_v5.js';
+import { v6Functions, v6FunctionNames, v6Categories } from './functions_v6.js';
+import { v9Functions, v9Aliases, v9FunctionNames, v9Categories } from './functions_v9.js';
+import { buildV10Functions, v10Categories } from './functions_v10.js';
+export { v6FunctionNames, v6Categories, v9FunctionNames, v9Categories };
 export class SheetError extends Error {
     code;
     constructor(code, message) {
@@ -41,11 +47,31 @@ const result = (n) => Number.isFinite(n) ? n : error('#NUM!', 'Calculation produ
 const numericArg = (xs, i) => number(at(xs, i));
 const nonEmpty = (x) => x !== null && x !== '';
 const sortNums = (xs) => nums(xs).sort((a, b) => a - b);
-function matchCriterion(v, criterion) {
+export function matchCriterion(v, criterion) {
     const c = text(criterion);
     const m = /^(<=|>=|<>|!=|=|<|>)(.*)$/.exec(c);
     const operand = m ? m[2] : c;
     const op = m ? m[1] : '=';
+    // Excel criteria can contain * / ? wildcards and ~ escapes. Only apply
+    // wildcard semantics to text comparison, not numeric inequalities.
+    if ((op === '=' || op === '<>' || op === '!=') && /[*?~]/.test(operand) && typeof v === 'string') {
+        let pattern = '^';
+        for (let i = 0; i < operand.length; i++) {
+            let ch = operand[i];
+            if (ch === '~' && i + 1 < operand.length) {
+                ch = operand[++i];
+                pattern += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+            else if (ch === '*')
+                pattern += '.*';
+            else if (ch === '?')
+                pattern += '.';
+            else
+                pattern += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        const hit = new RegExp(pattern + '$', 'i').test(v);
+        return op === '=' ? hit : !hit;
+    }
     const aNum = Number(v), bNum = Number(operand);
     const numeric = v !== null && v !== '' && operand !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
     const cmp = numeric ? Math.sign(aNum - bNum) : text(v).toLowerCase().localeCompare(operand.toLowerCase());
@@ -72,7 +98,7 @@ export const functions = {
     MEDIAN: D('Median of numeric values.', '=MEDIAN(A1:A10)', a => { const n = sortNums(a); return n.length ? n.length % 2 ? n[(n.length - 1) / 2] : (n[n.length / 2 - 1] + n[n.length / 2]) / 2 : error('#NUM!', 'MEDIAN has no numeric values.'); }),
     PRODUCT: D('Multiply numeric values.', '=PRODUCT(A1:A3)', a => result(nums(a).reduce((p, n) => p * n, 1))),
     ABS: D('Absolute value.', '=ABS(-8)', a => { want(a, 1, 1); return Math.abs(numericArg(a, 0)); }),
-    ROUND: D('Round to a number of decimal places.', '=ROUND(3.14159,2)', a => { want(a, 1, 2); const d = Math.trunc(numericArg(a, 1)); const p = 10 ** d; return result(Math.round((numericArg(a, 0) + Number.EPSILON) * p) / p); }),
+    ROUND: D('Round to a number of decimal places.', '=ROUND(3.14159,2)', a => { want(a, 1, 2); const d = Math.trunc(numericArg(a, 1)); const p = 10 ** d; const scaled = numericArg(a, 0) * p; return result((scaled < 0 ? -Math.round(-scaled) : Math.round(scaled)) / p); }),
     ROUNDUP: D('Round away from zero.', '=ROUNDUP(2.12,1)', a => { want(a, 1, 2); const p = 10 ** Math.trunc(numericArg(a, 1)); const v = numericArg(a, 0) * p; return result((v < 0 ? Math.floor(v) : Math.ceil(v)) / p); }),
     ROUNDDOWN: D('Round toward zero.', '=ROUNDDOWN(2.19,1)', a => { want(a, 1, 2); const p = 10 ** Math.trunc(numericArg(a, 1)); return result(Math.trunc(numericArg(a, 0) * p) / p); }),
     SQRT: D('Square root.', '=SQRT(81)', a => { want(a, 1, 1); return result(Math.sqrt(numericArg(a, 0))); }),
@@ -145,4 +171,11 @@ export const functions = {
     VAR: D('Sample variance.', '=VAR(A1:A10)', a => { const n = nums(a); if (n.length < 2)
         return error('#DIV/0!', 'VAR requires two numeric values.'); const avg = n.reduce((s, x) => s + x, 0) / n.length; return n.reduce((s, x) => s + (x - avg) ** 2, 0) / (n.length - 1); }),
 };
+Object.assign(functions, moreFunctions, v5Functions, v6Functions, v9Functions);
+Object.assign(functions, v9Aliases(functions));
+const v10Functions = buildV10Functions(functions);
+Object.assign(functions, v10Functions);
+export const v10FunctionNames = Object.keys(v10Functions);
+export { v10Categories };
+export { v5FunctionNames, v5Categories };
 export const functionNames = Object.keys(functions).sort();

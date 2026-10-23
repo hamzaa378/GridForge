@@ -1,16 +1,34 @@
 {
   "name": "gridforge-gdg-frontend-task2",
-  "version": "3.0.0",
+  "version": "10.3.0",
   "private": true,
   "type": "module",
-  "description": "Multi-sheet virtualized spreadsheet with custom TypeScript formula parser, OOXML XLSX import/export, filters, freeze panes and conditional formatting",
+  "description": "GridForge 506-function local browser spreadsheet, with deterministic Excel compatibility fixtures and optional real Microsoft Excel COM differential audit.",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
     "start": "node scripts/serve.mjs",
     "dev": "npm run build && npm run start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
-    "benchmark": "npm run build && node scripts/benchmark.mjs"
+    "benchmark": "npm run build && node scripts/benchmark.mjs",
+    "regression": "node scripts/regression.mjs",
+    "regression:core": "node scripts/regression.mjs --core-only",
+    "regression:browser": "python scripts/regression_browser.py",
+    "functions:docs": "npm run build && node scripts/build_function_docs.mjs",
+    "gallery:build": "npm run build && node scripts/build_function_gallery.mjs && node scripts/build_v5_gallery.mjs",
+    "gallery:v6": "npm run build && node scripts/build_v6_gallery.mjs",
+    "benchmark:tools": "npm run build && node scripts/benchmark_tools_v8.mjs",
+    "test:xlsm": "python scripts/test_xlsm_browser.py",
+    "functions:gaps": "npm run build && node scripts/build_excel_gap_report.mjs",
+    "gallery:v9": "npm run build && node scripts/build_v9_gallery.mjs",
+    "gallery:v10": "npm run build && node scripts/build_v10_examples.mjs",
+    "parity:fixtures": "node scripts/build_excel_parity_cases.mjs",
+    "parity:gridforge": "npm run build && node scripts/excel_parity_gridforge.mjs",
+    "parity:compare": "node scripts/excel_parity_compare.mjs",
+    "parity:506:gridforge": "npm run build && node scripts/build_excel_parity_506.mjs",
+    "parity:506:excel": "python scripts/excel_parity_506_desktop.py",
+    "parity:506:compare": "python scripts/excel_parity_506_compare.py",
+    "parity:snapshot": "npm run build && node scripts/verify_excel_snapshot.mjs"
   },
   "engines": {
     "node": ">=20"

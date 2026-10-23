@@ -77,12 +77,13 @@ export function tokenize(input) {
             continue;
         }
         const ref = /^\$?[A-Za-z]{1,3}\$?[1-9][0-9]*/.exec(tail);
-        if (ref && !/[A-Za-z0-9_]/.test(tail[ref[0].length] ?? ' ')) {
+        // LOG10(100) is a function call even though LOG10 also resembles a cell address.
+        if (ref && tail[ref[0].length] !== '(' && !/[A-Za-z0-9_]/.test(tail[ref[0].length] ?? ' ')) {
             i += ref[0].length;
             result.push({ kind: 'ref', text: ref[0].toUpperCase(), start, end: i });
             continue;
         }
-        const identifier = /^[A-Za-z_][A-Za-z0-9_]*/.exec(tail);
+        const identifier = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(tail);
         if (identifier) {
             i += identifier[0].length;
             result.push({ kind: 'name', text: identifier[0].toUpperCase(), start, end: i });
@@ -162,7 +163,7 @@ class Parser {
             return e;
         }
         if (t.kind === 'name') {
-            if (t.text === 'TRUE' || t.text === 'FALSE')
+            if ((t.text === 'TRUE' || t.text === 'FALSE') && this.peek().text !== '(')
                 return { type: 'literal', value: t.text === 'TRUE', start: t.start, end: t.end };
             if (!this.consume('('))
                 throw new FormulaSyntaxError(`Unknown name '${t.text}'.`, t.start, 'Use a cell reference or a supported function such as SUM(...).', t.text.length);

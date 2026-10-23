@@ -4,13 +4,51 @@
  */
 import {SpreadsheetDocument} from './document.js';
 import {Workbook,type Edit} from './workbook.js';
-import {parseRef,colToName,shiftFormula} from './parser.js';
+import {parseRef,colToName,shiftFormula,tokenize} from './parser.js';
 import {cleanStyle,type CellStyle,type StyleEdit} from './format.js';
 import {zipWrite,zipRead} from './zip.js';
 import {freshTools,validateTools,type SheetTools} from './sheettools.js';
 const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const relns='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const pkgns='http://schemas.openxmlformats.org/package/2006/relationships';
+// Modern Excel functions often use _xlfn. in Office Open XML. The evaluator
+// only sees native GridForge identifiers, while XLSX output keeps Excel's prefix.
+const futureExcelNames=new Set(['XLOOKUP','IFS','SWITCH','TEXTJOIN','TEXTBEFORE','TEXTAFTER','CONCAT','REGEXTEST','REGEXREPLACE','ISOWEEKNUM','FILTER','SORT','SORTBY','UNIQUE','SEQUENCE','RANDARRAY','TAKE','DROP','CHOOSECOLS','CHOOSEROWS','HSTACK','VSTACK','TEXTSPLIT','TOCOL','TOROW','WRAPROWS','WRAPCOLS','BYROW','BYCOL','MAP','REDUCE','SCAN','LAMBDA','LET','MAKEARRAY','EXPAND','TRIMRANGE']);
+const excelAliasNames:Record<string,string>={NETWORKDAYSINTL:'NETWORKDAYS.INTL',NORMDIST:'NORM.DIST',NORMSDIST:'NORM.S.DIST',NORMINV:'NORM.INV',NORMSINV:'NORM.S.INV',COVARIANCEP:'COVARIANCE.P',COVARIANCES:'COVARIANCE.S'};
+function xlsxFormula(formula:string):string {
+  try {
+    const tokens=tokenize(formula),replacements:{start:number;end:number;text:string}[]=[];
+    for(let i=0;i<tokens.length-1;i++){
+      const t=tokens[i]!;
+      if(t.kind==='name'&&tokens[i+1]!.text==='('&&(futureExcelNames.has(t.text)||excelAliasNames[t.text]))
+        replacements.push({start:t.start,end:t.end,text:`${futureExcelNames.has(t.text)?'_xlfn.':''}${excelAliasNames[t.text]??t.text}`});
+    }
+    let pos=0,out='';for(const r of replacements){out+=formula.slice(pos,r.start)+r.text;pos=r.end;}
+    return out+formula.slice(pos);
+  }catch{return formula;}
+}
+function fromXlsxFormula(formula:string):string {
+  // Do not remove extension prefixes from quoted literal text.
+  let out='',inside=false;
+  for(let i=0;i<formula.length;){
+    if(formula[i]==='"'){
+      if(inside&&formula[i+1]==='"'){out+='""';i+=2;continue;}
+      inside=!inside;out+='"';i++;continue;
+    }
+    if(!inside){const m=/^_xlfn\.(?:_xlws\.)?/i.exec(formula.slice(i));
+      if(m){i+=m[0].length;continue;}}
+    out+=formula[i++]!;
+  }
+  // Normalize supported dotted Excel function names outside string literals.
+  let normalized='',quoted=false;
+  for(let i=0;i<out.length;){
+    if(out[i]==='"'){if(quoted&&out[i+1]==='"'){normalized+='""';i+=2;continue;}quoted=!quoted;normalized+=out[i++]!;continue;}
+    if(!quoted){const match=/^(NETWORKDAYS\.INTL|NORM\.S\.DIST|NORM\.S\.INV|NORM\.DIST|NORM\.INV|COVARIANCE\.P|COVARIANCE\.S)(?=\s*\()/i.exec(out.slice(i));
+      if(match){const target=Object.entries(excelAliasNames).find(([,alias])=>alias===match[1]!.toUpperCase());normalized+=target?.[0]??match[0];i+=match[0].length;continue;}}
+    normalized+=out[i++]!;
+  }
+  return normalized;
+}
 const esc=(x:string):string=>x.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'');
 const xml=(body:string)=>`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${body}`;
 function nodes(node:Element|Document,local:string):Element[]{return Array.from(node.getElementsByTagNameNS('*',local));}
@@ -72,7 +110,7 @@ function sheetXML(book:Workbook,tool:SheetTools,styles:Map<string,number>):strin
     if(raw.startsWith('=')){
       const result=book.getValue(ref);
       const cached=typeof result.value==='number'&&Number.isFinite(result.value)?`<v>${result.value}</v>`:'';
-      return `<c r="${ref}"${attrS}><f>${esc(raw.slice(1))}</f>${cached}</c>`;
+      return `<c r="${ref}"${attrS}><f>${esc(xlsxFormula(raw.slice(1)))}</f>${cached}</c>`;
     }
     if(/^'/.test(raw))return `<c r="${ref}"${attrS} t="inlineStr"><is><t xml:space="preserve">${esc(raw.slice(1))}</t></is></c>`;
     if(/^(true|false)$/i.test(raw))return `<c r="${ref}"${attrS} t="b"><v>${raw.toLowerCase()==='true'?1:0}</v></c>`;
@@ -130,14 +168,14 @@ export async function importXlsx(bytes:Uint8Array):Promise<XlsxImport>{
     const sheet=parseXml(content),cells=nodes(sheet,'c'),edits:Edit[]=[],styleEdits:StyleEdit[]=[];
     let maxR=400,maxC=52;
     const sharedMasters=new Map<string,{ref:string;formula:string}>();
-    for(const source of cells){const f=direct(source,'f');if(f&&attr(f,'t')==='shared'&&(f.textContent??'').trim()){sharedMasters.set(attr(f,'si'),{ref:attr(source,'r'),formula:'='+(f.textContent??'').trim()});}}
+    for(const source of cells){const f=direct(source,'f');if(f&&attr(f,'t')==='shared'&&(f.textContent??'').trim()){sharedMasters.set(attr(f,'si'),{ref:attr(source,'r'),formula:'='+fromXlsxFormula((f.textContent??'').trim())});}}
     if(cells.length>50000)throw Error(`${name} has more than 50,000 cells. Split this workbook before importing.`);
     for(const c of cells){const ref=attr(c,'r'),p=parseRef(ref);if(!p)continue;
       if(p.row>=1000||p.col>=104)throw Error(`${name}!${ref} is outside GridForge's 1000-row × 104-column import limit.`);
       maxR=Math.max(maxR,p.row+1);maxC=Math.max(maxC,p.col+1);
       const f=direct(c,'f'),type=attr(c,'t'),value=direct(c,'v')?.textContent??'',inline=direct(c,'is');let raw='';
       if(f){const formula=(f.textContent??'').trim();
-        if(formula)raw='='+formula;
+        if(formula)raw='='+fromXlsxFormula(formula);
         else if(attr(f,'t')==='shared'&&sharedMasters.has(attr(f,'si'))){
           const master=sharedMasters.get(attr(f,'si'))!,origin=parseRef(master.ref)!;
           try{raw=shiftFormula(master.formula,p.row-origin.row,p.col-origin.col);}
@@ -179,7 +217,7 @@ export async function importXlsx(bytes:Uint8Array):Promise<XlsxImport>{
   }
   const activeTab=int(attr(nodes(workbook,'workbookView')[0]??workbook.documentElement,'activeTab'));
   if(result.sheets[activeTab])result.selectSheet(result.sheets[activeTab]!.id);
-  warnings.push('Excel features outside GridForge’s supported subset (charts, macros, merged cells, named ranges, date display, pivot tables and unsupported formulas) are not preserved.');
+  warnings.push('GridForge previews only a supported subset of Excel. Rebuilt XLSX exports omit VBA and some unsupported objects; when an XLSM is imported, Save XLSM can preserve unrelated original OOXML parts while merging supported cell edits. VBA never runs during import.');
   return {document:result,warnings};
 }
 export function xlsxFileName(title:string){return `${fileName(title)}.xlsx`;}

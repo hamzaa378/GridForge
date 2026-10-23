@@ -1,0 +1,29 @@
+
+> gridforge-gdg-frontend-task2@10.3.0 benchmark
+> npm run build && node scripts/benchmark.mjs
+
+
+> gridforge-gdg-frontend-task2@10.3.0 build
+> tsc -p tsconfig.json && node scripts/copy-static.mjs
+
+Static assets copied to dist/.
+{
+  "node": "v22.16.0",
+  "rows": 400,
+  "columns": 52,
+  "capacity": 20800,
+  "populated": 10400,
+  "formulas": 10000,
+  "initialBuildMs": 115.594,
+  "initialRecalculated": 10400,
+  "singleSourceEdit": {
+    "affected": 26,
+    "recalculated": 26,
+    "elapsedMs": 0.072
+  },
+  "isolatedEdit": {
+    "affected": 1,
+    "recalculated": 1,
+    "elapsedMs": 0.008
+  }
+}

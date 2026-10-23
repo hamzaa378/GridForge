@@ -6,23 +6,33 @@ on:
     branches: [main]
   workflow_dispatch:
 jobs:
-  quality:
+  regression:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install TypeScript
         run: npm install --no-audit --no-fund
-      - name: Static type checking
-        run: npm run check
-      - name: Automated engine and document tests
-        run: npm test
-      - name: Dependency benchmark
-        run: npm run benchmark
+      - name: Install Chromium browser regression prerequisites
+        run: |
+          python -m pip install 'playwright>=1.56,<2'
+          python -m playwright install --with-deps chromium
+      - name: Python-only prebuilt release smoke (no pip modules)
+        run: python scripts/python_smoke.py
+      - name: Excel 506-function saved-reference regression
+        run: npm run parity:snapshot
+      - name: Full regression suite (typecheck, 821+ tests, 506 registered formulas, 100 Data Studio tools, XLSM and VBA security checks)
+        run: npm run regression
       - name: Upload compiled site
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gridforge-dist
           path: dist/
+          if-no-files-found: ignore

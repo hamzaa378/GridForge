@@ -1,0 +1,13 @@
+{
+  "version": "10.1.0",
+  "gridforgeEngine": "custom TypeScript parser/evaluator",
+  "registeredFunctions": 506,
+  "deterministicFormulaProbes": 140,
+  "scalarReferenceProbes": 136,
+  "scalarReferenceAgreement": 136,
+  "knownDynamicArrayGaps": 4,
+  "actualExcelExecuted": false,
+  "excelVersion": null,
+  "actualExcelComparisonPercent": null,
+  "reason": "Desktop Microsoft Excel is not installed in this Linux testing environment. The provided Windows runner performs the real comparison."
+}

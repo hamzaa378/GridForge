@@ -1,0 +1,7113 @@
+{
+  "summary": {
+    "baselineMatches": 418,
+    "baselineDifferences": 34,
+    "newlyMatching": 32,
+    "currentMatches": 450,
+    "comparable": 456,
+    "knownSemantics": [
+      "CUBESETCOUNT",
+      "FIELDVALUE",
+      "FORECAST.ETS.SEASONALITY",
+      "INFO"
+    ],
+    "regressions": [],
+    "unresolved": [
+      "IMPOWER",
+      "XNPV"
+    ],
+    "source": "User-supplied actual Excel 16.0 results; new GridForge 10.3 re-evaluated locally. No new Excel session."
+  },
+  "cases": [
+    {
+      "id": "F0001",
+      "function": "ABS",
+      "formula": "=ABS(-8)",
+      "gridforge": {
+        "type": "number",
+        "value": 8
+      },
+      "excel": {
+        "type": "number",
+        "value": 8
+      },
+      "match": true
+    },
+    {
+      "id": "F0002",
+      "function": "ACCRINT",
+      "formula": "=ACCRINT(45000,45300,45500,0.05)",
+      "gridforge": {
+        "type": "number",
+        "value": 68.33333333333333
+      },
+      "excel": {
+        "type": "formula-assignment-error",
+        "value": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)",
+        "formula2Error": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)"
+      },
+      "match": false
+    },
+    {
+      "id": "F0003",
+      "function": "ACCRINTM",
+      "formula": "=ACCRINTM(45000,45300,0.05)",
+      "gridforge": {
+        "type": "number",
+        "value": 40.833333333333336
+      },
+      "excel": {
+        "type": "formula-assignment-error",
+        "value": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)",
+        "formula2Error": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)"
+      },
+      "match": false
+    },
+    {
+      "id": "F0004",
+      "function": "ACOS",
+      "formula": "=ACOS(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0005",
+      "function": "ACOSH",
+      "formula": "=ACOSH(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0006",
+      "function": "ACOT",
+      "formula": "=ACOT(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.7853981633974483
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.7853981633974483
+      },
+      "match": true
+    },
+    {
+      "id": "F0007",
+      "function": "ACOTH",
+      "formula": "=ACOTH(2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5493061443340548
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5493061443340549
+      },
+      "match": true
+    },
+    {
+      "id": "F0008",
+      "function": "ADDRESS",
+      "formula": "=ADDRESS(4,2,1)",
+      "gridforge": {
+        "type": "string",
+        "value": "$B$4"
+      },
+      "excel": {
+        "type": "string",
+        "value": "$B$4"
+      },
+      "match": true
+    },
+    {
+      "id": "F0009",
+      "function": "AGGREGATE",
+      "formula": "=AGGREGATE(9,4,S1:U1)",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "excel": {
+        "type": "number",
+        "value": 6
+      },
+      "match": true
+    },
+    {
+      "id": "F0010",
+      "function": "AMORDEGRC",
+      "formula": "=AMORDEGRC(1200,45000,45200,100,1,0.1)",
+      "gridforge": {
+        "type": "number",
+        "value": 259
+      },
+      "excel": {
+        "type": "number",
+        "value": 259
+      },
+      "match": true
+    },
+    {
+      "id": "F0011",
+      "function": "AMORLINC",
+      "formula": "=AMORLINC(1200,45000,45200,100,1,0.1)",
+      "gridforge": {
+        "type": "number",
+        "value": 120
+      },
+      "excel": {
+        "type": "number",
+        "value": 120
+      },
+      "match": true
+    },
+    {
+      "id": "F0012",
+      "function": "AND",
+      "formula": "=AND(TRUE,FALSE)",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "excel": {
+        "type": "boolean",
+        "value": false
+      },
+      "match": true
+    },
+    {
+      "id": "F0013",
+      "function": "ARABIC",
+      "formula": "=ARABIC(\"XIV\")",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "excel": {
+        "type": "number",
+        "value": 14
+      },
+      "match": true
+    },
+    {
+      "id": "F0014",
+      "function": "AREAS",
+      "formula": "=AREAS(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0015",
+      "function": "ARRAYTOTEXT",
+      "formula": "=ARRAYTOTEXT(A1:A2)",
+      "gridforge": {
+        "type": "string",
+        "value": "1, 2"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1, 2"
+      },
+      "match": true
+    },
+    {
+      "id": "F0016",
+      "function": "ASC",
+      "formula": "=ASC(\"Ｈｅｌｌｏ\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Ｈｅｌｌｏ"
+      },
+      "excel": {
+        "type": "string",
+        "value": "Ｈｅｌｌｏ"
+      },
+      "match": true
+    },
+    {
+      "id": "F0017",
+      "function": "ASIN",
+      "formula": "=ASIN(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.5707963267948966
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.5707963267948966
+      },
+      "match": true
+    },
+    {
+      "id": "F0018",
+      "function": "ASINH",
+      "formula": "=ASINH(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0019",
+      "function": "ATAN",
+      "formula": "=ATAN(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.7853981633974483
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.7853981633974483
+      },
+      "match": true
+    },
+    {
+      "id": "F0020",
+      "function": "ATAN2",
+      "formula": "=ATAN2(1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.7853981633974483
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.7853981633974483
+      },
+      "match": true
+    },
+    {
+      "id": "F0021",
+      "function": "ATANH",
+      "formula": "=ATANH(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0022",
+      "function": "AVEDEV",
+      "formula": "=AVEDEV(2,4,6)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.3333333333333333
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.3333333333333333
+      },
+      "match": true
+    },
+    {
+      "id": "F0023",
+      "function": "AVERAGE",
+      "formula": "=AVERAGE(B1:B8)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0024",
+      "function": "AVERAGEA",
+      "formula": "=AVERAGEA(TRUE,2,\"x\")",
+      "gridforge": {
+        "type": "error",
+        "value": "#VALUE!"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#VALUE!"
+      },
+      "match": true
+    },
+    {
+      "id": "F0025",
+      "function": "AVERAGEIF",
+      "formula": "=AVERAGEIF(A1:A5,\">2\",B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "excel": {
+        "type": "number",
+        "value": 9
+      },
+      "match": true
+    },
+    {
+      "id": "F0026",
+      "function": "AVERAGEIFS",
+      "formula": "=AVERAGEIFS(B1:B5,C1:C5,\"North\")",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0027",
+      "function": "BAHTTEXT",
+      "formula": "=BAHTTEXT(12)",
+      "gridforge": {
+        "type": "string",
+        "value": "สิบสองบาทถ้วน"
+      },
+      "excel": {
+        "type": "string",
+        "value": "สิบสองบาทถ้วน"
+      },
+      "match": true
+    },
+    {
+      "id": "F0028",
+      "function": "BASE",
+      "formula": "=BASE(255,16)",
+      "gridforge": {
+        "type": "string",
+        "value": "FF"
+      },
+      "excel": {
+        "type": "string",
+        "value": "FF"
+      },
+      "match": true
+    },
+    {
+      "id": "F0029",
+      "function": "BESSELI",
+      "formula": "=BESSELI(1,0)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.26606587775201
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.2660658480342601
+      },
+      "match": true
+    },
+    {
+      "id": "F0030",
+      "function": "BESSELJ",
+      "formula": "=BESSELJ(1,0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.7651976865579684
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.7651976837548592
+      },
+      "match": true
+    },
+    {
+      "id": "F0031",
+      "function": "BESSELK",
+      "formula": "=BESSELK(1,0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.42102443824070823
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.421024421083418
+      },
+      "match": true
+    },
+    {
+      "id": "F0032",
+      "function": "BESSELY",
+      "formula": "=BESSELY(1,0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.08825696421127555
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.08825697139770806
+      },
+      "match": true
+    },
+    {
+      "id": "F0033",
+      "function": "BETA.DIST",
+      "formula": "=BETA.DIST(0.5,2,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5000000000000002
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0034",
+      "function": "BETA.INV",
+      "formula": "=BETA.INV(0.5,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.4999999999999999
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0035",
+      "function": "BETADIST",
+      "formula": "=BETADIST(0.5,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5000000000000002
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0036",
+      "function": "BETAINV",
+      "formula": "=BETAINV(0.5,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.4999999999999999
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0037",
+      "function": "BIN2DEC",
+      "formula": "=BIN2DEC(\"1010\")",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0038",
+      "function": "BIN2HEX",
+      "formula": "=BIN2HEX(\"1010\")",
+      "gridforge": {
+        "type": "string",
+        "value": "A"
+      },
+      "excel": {
+        "type": "string",
+        "value": "A"
+      },
+      "match": true
+    },
+    {
+      "id": "F0039",
+      "function": "BIN2OCT",
+      "formula": "=BIN2OCT(\"1010\")",
+      "gridforge": {
+        "type": "string",
+        "value": "12"
+      },
+      "excel": {
+        "type": "string",
+        "value": "12"
+      },
+      "match": true
+    },
+    {
+      "id": "F0040",
+      "function": "BINOM.DIST",
+      "formula": "=BINOM.DIST(2,4,0.5,FALSE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.375
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.375
+      },
+      "match": true
+    },
+    {
+      "id": "F0041",
+      "function": "BINOM.DIST.RANGE",
+      "formula": "=BINOM.DIST.RANGE(10,0.5,3,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.568359375
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.568359375
+      },
+      "match": true
+    },
+    {
+      "id": "F0042",
+      "function": "BINOM.INV",
+      "formula": "=BINOM.INV(10,0.5,0.5)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0043",
+      "function": "BINOMDIST",
+      "formula": "=BINOMDIST(2,4,0.5,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6875
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6875
+      },
+      "match": true
+    },
+    {
+      "id": "F0044",
+      "function": "BITAND",
+      "formula": "=BITAND(6,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0045",
+      "function": "BITLSHIFT",
+      "formula": "=BITLSHIFT(3,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "excel": {
+        "type": "number",
+        "value": 12
+      },
+      "match": true
+    },
+    {
+      "id": "F0046",
+      "function": "BITOR",
+      "formula": "=BITOR(6,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0047",
+      "function": "BITRSHIFT",
+      "formula": "=BITRSHIFT(16,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0048",
+      "function": "BITXOR",
+      "formula": "=BITXOR(6,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0049",
+      "function": "BYCOL",
+      "formula": "=INDEX(BYCOL(M1:N3,\"SUM\"),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0050",
+      "function": "BYROW",
+      "formula": "=INDEX(BYROW(M1:N3,\"SUM\"),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0051",
+      "function": "CEILING",
+      "formula": "=CEILING(13,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 15
+      },
+      "excel": {
+        "type": "number",
+        "value": 15
+      },
+      "match": true
+    },
+    {
+      "id": "F0052",
+      "function": "CEILING.MATH",
+      "formula": "=CEILING.MATH(7.2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 8
+      },
+      "excel": {
+        "type": "number",
+        "value": 8
+      },
+      "match": true
+    },
+    {
+      "id": "F0053",
+      "function": "CEILING.PRECISE",
+      "formula": "=CEILING.PRECISE(-4.1,2)",
+      "gridforge": {
+        "type": "number",
+        "value": -4
+      },
+      "excel": {
+        "type": "number",
+        "value": -4
+      },
+      "match": true
+    },
+    {
+      "id": "F0054",
+      "function": "CELL",
+      "formula": "=CELL(\"address\",B3)",
+      "gridforge": {
+        "type": "string",
+        "value": "$B$3"
+      },
+      "excel": {
+        "type": "string",
+        "value": "$B$3"
+      },
+      "match": true
+    },
+    {
+      "id": "F0055",
+      "function": "CHAR",
+      "formula": "=CHAR(65)",
+      "gridforge": {
+        "type": "string",
+        "value": "A"
+      },
+      "excel": {
+        "type": "string",
+        "value": "A"
+      },
+      "match": true
+    },
+    {
+      "id": "F0056",
+      "function": "CHIDIST",
+      "formula": "=CHIDIST(3,4)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.557825400371075
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5578254003710746
+      },
+      "match": true
+    },
+    {
+      "id": "F0057",
+      "function": "CHIINV",
+      "formula": "=CHIINV(0.25,4)",
+      "gridforge": {
+        "type": "number",
+        "value": 5.3852690577794196
+      },
+      "excel": {
+        "type": "number",
+        "value": 5.385269057779392
+      },
+      "match": true
+    },
+    {
+      "id": "F0058",
+      "function": "CHISQ.DIST",
+      "formula": "=CHISQ.DIST(2,3,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.4275932955291201
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.4275932955291202
+      },
+      "match": true
+    },
+    {
+      "id": "F0059",
+      "function": "CHISQ.DIST.RT",
+      "formula": "=CHISQ.DIST.RT(2,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5724067044708798
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5724067044708798
+      },
+      "match": true
+    },
+    {
+      "id": "F0060",
+      "function": "CHISQ.INV",
+      "formula": "=CHISQ.INV(0.5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.3659738843753386
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.3659738843753377
+      },
+      "match": true
+    },
+    {
+      "id": "F0061",
+      "function": "CHISQ.INV.RT",
+      "formula": "=CHISQ.INV.RT(0.5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.3659738843753386
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.3659738843753373
+      },
+      "match": true
+    },
+    {
+      "id": "F0062",
+      "function": "CHISQ.TEST",
+      "formula": "=CHISQ.TEST(M1:N1,P1:Q1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.45605654025025577
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.45605654025025594
+      },
+      "match": true
+    },
+    {
+      "id": "F0063",
+      "function": "CHITEST",
+      "formula": "=CHITEST(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.02176413745109962
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.021764137451099595
+      },
+      "match": true
+    },
+    {
+      "id": "F0064",
+      "function": "CHOOSE",
+      "formula": "=CHOOSE(2,1/0,42)",
+      "gridforge": {
+        "type": "number",
+        "value": 42
+      },
+      "excel": {
+        "type": "number",
+        "value": 42
+      },
+      "match": true
+    },
+    {
+      "id": "F0065",
+      "function": "CHOOSECOLS",
+      "formula": "=INDEX(CHOOSECOLS(M1:N3,1),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0066",
+      "function": "CHOOSEROWS",
+      "formula": "=INDEX(CHOOSEROWS(M1:N3,1),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0067",
+      "function": "CLEAN",
+      "formula": "=CLEAN(\"a\"&CHAR(10)&\"b\")",
+      "gridforge": {
+        "type": "string",
+        "value": "ab"
+      },
+      "excel": {
+        "type": "string",
+        "value": "ab"
+      },
+      "match": true
+    },
+    {
+      "id": "F0068",
+      "function": "CODE",
+      "formula": "=CODE(\"A\")",
+      "gridforge": {
+        "type": "number",
+        "value": 65
+      },
+      "excel": {
+        "type": "number",
+        "value": 65
+      },
+      "match": true
+    },
+    {
+      "id": "F0069",
+      "function": "COLUMN",
+      "formula": "=COLUMN(B3)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0070",
+      "function": "COLUMNS",
+      "formula": "=COLUMNS(A1:C5)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0071",
+      "function": "COMBIN",
+      "formula": "=COMBIN(5,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0072",
+      "function": "COMBINA",
+      "formula": "=COMBINA(3,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "excel": {
+        "type": "number",
+        "value": 6
+      },
+      "match": true
+    },
+    {
+      "id": "F0073",
+      "function": "COMPLEX",
+      "formula": "=COMPLEX(3,4)",
+      "gridforge": {
+        "type": "string",
+        "value": "3+4i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "3+4i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0074",
+      "function": "CONCAT",
+      "formula": "=CONCAT(\"A\",\"B\")",
+      "gridforge": {
+        "type": "string",
+        "value": "AB"
+      },
+      "excel": {
+        "type": "string",
+        "value": "AB"
+      },
+      "match": true
+    },
+    {
+      "id": "F0075",
+      "function": "CONCATENATE",
+      "formula": "=CONCATENATE(\"ab\",\"cd\")",
+      "gridforge": {
+        "type": "string",
+        "value": "abcd"
+      },
+      "excel": {
+        "type": "string",
+        "value": "abcd"
+      },
+      "match": true
+    },
+    {
+      "id": "F0076",
+      "function": "CONFIDENCE",
+      "formula": "=CONFIDENCE(0.05,2,100)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.3919927969080108
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.39199279690801075
+      },
+      "match": true
+    },
+    {
+      "id": "F0077",
+      "function": "CONFIDENCE.NORM",
+      "formula": "=CONFIDENCE.NORM(0.05,2,100)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.3919927969080108
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.39199279690801075
+      },
+      "match": true
+    },
+    {
+      "id": "F0078",
+      "function": "CONFIDENCE.T",
+      "formula": "=CONFIDENCE.T(0.05,3,20)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.404043219259731
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.4040432192597596
+      },
+      "match": true
+    },
+    {
+      "id": "F0079",
+      "function": "CONVERT",
+      "formula": "=CONVERT(1,\"mi\",\"km\")",
+      "gridforge": {
+        "type": "number",
+        "value": 1.609344
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.609344
+      },
+      "match": true
+    },
+    {
+      "id": "F0080",
+      "function": "CORREL",
+      "formula": "=CORREL(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.9999999999999998
+      },
+      "match": true
+    },
+    {
+      "id": "F0081",
+      "function": "COS",
+      "formula": "=COS(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0082",
+      "function": "COSH",
+      "formula": "=COSH(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0083",
+      "function": "COT",
+      "formula": "=COT(PI()/4)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.0000000000000002
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0084",
+      "function": "COTH",
+      "formula": "=COTH(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.3130352854993315
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.3130352854993315
+      },
+      "match": true
+    },
+    {
+      "id": "F0085",
+      "function": "COUNT",
+      "formula": "=COUNT(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0086",
+      "function": "COUNTA",
+      "formula": "=COUNTA(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0087",
+      "function": "COUNTBLANK",
+      "formula": "=COUNTBLANK(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0088",
+      "function": "COUNTIF",
+      "formula": "=COUNTIF(A1:A5,\">2\")",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0089",
+      "function": "COUNTIFS",
+      "formula": "=COUNTIFS(C1:C5,\"North\",A1:A5,\">2\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0090",
+      "function": "COUPDAYBS",
+      "formula": "=COUPDAYBS(45000,47000,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 11
+      },
+      "excel": {
+        "type": "number",
+        "value": 11
+      },
+      "match": true
+    },
+    {
+      "id": "F0091",
+      "function": "COUPDAYS",
+      "formula": "=COUPDAYS(45000,47000,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 180
+      },
+      "excel": {
+        "type": "number",
+        "value": 180
+      },
+      "match": true
+    },
+    {
+      "id": "F0092",
+      "function": "COUPDAYSNC",
+      "formula": "=COUPDAYSNC(45000,47000,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 169
+      },
+      "excel": {
+        "type": "number",
+        "value": 169
+      },
+      "match": true
+    },
+    {
+      "id": "F0093",
+      "function": "COUPNCD",
+      "formula": "=COUPNCD(45000,47000,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 45173
+      },
+      "excel": {
+        "type": "number",
+        "value": 45173
+      },
+      "match": true
+    },
+    {
+      "id": "F0094",
+      "function": "COUPNUM",
+      "formula": "=COUPNUM(45000,47000,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 11
+      },
+      "excel": {
+        "type": "number",
+        "value": 11
+      },
+      "match": true
+    },
+    {
+      "id": "F0095",
+      "function": "COUPPCD",
+      "formula": "=COUPPCD(45000,47000,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 44989
+      },
+      "excel": {
+        "type": "number",
+        "value": 44989
+      },
+      "match": true
+    },
+    {
+      "id": "F0096",
+      "function": "COVAR",
+      "formula": "=COVAR(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0097",
+      "function": "COVARIANCE.P",
+      "formula": "=COVARIANCE.P(M1:O1,P1:R1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6666666666666666
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6666666666666666
+      },
+      "match": true
+    },
+    {
+      "id": "F0098",
+      "function": "COVARIANCE.S",
+      "formula": "=COVARIANCE.S(M1:O1,P1:R1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0099",
+      "function": "COVARIANCEP",
+      "formula": "=COVARIANCEP(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0100",
+      "function": "COVARIANCES",
+      "formula": "=COVARIANCES(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0101",
+      "function": "CRITBINOM",
+      "formula": "=CRITBINOM(10,0.5,0.5)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0102",
+      "function": "CSC",
+      "formula": "=CSC(PI()/2)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0103",
+      "function": "CSCH",
+      "formula": "=CSCH(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.8509181282393216
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.8509181282393216
+      },
+      "match": true
+    },
+    {
+      "id": "F0104",
+      "function": "CUBESETCOUNT",
+      "formula": "=CUBESETCOUNT(\"A,B,C\")",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "error",
+        "value": "#N/A"
+      },
+      "match": false
+    },
+    {
+      "id": "F0105",
+      "function": "CUMIPMT",
+      "formula": "=CUMIPMT(0.01,12,1000,1,1,0)",
+      "gridforge": {
+        "type": "number",
+        "value": -10
+      },
+      "excel": {
+        "type": "number",
+        "value": -9.999999999999972
+      },
+      "match": true
+    },
+    {
+      "id": "F0106",
+      "function": "CUMPRINC",
+      "formula": "=CUMPRINC(0.01,12,1000,1,1,0)",
+      "gridforge": {
+        "type": "number",
+        "value": -78.84878867834166
+      },
+      "excel": {
+        "type": "number",
+        "value": -78.8487886783417
+      },
+      "match": true
+    },
+    {
+      "id": "F0107",
+      "function": "DATE",
+      "formula": "=DATE(2026,10,20)",
+      "gridforge": {
+        "type": "number",
+        "value": 46315
+      },
+      "excel": {
+        "type": "number",
+        "value": 46315
+      },
+      "match": true
+    },
+    {
+      "id": "F0108",
+      "function": "DATEDIF",
+      "formula": "=DATEDIF(DATE(2020,1,1),DATE(2022,4,1),\"Y\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0109",
+      "function": "DATEVALUE",
+      "formula": "=DATEVALUE(\"2026-10-20\")",
+      "gridforge": {
+        "type": "number",
+        "value": 46315
+      },
+      "excel": {
+        "type": "number",
+        "value": 46315
+      },
+      "match": true
+    },
+    {
+      "id": "F0110",
+      "function": "DAVERAGE",
+      "formula": "=DAVERAGE(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 30
+      },
+      "excel": {
+        "type": "number",
+        "value": 30
+      },
+      "match": true
+    },
+    {
+      "id": "F0111",
+      "function": "DAY",
+      "formula": "=DAY(DATE(2026,10,20))",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0112",
+      "function": "DAYS",
+      "formula": "=DAYS(DATE(2026,10,20),DATE(2026,10,10))",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0113",
+      "function": "DAYS360",
+      "formula": "=DAYS360(DATE(2026,1,1),DATE(2026,4,1))",
+      "gridforge": {
+        "type": "number",
+        "value": 90
+      },
+      "excel": {
+        "type": "number",
+        "value": 90
+      },
+      "match": true
+    },
+    {
+      "id": "F0114",
+      "function": "DB",
+      "formula": "=DB(10000,1000,5,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3690
+      },
+      "excel": {
+        "type": "number",
+        "value": 3690
+      },
+      "match": true
+    },
+    {
+      "id": "F0115",
+      "function": "DCOUNT",
+      "formula": "=DCOUNT(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0116",
+      "function": "DCOUNTA",
+      "formula": "=DCOUNTA(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0117",
+      "function": "DDB",
+      "formula": "=DDB(1000,0,5,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 400
+      },
+      "excel": {
+        "type": "number",
+        "value": 400
+      },
+      "match": true
+    },
+    {
+      "id": "F0118",
+      "function": "DEC2BIN",
+      "formula": "=DEC2BIN(10)",
+      "gridforge": {
+        "type": "string",
+        "value": "1010"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1010"
+      },
+      "match": true
+    },
+    {
+      "id": "F0119",
+      "function": "DEC2HEX",
+      "formula": "=DEC2HEX(255)",
+      "gridforge": {
+        "type": "string",
+        "value": "FF"
+      },
+      "excel": {
+        "type": "string",
+        "value": "FF"
+      },
+      "match": true
+    },
+    {
+      "id": "F0120",
+      "function": "DEC2OCT",
+      "formula": "=DEC2OCT(8)",
+      "gridforge": {
+        "type": "string",
+        "value": "10"
+      },
+      "excel": {
+        "type": "string",
+        "value": "10"
+      },
+      "match": true
+    },
+    {
+      "id": "F0121",
+      "function": "DECIMAL",
+      "formula": "=DECIMAL(\"FF\",16)",
+      "gridforge": {
+        "type": "number",
+        "value": 255
+      },
+      "excel": {
+        "type": "number",
+        "value": 255
+      },
+      "match": true
+    },
+    {
+      "id": "F0122",
+      "function": "DEGREES",
+      "formula": "=DEGREES(PI())",
+      "gridforge": {
+        "type": "number",
+        "value": 180
+      },
+      "excel": {
+        "type": "number",
+        "value": 180
+      },
+      "match": true
+    },
+    {
+      "id": "F0123",
+      "function": "DELTA",
+      "formula": "=DELTA(4,4)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0124",
+      "function": "DETECTLANGUAGE",
+      "formula": "=DETECTLANGUAGE(\"Hello\")",
+      "gridforge": {
+        "type": "string",
+        "value": "en"
+      },
+      "excel": {
+        "type": "online-function-skipped",
+        "value": "Opt in using --allow-online-functions; may contact online services."
+      },
+      "match": false
+    },
+    {
+      "id": "F0125",
+      "function": "DEVSQ",
+      "formula": "=DEVSQ(2,4,6)",
+      "gridforge": {
+        "type": "number",
+        "value": 8
+      },
+      "excel": {
+        "type": "number",
+        "value": 8
+      },
+      "match": true
+    },
+    {
+      "id": "F0126",
+      "function": "DGET",
+      "formula": "=DGET(D1:E4,\"Sales\",D1:E2)",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0127",
+      "function": "DISC",
+      "formula": "=DISC(45000,45100,98,100)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.07346938775510205
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.0734693877551021
+      },
+      "match": true
+    },
+    {
+      "id": "F0128",
+      "function": "DMAX",
+      "formula": "=DMAX(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 40
+      },
+      "excel": {
+        "type": "number",
+        "value": 40
+      },
+      "match": true
+    },
+    {
+      "id": "F0129",
+      "function": "DMIN",
+      "formula": "=DMIN(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0130",
+      "function": "DOLLAR",
+      "formula": "=DOLLAR(1234.5,2)",
+      "gridforge": {
+        "type": "string",
+        "value": "$1,234.50"
+      },
+      "excel": {
+        "type": "string",
+        "value": "$1,234.50"
+      },
+      "match": true
+    },
+    {
+      "id": "F0131",
+      "function": "DOLLARDE",
+      "formula": "=DOLLARDE(1.02,16)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.125
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.125
+      },
+      "match": true
+    },
+    {
+      "id": "F0132",
+      "function": "DOLLARFR",
+      "formula": "=DOLLARFR(1.125,16)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.02
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.02
+      },
+      "match": true
+    },
+    {
+      "id": "F0133",
+      "function": "DPRODUCT",
+      "formula": "=DPRODUCT(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 800
+      },
+      "excel": {
+        "type": "number",
+        "value": 800
+      },
+      "match": true
+    },
+    {
+      "id": "F0134",
+      "function": "DROP",
+      "formula": "=INDEX(DROP(M1:N3,1),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0135",
+      "function": "DSTDEV",
+      "formula": "=DSTDEV(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 14.142135623730951
+      },
+      "excel": {
+        "type": "number",
+        "value": 14.142135623730951
+      },
+      "match": true
+    },
+    {
+      "id": "F0136",
+      "function": "DSTDEVP",
+      "formula": "=DSTDEVP(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0137",
+      "function": "DSUM",
+      "formula": "=DSUM(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 60
+      },
+      "excel": {
+        "type": "number",
+        "value": 60
+      },
+      "match": true
+    },
+    {
+      "id": "F0138",
+      "function": "DURATION",
+      "formula": "=DURATION(45000,47000,0.05,0.06,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 4.827322389731892
+      },
+      "excel": {
+        "type": "number",
+        "value": 4.827322389731892
+      },
+      "match": true
+    },
+    {
+      "id": "F0139",
+      "function": "DVAR",
+      "formula": "=DVAR(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 200
+      },
+      "excel": {
+        "type": "number",
+        "value": 200
+      },
+      "match": true
+    },
+    {
+      "id": "F0140",
+      "function": "DVARP",
+      "formula": "=DVARP(D1:E4,\"Sales\",G1:G2)",
+      "gridforge": {
+        "type": "number",
+        "value": 100
+      },
+      "excel": {
+        "type": "number",
+        "value": 100
+      },
+      "match": true
+    },
+    {
+      "id": "F0141",
+      "function": "ECMA.CEILING",
+      "formula": "=ECMA.CEILING(7.2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 8
+      },
+      "excel": {
+        "type": "number",
+        "value": 8
+      },
+      "match": true
+    },
+    {
+      "id": "F0142",
+      "function": "EDATE",
+      "formula": "=DAY(EDATE(DATE(2026,1,31),1))",
+      "gridforge": {
+        "type": "number",
+        "value": 28
+      },
+      "excel": {
+        "type": "number",
+        "value": 28
+      },
+      "match": true
+    },
+    {
+      "id": "F0143",
+      "function": "EFFECT",
+      "formula": "=EFFECT(0.12,12)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.12682503013196977
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.12682503013196977
+      },
+      "match": true
+    },
+    {
+      "id": "F0144",
+      "function": "ENCODEURL",
+      "formula": "=ENCODEURL(\"a b\")",
+      "gridforge": {
+        "type": "string",
+        "value": "a%20b"
+      },
+      "excel": {
+        "type": "string",
+        "value": "a%20b"
+      },
+      "match": true
+    },
+    {
+      "id": "F0145",
+      "function": "EOMONTH",
+      "formula": "=DAY(EOMONTH(DATE(2026,2,3),0))",
+      "gridforge": {
+        "type": "number",
+        "value": 28
+      },
+      "excel": {
+        "type": "number",
+        "value": 28
+      },
+      "match": true
+    },
+    {
+      "id": "F0146",
+      "function": "ERF",
+      "formula": "=ERF(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0147",
+      "function": "ERF.PRECISE",
+      "formula": "=ERF.PRECISE(0.3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.32862675945912745
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.32862675945912745
+      },
+      "match": true
+    },
+    {
+      "id": "F0148",
+      "function": "ERFC",
+      "formula": "=ERFC(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0149",
+      "function": "ERFC.PRECISE",
+      "formula": "=ERFC.PRECISE(0.3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6713732405408726
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6713732405408726
+      },
+      "match": true
+    },
+    {
+      "id": "F0150",
+      "function": "ERROR.TYPE",
+      "formula": "=ERROR.TYPE(1/0)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0151",
+      "function": "EUROCONVERT",
+      "formula": "=EUROCONVERT(100,\"EUR\",\"DEM\")",
+      "gridforge": {
+        "type": "number",
+        "value": 195.583
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0152",
+      "function": "EVEN",
+      "formula": "=EVEN(-3)",
+      "gridforge": {
+        "type": "number",
+        "value": -4
+      },
+      "excel": {
+        "type": "number",
+        "value": -4
+      },
+      "match": true
+    },
+    {
+      "id": "F0153",
+      "function": "EXACT",
+      "formula": "=EXACT(\"A\",\"A\")",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0154",
+      "function": "EXP",
+      "formula": "=EXP(1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.718281828459045
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.718281828459045
+      },
+      "match": true
+    },
+    {
+      "id": "F0155",
+      "function": "EXPAND",
+      "formula": "=INDEX(EXPAND(M1:N3,5,3,0),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0156",
+      "function": "EXPON.DIST",
+      "formula": "=EXPON.DIST(2,0.5,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "match": true
+    },
+    {
+      "id": "F0157",
+      "function": "EXPONDIST",
+      "formula": "=EXPONDIST(2,0.5,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "match": true
+    },
+    {
+      "id": "F0158",
+      "function": "F.DIST",
+      "formula": "=F.DIST(1,4,8,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5390946502057625
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5390946502057613
+      },
+      "match": true
+    },
+    {
+      "id": "F0159",
+      "function": "F.DIST.RT",
+      "formula": "=F.DIST.RT(1,4,8)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.4609053497942375
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.4609053497942387
+      },
+      "match": true
+    },
+    {
+      "id": "F0160",
+      "function": "F.INV",
+      "formula": "=F.INV(0.6,4,8)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.1495330237392225
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.149533023739227
+      },
+      "match": true
+    },
+    {
+      "id": "F0161",
+      "function": "F.INV.RT",
+      "formula": "=F.INV.RT(0.6,4,8)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.7231954700470511
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.7231954700470525
+      },
+      "match": true
+    },
+    {
+      "id": "F0162",
+      "function": "F.TEST",
+      "formula": "=F.TEST(M1:P1,P1:S1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6356103206055035
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.635610320605496
+      },
+      "match": true
+    },
+    {
+      "id": "F0163",
+      "function": "FACT",
+      "formula": "=FACT(5)",
+      "gridforge": {
+        "type": "number",
+        "value": 120
+      },
+      "excel": {
+        "type": "number",
+        "value": 120
+      },
+      "match": true
+    },
+    {
+      "id": "F0164",
+      "function": "FACTDOUBLE",
+      "formula": "=FACTDOUBLE(7)",
+      "gridforge": {
+        "type": "number",
+        "value": 105
+      },
+      "excel": {
+        "type": "number",
+        "value": 105
+      },
+      "match": true
+    },
+    {
+      "id": "F0165",
+      "function": "FALSE",
+      "formula": "=FALSE()",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "excel": {
+        "type": "boolean",
+        "value": false
+      },
+      "match": true
+    },
+    {
+      "id": "F0166",
+      "function": "FDIST",
+      "formula": "=FDIST(2,5,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.23251131913037726
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.23251131913037865
+      },
+      "match": true
+    },
+    {
+      "id": "F0167",
+      "function": "FIELDVALUE",
+      "formula": "=FIELDVALUE(\"cost=500;region=North\",\"cost\")",
+      "gridforge": {
+        "type": "string",
+        "value": "500"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#FIELD!"
+      },
+      "match": false
+    },
+    {
+      "id": "F0168",
+      "function": "FILTER",
+      "formula": "=INDEX(FILTER(M1:N3,P1:P3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0169",
+      "function": "FILTERXML",
+      "formula": "=FILTERXML(\"<item>ok</item>\",\"item\")",
+      "gridforge": {
+        "type": "string",
+        "value": "ok"
+      },
+      "excel": {
+        "type": "string",
+        "value": "ok"
+      },
+      "match": true
+    },
+    {
+      "id": "F0170",
+      "function": "FIND",
+      "formula": "=FIND(\"a\",\"cable\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0171",
+      "function": "FINDB",
+      "formula": "=FINDB(\"b\",\"abc\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0172",
+      "function": "FINV",
+      "formula": "=FINV(0.25,5,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.8946597673991308
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.8946597673991423
+      },
+      "match": true
+    },
+    {
+      "id": "F0173",
+      "function": "FISHER",
+      "formula": "=FISHER(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0174",
+      "function": "FISHERINV",
+      "formula": "=FISHERINV(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0175",
+      "function": "FIXED",
+      "formula": "=FIXED(1234.5,1,TRUE)",
+      "gridforge": {
+        "type": "string",
+        "value": "1234.5"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1234.5"
+      },
+      "match": true
+    },
+    {
+      "id": "F0176",
+      "function": "FLATTEN",
+      "formula": "=INDEX(FLATTEN(M1:N3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0177",
+      "function": "FLOOR",
+      "formula": "=FLOOR(13,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0178",
+      "function": "FLOOR.MATH",
+      "formula": "=FLOOR.MATH(7.2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "excel": {
+        "type": "number",
+        "value": 6
+      },
+      "match": true
+    },
+    {
+      "id": "F0179",
+      "function": "FLOOR.PRECISE",
+      "formula": "=FLOOR.PRECISE(-4.1,2)",
+      "gridforge": {
+        "type": "number",
+        "value": -6
+      },
+      "excel": {
+        "type": "number",
+        "value": -6
+      },
+      "match": true
+    },
+    {
+      "id": "F0180",
+      "function": "FORECAST",
+      "formula": "=FORECAST(7,B1:B5,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 15
+      },
+      "excel": {
+        "type": "number",
+        "value": 15
+      },
+      "match": true
+    },
+    {
+      "id": "F0181",
+      "function": "FORECAST.ETS",
+      "formula": "=FORECAST.ETS(5,P1:P4,S1:S4)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0182",
+      "function": "FORECAST.ETS.CONFINT",
+      "formula": "=FORECAST.ETS.CONFINT(5,P1:P4,S1:S4)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0183",
+      "function": "FORECAST.ETS.SEASONALITY",
+      "formula": "=FORECAST.ETS.SEASONALITY(5,P1:P4)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#N/A"
+      },
+      "match": false
+    },
+    {
+      "id": "F0184",
+      "function": "FORECAST.ETS.STAT",
+      "formula": "=FORECAST.ETS.STAT(5,P1:P4)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "formula-assignment-error",
+        "value": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)",
+        "formula2Error": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)"
+      },
+      "match": false
+    },
+    {
+      "id": "F0185",
+      "function": "FORECAST.LINEAR",
+      "formula": "=FORECAST.LINEAR(6,B1:B5,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 13
+      },
+      "excel": {
+        "type": "number",
+        "value": 13
+      },
+      "match": true
+    },
+    {
+      "id": "F0186",
+      "function": "FORMULATEXT",
+      "formula": "=FORMULATEXT(E2)",
+      "gridforge": {
+        "type": "string",
+        "value": "=SUM(A1:A2)"
+      },
+      "excel": {
+        "type": "string",
+        "value": "=SUM(A1:A2)"
+      },
+      "match": true
+    },
+    {
+      "id": "F0187",
+      "function": "FREQUENCY",
+      "formula": "=INDEX(FREQUENCY(A1:A5,B1:B2),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0188",
+      "function": "FTEST",
+      "formula": "=FTEST(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.20800000000000007
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.20800000000000005
+      },
+      "match": true
+    },
+    {
+      "id": "F0189",
+      "function": "FV",
+      "formula": "=FV(0,10,-100)",
+      "gridforge": {
+        "type": "number",
+        "value": 1000
+      },
+      "excel": {
+        "type": "number",
+        "value": 1000
+      },
+      "match": true
+    },
+    {
+      "id": "F0190",
+      "function": "FVSCHEDULE",
+      "formula": "=FVSCHEDULE(100,A1:A2)",
+      "gridforge": {
+        "type": "number",
+        "value": 600
+      },
+      "excel": {
+        "type": "number",
+        "value": 600
+      },
+      "match": true
+    },
+    {
+      "id": "F0191",
+      "function": "GAMMA",
+      "formula": "=GAMMA(5)",
+      "gridforge": {
+        "type": "number",
+        "value": 23.99999999999996
+      },
+      "excel": {
+        "type": "number",
+        "value": 24
+      },
+      "match": true
+    },
+    {
+      "id": "F0192",
+      "function": "GAMMA.DIST",
+      "formula": "=GAMMA.DIST(2,3,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.08030139707139411
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.08030139707139419
+      },
+      "match": true
+    },
+    {
+      "id": "F0193",
+      "function": "GAMMA.INV",
+      "formula": "=GAMMA.INV(0.5,3,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 5.348120627447125
+      },
+      "excel": {
+        "type": "number",
+        "value": 5.348120627447122
+      },
+      "match": true
+    },
+    {
+      "id": "F0194",
+      "function": "GAMMADIST",
+      "formula": "=GAMMADIST(2,2,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.2642411176571142
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.2642411176571152
+      },
+      "match": true
+    },
+    {
+      "id": "F0195",
+      "function": "GAMMAINV",
+      "formula": "=GAMMAINV(0.5,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.356693980033338
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.3566939800333215
+      },
+      "match": true
+    },
+    {
+      "id": "F0196",
+      "function": "GAMMALN",
+      "formula": "=GAMMALN(5)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.178053830347944
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.1780538303479458
+      },
+      "match": true
+    },
+    {
+      "id": "F0197",
+      "function": "GAMMALN.PRECISE",
+      "formula": "=GAMMALN.PRECISE(5)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.178053830347944
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.1780538303479458
+      },
+      "match": true
+    },
+    {
+      "id": "F0198",
+      "function": "GAUSS",
+      "formula": "=GAUSS(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0199",
+      "function": "GCD",
+      "formula": "=GCD(24,36)",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "excel": {
+        "type": "number",
+        "value": 12
+      },
+      "match": true
+    },
+    {
+      "id": "F0200",
+      "function": "GEOMEAN",
+      "formula": "=GEOMEAN(1,4,16)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0201",
+      "function": "GESTEP",
+      "formula": "=GESTEP(7,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0202",
+      "function": "GROUPBY",
+      "formula": "=INDEX(GROUPBY(M1:M3,P1:P3,\"SUM\"),1,1)",
+      "gridforge": {
+        "type": "string",
+        "value": "A"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0203",
+      "function": "GROWTH",
+      "formula": "=INDEX(GROWTH(B1:B5,A1:A5,A1:A5),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.3620318666645215
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.3620318666645232
+      },
+      "match": true
+    },
+    {
+      "id": "F0204",
+      "function": "HARMEAN",
+      "formula": "=HARMEAN(1,2,4)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.7142857142857142
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.7142857142857142
+      },
+      "match": true
+    },
+    {
+      "id": "F0205",
+      "function": "HEX2BIN",
+      "formula": "=HEX2BIN(\"A\")",
+      "gridforge": {
+        "type": "string",
+        "value": "1010"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1010"
+      },
+      "match": true
+    },
+    {
+      "id": "F0206",
+      "function": "HEX2DEC",
+      "formula": "=HEX2DEC(\"FF\")",
+      "gridforge": {
+        "type": "number",
+        "value": 255
+      },
+      "excel": {
+        "type": "number",
+        "value": 255
+      },
+      "match": true
+    },
+    {
+      "id": "F0207",
+      "function": "HEX2OCT",
+      "formula": "=HEX2OCT(\"A\")",
+      "gridforge": {
+        "type": "string",
+        "value": "12"
+      },
+      "excel": {
+        "type": "string",
+        "value": "12"
+      },
+      "match": true
+    },
+    {
+      "id": "F0208",
+      "function": "HLOOKUP",
+      "formula": "=HLOOKUP(\"Q2\",H1:J2,2,FALSE)",
+      "gridforge": {
+        "type": "number",
+        "value": 33
+      },
+      "excel": {
+        "type": "number",
+        "value": 33
+      },
+      "match": true
+    },
+    {
+      "id": "F0209",
+      "function": "HOUR",
+      "formula": "=HOUR(TIME(14,30,0))",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "excel": {
+        "type": "number",
+        "value": 14
+      },
+      "match": true
+    },
+    {
+      "id": "F0210",
+      "function": "HSTACK",
+      "formula": "=INDEX(HSTACK(M1:N3,P1:Q3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0211",
+      "function": "HYPERLINK",
+      "formula": "=HYPERLINK(\"https://example.com\",\"Example\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Example"
+      },
+      "excel": {
+        "type": "string",
+        "value": "Example"
+      },
+      "match": true
+    },
+    {
+      "id": "F0212",
+      "function": "HYPGEOM.DIST",
+      "formula": "=HYPGEOM.DIST(1,3,4,12,FALSE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.509090909090909
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.509090909090909
+      },
+      "match": true
+    },
+    {
+      "id": "F0213",
+      "function": "HYPGEOMDIST",
+      "formula": "=HYPGEOMDIST(2,5,6,20)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.3521671826625387
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.35216718266253877
+      },
+      "match": true
+    },
+    {
+      "id": "F0214",
+      "function": "IF",
+      "formula": "=IF(2>1,5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0215",
+      "function": "IFERROR",
+      "formula": "=IFERROR(1/0,7)",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0216",
+      "function": "IFNA",
+      "formula": "=IFNA(NA(),7)",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0217",
+      "function": "IFS",
+      "formula": "=IFS(FALSE,1/0,TRUE,42)",
+      "gridforge": {
+        "type": "number",
+        "value": 42
+      },
+      "excel": {
+        "type": "number",
+        "value": 42
+      },
+      "match": true
+    },
+    {
+      "id": "F0218",
+      "function": "IMABS",
+      "formula": "=IMABS(\"3+4i\")",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0219",
+      "function": "IMAGE",
+      "formula": "=IMAGE(\"https://example.org/sample.png\",\"Example\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Example"
+      },
+      "excel": {
+        "type": "online-function-skipped",
+        "value": "Opt in using --allow-online-functions; may contact online services."
+      },
+      "match": false
+    },
+    {
+      "id": "F0220",
+      "function": "IMAGINARY",
+      "formula": "=IMAGINARY(\"3+4i\")",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0221",
+      "function": "IMARGUMENT",
+      "formula": "=IMARGUMENT(\"3+4i\")",
+      "gridforge": {
+        "type": "number",
+        "value": 0.9272952180016122
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.9272952180016122
+      },
+      "match": true
+    },
+    {
+      "id": "F0222",
+      "function": "IMCONJUGATE",
+      "formula": "=IMCONJUGATE(\"3+4i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "3-4i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "3-4i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0223",
+      "function": "IMCOS",
+      "formula": "=IMCOS(\"1+2i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "2.03272300701967-3.0518977991518i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "2.03272300701967-3.0518977991518i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0224",
+      "function": "IMDIV",
+      "formula": "=IMDIV(\"3+4i\",\"1+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "3.5+0.5i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "3.5+0.5i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0225",
+      "function": "IMEXP",
+      "formula": "=IMEXP(\"1+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "1.46869393991589+2.28735528717884i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1.46869393991589+2.28735528717884i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0226",
+      "function": "IMLN",
+      "formula": "=IMLN(\"1+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "0.346573590279973+0.785398163397448i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "0.346573590279973+0.785398163397448i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0227",
+      "function": "IMLOG10",
+      "formula": "=IMLOG10(\"1+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "0.150514997831991+0.34109408846046i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "0.150514997831991+0.34109408846046i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0228",
+      "function": "IMLOG2",
+      "formula": "=IMLOG2(\"1+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "0.5+1.1330900354568i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "0.5+1.1330900354568i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0229",
+      "function": "IMPOWER",
+      "formula": "=IMPOWER(\"1+i\",\"2\")",
+      "gridforge": {
+        "type": "string",
+        "value": "1.22464679914735E-16+2i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1.22514845490862E-16+2i"
+      },
+      "match": false
+    },
+    {
+      "id": "F0230",
+      "function": "IMPRODUCT",
+      "formula": "=IMPRODUCT(\"1+i\",\"1-i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "2"
+      },
+      "excel": {
+        "type": "string",
+        "value": "2"
+      },
+      "match": true
+    },
+    {
+      "id": "F0231",
+      "function": "IMREAL",
+      "formula": "=IMREAL(\"3+4i\")",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0232",
+      "function": "IMSIN",
+      "formula": "=IMSIN(\"1+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "1.29845758141598+0.634963914784736i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1.29845758141598+0.634963914784736i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0233",
+      "function": "IMSQRT",
+      "formula": "=IMSQRT(\"3+4i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "2+i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "2+i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0234",
+      "function": "IMSUB",
+      "formula": "=IMSUB(\"4+3i\",\"2+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "2+2i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "2+2i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0235",
+      "function": "IMSUM",
+      "formula": "=IMSUM(\"1+i\",\"2+i\")",
+      "gridforge": {
+        "type": "string",
+        "value": "3+2i"
+      },
+      "excel": {
+        "type": "string",
+        "value": "3+2i"
+      },
+      "match": true
+    },
+    {
+      "id": "F0236",
+      "function": "INDEX",
+      "formula": "=INDEX(A1:B5,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0237",
+      "function": "INDIRECT",
+      "formula": "=INDIRECT(\"A3\")",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0238",
+      "function": "INFO",
+      "formula": "=INFO(\"release\")",
+      "gridforge": {
+        "type": "string",
+        "value": "GridForge 10"
+      },
+      "excel": {
+        "type": "string",
+        "value": "16.0"
+      },
+      "match": false
+    },
+    {
+      "id": "F0239",
+      "function": "INT",
+      "formula": "=INT(3.9)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0240",
+      "function": "INTERCEPT",
+      "formula": "=INTERCEPT(B1:B5,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0241",
+      "function": "INTRATE",
+      "formula": "=INTRATE(45000,46000,1000,1100)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.036585365853658534
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.036585365853658534
+      },
+      "match": true
+    },
+    {
+      "id": "F0242",
+      "function": "IPMT",
+      "formula": "=IPMT(0.1,1,2,100)",
+      "gridforge": {
+        "type": "number",
+        "value": -10
+      },
+      "excel": {
+        "type": "number",
+        "value": -10
+      },
+      "match": true
+    },
+    {
+      "id": "F0243",
+      "function": "IRR",
+      "formula": "=IRR(F1:F5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.15322137877181555
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.15322137877181552
+      },
+      "match": true
+    },
+    {
+      "id": "F0244",
+      "function": "ISBETWEEN",
+      "formula": "=ISBETWEEN(5,1,10)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0245",
+      "function": "ISBLANK",
+      "formula": "=ISBLANK(L40)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0246",
+      "function": "ISERR",
+      "formula": "=ISERR(1/0)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0247",
+      "function": "ISERROR",
+      "formula": "=ISERROR(1/0)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0248",
+      "function": "ISEVEN",
+      "formula": "=ISEVEN(4)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0249",
+      "function": "ISFORMULA",
+      "formula": "=ISFORMULA(L39)",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "excel": {
+        "type": "boolean",
+        "value": false
+      },
+      "match": true
+    },
+    {
+      "id": "F0250",
+      "function": "ISLOGICAL",
+      "formula": "=ISLOGICAL(TRUE)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0251",
+      "function": "ISNA",
+      "formula": "=ISNA(MATCH(99,A1:A5,0))",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0252",
+      "function": "ISNONTEXT",
+      "formula": "=ISNONTEXT(123)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0253",
+      "function": "ISNUMBER",
+      "formula": "=ISNUMBER(A1)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0254",
+      "function": "ISO.CEILING",
+      "formula": "=ISO.CEILING(5.2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "excel": {
+        "type": "number",
+        "value": 6
+      },
+      "match": true
+    },
+    {
+      "id": "F0255",
+      "function": "ISODD",
+      "formula": "=ISODD(3)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0256",
+      "function": "ISOMITTED",
+      "formula": "=ISOMITTED(L40)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0257",
+      "function": "ISOWEEKNUM",
+      "formula": "=ISOWEEKNUM(DATE(2021,1,4))",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0258",
+      "function": "ISPMT",
+      "formula": "=ISPMT(0.05,2,12,1000)",
+      "gridforge": {
+        "type": "number",
+        "value": -41.666666666666664
+      },
+      "excel": {
+        "type": "number",
+        "value": -41.666666666666664
+      },
+      "match": true
+    },
+    {
+      "id": "F0259",
+      "function": "ISREF",
+      "formula": "=ISREF(A1)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0260",
+      "function": "ISTEXT",
+      "formula": "=ISTEXT(A1)",
+      "gridforge": {
+        "type": "boolean",
+        "value": false
+      },
+      "excel": {
+        "type": "boolean",
+        "value": false
+      },
+      "match": true
+    },
+    {
+      "id": "F0261",
+      "function": "JIS",
+      "formula": "=JIS(\"Hello\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Ｈｅｌｌｏ"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0262",
+      "function": "KURT",
+      "formula": "=KURT(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": -1.2000000000000002
+      },
+      "excel": {
+        "type": "number",
+        "value": -1.1999999999999984
+      },
+      "match": true
+    },
+    {
+      "id": "F0263",
+      "function": "LAMBDA",
+      "formula": "=LAMBDA(\"x\",2)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0264",
+      "function": "LARGE",
+      "formula": "=LARGE(A1:A10,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "excel": {
+        "type": "number",
+        "value": 9
+      },
+      "match": true
+    },
+    {
+      "id": "F0265",
+      "function": "LCM",
+      "formula": "=LCM(4,6)",
+      "gridforge": {
+        "type": "number",
+        "value": 12
+      },
+      "excel": {
+        "type": "number",
+        "value": 12
+      },
+      "match": true
+    },
+    {
+      "id": "F0266",
+      "function": "LEFT",
+      "formula": "=LEFT(\"Hello\",2)",
+      "gridforge": {
+        "type": "string",
+        "value": "He"
+      },
+      "excel": {
+        "type": "string",
+        "value": "He"
+      },
+      "match": true
+    },
+    {
+      "id": "F0267",
+      "function": "LEFTB",
+      "formula": "=LEFTB(\"abc\",2)",
+      "gridforge": {
+        "type": "string",
+        "value": "ab"
+      },
+      "excel": {
+        "type": "string",
+        "value": "ab"
+      },
+      "match": true
+    },
+    {
+      "id": "F0268",
+      "function": "LEN",
+      "formula": "=LEN(\"Hello\")",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0269",
+      "function": "LENB",
+      "formula": "=LENB(\"abc\")",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0270",
+      "function": "LET",
+      "formula": "=LET(\"x\",2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "formula-assignment-error",
+        "value": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)",
+        "formula2Error": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)"
+      },
+      "match": false
+    },
+    {
+      "id": "F0271",
+      "function": "LINEST",
+      "formula": "=INDEX(LINEST(B1:B5,A1:A5),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.9999999999999998
+      },
+      "match": true
+    },
+    {
+      "id": "F0272",
+      "function": "LN",
+      "formula": "=LN(10)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.302585092994046
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.302585092994046
+      },
+      "match": true
+    },
+    {
+      "id": "F0273",
+      "function": "LOG",
+      "formula": "=LOG(100,10)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0274",
+      "function": "LOG10",
+      "formula": "=LOG10(1000)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0275",
+      "function": "LOGEST",
+      "formula": "=INDEX(LOGEST(B1:B5,A1:A5),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.3752496294290821
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.375249629429082
+      },
+      "match": true
+    },
+    {
+      "id": "F0276",
+      "function": "LOGINV",
+      "formula": "=LOGINV(0.5,0,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.9999999999999999
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0277",
+      "function": "LOGNORM.DIST",
+      "formula": "=LOGNORM.DIST(1,0,1,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0278",
+      "function": "LOGNORM.INV",
+      "formula": "=LOGNORM.INV(0.5,0,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.9999999999999999
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0279",
+      "function": "LOGNORMDIST",
+      "formula": "=LOGNORMDIST(1,0,1,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "formula-assignment-error",
+        "value": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)",
+        "formula2Error": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)"
+      },
+      "match": false
+    },
+    {
+      "id": "F0280",
+      "function": "LOOKUP",
+      "formula": "=LOOKUP(3,A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0281",
+      "function": "LOWER",
+      "formula": "=LOWER(\"HELLO\")",
+      "gridforge": {
+        "type": "string",
+        "value": "hello"
+      },
+      "excel": {
+        "type": "string",
+        "value": "hello"
+      },
+      "match": true
+    },
+    {
+      "id": "F0282",
+      "function": "MAKEARRAY",
+      "formula": "=INDEX(MAKEARRAY(3,3,\"PRODUCT\"),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0283",
+      "function": "MAP",
+      "formula": "=INDEX(MAP(M1:N3,\"ABS\"),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0284",
+      "function": "MATCH",
+      "formula": "=MATCH(3,A1:A5,0)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0285",
+      "function": "MAX",
+      "formula": "=MAX(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0286",
+      "function": "MAXA",
+      "formula": "=MAXA(-5,-1)",
+      "gridforge": {
+        "type": "number",
+        "value": -1
+      },
+      "excel": {
+        "type": "number",
+        "value": -1
+      },
+      "match": true
+    },
+    {
+      "id": "F0287",
+      "function": "MAXIFS",
+      "formula": "=MAXIFS(A1:A5,D1:D5,\"East\")",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0288",
+      "function": "MDETERM",
+      "formula": "=MDETERM(H1:I2)",
+      "gridforge": {
+        "type": "number",
+        "value": -2
+      },
+      "excel": {
+        "type": "number",
+        "value": -2
+      },
+      "match": true
+    },
+    {
+      "id": "F0289",
+      "function": "MDURATION",
+      "formula": "=MDURATION(45000,47000,0.05,0.06,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 4.686720766729992
+      },
+      "excel": {
+        "type": "number",
+        "value": 4.686720766729992
+      },
+      "match": true
+    },
+    {
+      "id": "F0290",
+      "function": "MEDIAN",
+      "formula": "=MEDIAN(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 5.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0291",
+      "function": "MID",
+      "formula": "=MID(\"Hello\",2,2)",
+      "gridforge": {
+        "type": "string",
+        "value": "el"
+      },
+      "excel": {
+        "type": "string",
+        "value": "el"
+      },
+      "match": true
+    },
+    {
+      "id": "F0292",
+      "function": "MIDB",
+      "formula": "=MIDB(\"abc\",2,2)",
+      "gridforge": {
+        "type": "string",
+        "value": "bc"
+      },
+      "excel": {
+        "type": "string",
+        "value": "bc"
+      },
+      "match": true
+    },
+    {
+      "id": "F0293",
+      "function": "MIN",
+      "formula": "=MIN(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0294",
+      "function": "MINA",
+      "formula": "=MINA(1,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0295",
+      "function": "MINIFS",
+      "formula": "=MINIFS(A1:A5,D1:D5,\"East\")",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0296",
+      "function": "MINUTE",
+      "formula": "=MINUTE(TIME(14,30,0))",
+      "gridforge": {
+        "type": "number",
+        "value": 30
+      },
+      "excel": {
+        "type": "number",
+        "value": 30
+      },
+      "match": true
+    },
+    {
+      "id": "F0297",
+      "function": "MINVERSE",
+      "formula": "=INDEX(MINVERSE(H1:I2),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": -1.9999999999999996
+      },
+      "excel": {
+        "type": "number",
+        "value": -1.9999999999999998
+      },
+      "match": true
+    },
+    {
+      "id": "F0298",
+      "function": "MIRR",
+      "formula": "=MIRR(F1:F5,0.1,0.1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.13048938949712285
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.13048938949712285
+      },
+      "match": true
+    },
+    {
+      "id": "F0299",
+      "function": "MMULT",
+      "formula": "=INDEX(MMULT(H1:I2,H1:I2),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0300",
+      "function": "MOD",
+      "formula": "=MOD(17,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0301",
+      "function": "MODE",
+      "formula": "=MODE(1,2,2,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0302",
+      "function": "MODE.MULT",
+      "formula": "=INDEX(MODE.MULT(M1:Q1),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0303",
+      "function": "MODE.SNGL",
+      "formula": "=MODE.SNGL(1,2,2,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0304",
+      "function": "MONTH",
+      "formula": "=MONTH(DATE(2026,10,20))",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0305",
+      "function": "MROUND",
+      "formula": "=MROUND(14,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 15
+      },
+      "excel": {
+        "type": "number",
+        "value": 15
+      },
+      "match": true
+    },
+    {
+      "id": "F0306",
+      "function": "MULTINOMIAL",
+      "formula": "=MULTINOMIAL(2,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.0000000000000004
+      },
+      "match": true
+    },
+    {
+      "id": "F0307",
+      "function": "MUNIT",
+      "formula": "=INDEX(MUNIT(3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0308",
+      "function": "N",
+      "formula": "=N(TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0309",
+      "function": "NA",
+      "formula": "=NA()",
+      "gridforge": {
+        "type": "error",
+        "value": "#N/A"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#N/A"
+      },
+      "match": true
+    },
+    {
+      "id": "F0310",
+      "function": "NEGBINOMDIST",
+      "formula": "=NEGBINOMDIST(2,3,0.5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.1875
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.1875
+      },
+      "match": true
+    },
+    {
+      "id": "F0311",
+      "function": "NETWORKDAYS",
+      "formula": "=NETWORKDAYS(DATE(2026,10,19),DATE(2026,10,23))",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0312",
+      "function": "NETWORKDAYS.INTL",
+      "formula": "=NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),1)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0313",
+      "function": "NETWORKDAYSINTL",
+      "formula": "=NETWORKDAYSINTL(DATE(2026,10,19),DATE(2026,10,23),1)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0314",
+      "function": "NOMINAL",
+      "formula": "=NOMINAL(EFFECT(0.12,12),12)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.1200000000000001
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.1200000000000001
+      },
+      "match": true
+    },
+    {
+      "id": "F0315",
+      "function": "NORM.DIST",
+      "formula": "=NORM.DIST(0,0,1,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0316",
+      "function": "NORM.INV",
+      "formula": "=NORM.INV(0.5,0,1)",
+      "gridforge": {
+        "type": "number",
+        "value": -6.957291061424766e-17
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0317",
+      "function": "NORM.S.DIST",
+      "formula": "=NORM.S.DIST(0,FALSE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.3989422804014327
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.3989422804014327
+      },
+      "match": true
+    },
+    {
+      "id": "F0318",
+      "function": "NORM.S.INV",
+      "formula": "=NORM.S.INV(0.5)",
+      "gridforge": {
+        "type": "number",
+        "value": -6.957291061424766e-17
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0319",
+      "function": "NORMDIST",
+      "formula": "=NORMDIST(0,0,1,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0320",
+      "function": "NORMINV",
+      "formula": "=NORMINV(.5,0,1)",
+      "gridforge": {
+        "type": "number",
+        "value": -3.101927297073854e-25
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0321",
+      "function": "NORMSDIST",
+      "formula": "=NORMSDIST(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0322",
+      "function": "NORMSINV",
+      "formula": "=NORMSINV(.5)",
+      "gridforge": {
+        "type": "number",
+        "value": -3.101927297073854e-25
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0323",
+      "function": "NOT",
+      "formula": "=NOT(FALSE)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0324",
+      "function": "NOW",
+      "formula": "=NOW()",
+      "gridforge": {
+        "type": "number",
+        "value": 46316.48529350694
+      },
+      "excel": {
+        "type": "number",
+        "value": 46316.66505740741
+      },
+      "match": false
+    },
+    {
+      "id": "F0325",
+      "function": "NPER",
+      "formula": "=NPER(0,-100,1000)",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0326",
+      "function": "NPV",
+      "formula": "=NPV(0.1,100,100)",
+      "gridforge": {
+        "type": "number",
+        "value": 173.55371900826447
+      },
+      "excel": {
+        "type": "number",
+        "value": 173.55371900826444
+      },
+      "match": true
+    },
+    {
+      "id": "F0327",
+      "function": "NUMBERVALUE",
+      "formula": "=NUMBERVALUE(\"1.234,5\",\",\",\".\")",
+      "gridforge": {
+        "type": "number",
+        "value": 1234.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 1234.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0328",
+      "function": "OCT2BIN",
+      "formula": "=OCT2BIN(\"12\")",
+      "gridforge": {
+        "type": "string",
+        "value": "1010"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1010"
+      },
+      "match": true
+    },
+    {
+      "id": "F0329",
+      "function": "OCT2DEC",
+      "formula": "=OCT2DEC(\"12\")",
+      "gridforge": {
+        "type": "number",
+        "value": 10
+      },
+      "excel": {
+        "type": "number",
+        "value": 10
+      },
+      "match": true
+    },
+    {
+      "id": "F0330",
+      "function": "OCT2HEX",
+      "formula": "=OCT2HEX(\"12\")",
+      "gridforge": {
+        "type": "string",
+        "value": "A"
+      },
+      "excel": {
+        "type": "string",
+        "value": "A"
+      },
+      "match": true
+    },
+    {
+      "id": "F0331",
+      "function": "ODD",
+      "formula": "=ODD(-4)",
+      "gridforge": {
+        "type": "number",
+        "value": -5
+      },
+      "excel": {
+        "type": "number",
+        "value": -5
+      },
+      "match": true
+    },
+    {
+      "id": "F0332",
+      "function": "ODDFPRICE",
+      "formula": "=ODDFPRICE(45000,47000,45200,45400,0.04,95,100,2)",
+      "gridforge": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "match": true
+    },
+    {
+      "id": "F0333",
+      "function": "ODDFYIELD",
+      "formula": "=ODDFYIELD(45000,47000,45200,45400,0.04,95,100,2)",
+      "gridforge": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "match": true
+    },
+    {
+      "id": "F0334",
+      "function": "ODDLPRICE",
+      "formula": "=ODDLPRICE(45000,47000,45200,45400,0.04,95,100,2)",
+      "gridforge": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "match": true
+    },
+    {
+      "id": "F0335",
+      "function": "ODDLYIELD",
+      "formula": "=ODDLYIELD(45000,47000,45200,45400,0.04,95,100,2)",
+      "gridforge": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "match": true
+    },
+    {
+      "id": "F0336",
+      "function": "OFFSET",
+      "formula": "=OFFSET(A1,2,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 7
+      },
+      "excel": {
+        "type": "number",
+        "value": 7
+      },
+      "match": true
+    },
+    {
+      "id": "F0337",
+      "function": "OR",
+      "formula": "=OR(TRUE,FALSE)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0338",
+      "function": "PDURATION",
+      "formula": "=PDURATION(0.1,1000,2000)",
+      "gridforge": {
+        "type": "number",
+        "value": 7.272540897341713
+      },
+      "excel": {
+        "type": "number",
+        "value": 7.272540897341714
+      },
+      "match": true
+    },
+    {
+      "id": "F0339",
+      "function": "PEARSON",
+      "formula": "=PEARSON(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.9999999999999998
+      },
+      "match": true
+    },
+    {
+      "id": "F0340",
+      "function": "PERCENTILE",
+      "formula": "=PERCENTILE(A1:A5,0.25)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0341",
+      "function": "PERCENTILE.EXC",
+      "formula": "=PERCENTILE.EXC(A1:A5,0.5)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0342",
+      "function": "PERCENTILE.INC",
+      "formula": "=PERCENTILE.INC(A1:A5,0.75)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0343",
+      "function": "PERCENTOF",
+      "formula": "=PERCENTOF(M1:M2,P1:P3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0344",
+      "function": "PERCENTRANK",
+      "formula": "=PERCENTRANK(A1:A5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0345",
+      "function": "PERCENTRANK.EXC",
+      "formula": "=PERCENTRANK.EXC(A1:A5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0346",
+      "function": "PERCENTRANK.INC",
+      "formula": "=PERCENTRANK.INC(A1:A5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0347",
+      "function": "PERMUT",
+      "formula": "=PERMUT(5,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0348",
+      "function": "PERMUTATIONA",
+      "formula": "=PERMUTATIONA(3,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "excel": {
+        "type": "number",
+        "value": 9
+      },
+      "match": true
+    },
+    {
+      "id": "F0349",
+      "function": "PHI",
+      "formula": "=PHI(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.3989422804014327
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.3989422804014327
+      },
+      "match": true
+    },
+    {
+      "id": "F0350",
+      "function": "PHONETIC",
+      "formula": "=PHONETIC(\"Good morning\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Good morning"
+      },
+      "excel": {
+        "type": "formula-assignment-error",
+        "value": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)",
+        "formula2Error": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2146827284), None)"
+      },
+      "match": false
+    },
+    {
+      "id": "F0351",
+      "function": "PI",
+      "formula": "=PI()",
+      "gridforge": {
+        "type": "number",
+        "value": 3.141592653589793
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.141592653589793
+      },
+      "match": true
+    },
+    {
+      "id": "F0352",
+      "function": "PIVOTBY",
+      "formula": "=INDEX(PIVOTBY(M1:M3,P1:P3,S1:S3,\"SUM\"),1,1)",
+      "gridforge": {
+        "type": "string",
+        "value": "A"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0353",
+      "function": "PMT",
+      "formula": "=PMT(0,10,1000)",
+      "gridforge": {
+        "type": "number",
+        "value": -100
+      },
+      "excel": {
+        "type": "number",
+        "value": -100
+      },
+      "match": true
+    },
+    {
+      "id": "F0354",
+      "function": "POISSON",
+      "formula": "=POISSON(2,3,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.42319008112684325
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.4231900811268434
+      },
+      "match": true
+    },
+    {
+      "id": "F0355",
+      "function": "POISSON.DIST",
+      "formula": "=POISSON.DIST(0,2,FALSE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.1353352832366128
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.1353352832366127
+      },
+      "match": true
+    },
+    {
+      "id": "F0356",
+      "function": "POWER",
+      "formula": "=POWER(2,8)",
+      "gridforge": {
+        "type": "number",
+        "value": 256
+      },
+      "excel": {
+        "type": "number",
+        "value": 256
+      },
+      "match": true
+    },
+    {
+      "id": "F0357",
+      "function": "PPMT",
+      "formula": "=PPMT(0.1,1,2,100)",
+      "gridforge": {
+        "type": "number",
+        "value": -47.61904761904758
+      },
+      "excel": {
+        "type": "number",
+        "value": -47.61904761904763
+      },
+      "match": true
+    },
+    {
+      "id": "F0358",
+      "function": "PRICE",
+      "formula": "=PRICE(45000,45600,0.05,0.06,100,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 98.45612123392543
+      },
+      "excel": {
+        "type": "number",
+        "value": 98.45612123392543
+      },
+      "match": true
+    },
+    {
+      "id": "F0359",
+      "function": "PRICEDISC",
+      "formula": "=PRICEDISC(45000,45100,0.05,100)",
+      "gridforge": {
+        "type": "number",
+        "value": 98.63888888888889
+      },
+      "excel": {
+        "type": "number",
+        "value": 98.63888888888889
+      },
+      "match": true
+    },
+    {
+      "id": "F0360",
+      "function": "PRICEMAT",
+      "formula": "=PRICEMAT(45000,45700,44800,0.04,0.05)",
+      "gridforge": {
+        "type": "number",
+        "value": 98.066260935717
+      },
+      "excel": {
+        "type": "number",
+        "value": 98.066260935717
+      },
+      "match": true
+    },
+    {
+      "id": "F0361",
+      "function": "PROB",
+      "formula": "=PROB(A1:A5,J1:J5,2,4)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6000000000000001
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6000000000000001
+      },
+      "match": true
+    },
+    {
+      "id": "F0362",
+      "function": "PRODUCT",
+      "formula": "=PRODUCT(A1:A3)",
+      "gridforge": {
+        "type": "number",
+        "value": 6
+      },
+      "excel": {
+        "type": "number",
+        "value": 6
+      },
+      "match": true
+    },
+    {
+      "id": "F0363",
+      "function": "PROPER",
+      "formula": "=PROPER(\"heLLo woRLD\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Hello World"
+      },
+      "excel": {
+        "type": "string",
+        "value": "Hello World"
+      },
+      "match": true
+    },
+    {
+      "id": "F0364",
+      "function": "PV",
+      "formula": "=PV(0,10,-100)",
+      "gridforge": {
+        "type": "number",
+        "value": 1000
+      },
+      "excel": {
+        "type": "number",
+        "value": 1000
+      },
+      "match": true
+    },
+    {
+      "id": "F0365",
+      "function": "QUARTILE",
+      "formula": "=QUARTILE(A1:A5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0366",
+      "function": "QUARTILE.EXC",
+      "formula": "=QUARTILE.EXC(A1:A5,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0367",
+      "function": "QUARTILE.INC",
+      "formula": "=QUARTILE.INC(A1:A5,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0368",
+      "function": "QUOTIENT",
+      "formula": "=QUOTIENT(-17,5)",
+      "gridforge": {
+        "type": "number",
+        "value": -3
+      },
+      "excel": {
+        "type": "number",
+        "value": -3
+      },
+      "match": true
+    },
+    {
+      "id": "F0369",
+      "function": "RADIANS",
+      "formula": "=RADIANS(180)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.141592653589793
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.141592653589793
+      },
+      "match": true
+    },
+    {
+      "id": "F0370",
+      "function": "RAND",
+      "formula": "=RAND()",
+      "gridforge": {
+        "type": "number",
+        "value": 0.12565185018729097
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.8448650233261406
+      },
+      "match": false
+    },
+    {
+      "id": "F0371",
+      "function": "RANDARRAY",
+      "formula": "=INDEX(RANDARRAY(2,3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.06807622850573725
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6728049226244295
+      },
+      "match": false
+    },
+    {
+      "id": "F0372",
+      "function": "RANDBETWEEN",
+      "formula": "=RANDBETWEEN(1,6)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0373",
+      "function": "RANK",
+      "formula": "=RANK(4,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0374",
+      "function": "RANK.AVG",
+      "formula": "=RANK.AVG(2,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0375",
+      "function": "RANK.EQ",
+      "formula": "=RANK.EQ(4,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0376",
+      "function": "RATE",
+      "formula": "=RATE(10,-100,1000)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": -1.963351707292562e-10
+      },
+      "match": true
+    },
+    {
+      "id": "F0377",
+      "function": "RECEIVED",
+      "formula": "=RECEIVED(45000,45100,100,0.05)",
+      "gridforge": {
+        "type": "number",
+        "value": 101.37989298789074
+      },
+      "excel": {
+        "type": "number",
+        "value": 101.37989298789074
+      },
+      "match": true
+    },
+    {
+      "id": "F0378",
+      "function": "REDUCE",
+      "formula": "=REDUCE(0,P1:P4,\"SUM\")",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0379",
+      "function": "REGEXEXTRACT",
+      "formula": "=REGEXEXTRACT(\"AB123\",\"[0-9]+\")",
+      "gridforge": {
+        "type": "string",
+        "value": "123"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0380",
+      "function": "REGEXREPLACE",
+      "formula": "=REGEXREPLACE(\"ab12\",\"[0-9]+\",\"ZZ\")",
+      "gridforge": {
+        "type": "string",
+        "value": "abZZ"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0381",
+      "function": "REGEXTEST",
+      "formula": "=REGEXTEST(\"ab12\",\"[0-9]+\")",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0382",
+      "function": "REPLACE",
+      "formula": "=REPLACE(\"hello\",2,2,\"a\")",
+      "gridforge": {
+        "type": "string",
+        "value": "halo"
+      },
+      "excel": {
+        "type": "string",
+        "value": "halo"
+      },
+      "match": true
+    },
+    {
+      "id": "F0383",
+      "function": "REPLACEB",
+      "formula": "=REPLACEB(\"abc\",2,1,\"Z\")",
+      "gridforge": {
+        "type": "string",
+        "value": "aZc"
+      },
+      "excel": {
+        "type": "string",
+        "value": "aZc"
+      },
+      "match": true
+    },
+    {
+      "id": "F0384",
+      "function": "REPT",
+      "formula": "=REPT(\"xy\",3)",
+      "gridforge": {
+        "type": "string",
+        "value": "xyxyxy"
+      },
+      "excel": {
+        "type": "string",
+        "value": "xyxyxy"
+      },
+      "match": true
+    },
+    {
+      "id": "F0385",
+      "function": "RIGHT",
+      "formula": "=RIGHT(\"Hello\",2)",
+      "gridforge": {
+        "type": "string",
+        "value": "lo"
+      },
+      "excel": {
+        "type": "string",
+        "value": "lo"
+      },
+      "match": true
+    },
+    {
+      "id": "F0386",
+      "function": "RIGHTB",
+      "formula": "=RIGHTB(\"abc\",2)",
+      "gridforge": {
+        "type": "string",
+        "value": "bc"
+      },
+      "excel": {
+        "type": "string",
+        "value": "bc"
+      },
+      "match": true
+    },
+    {
+      "id": "F0387",
+      "function": "ROMAN",
+      "formula": "=ROMAN(14)",
+      "gridforge": {
+        "type": "string",
+        "value": "XIV"
+      },
+      "excel": {
+        "type": "string",
+        "value": "XIV"
+      },
+      "match": true
+    },
+    {
+      "id": "F0388",
+      "function": "ROUND",
+      "formula": "=ROUND(3.14159,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.14
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.14
+      },
+      "match": true
+    },
+    {
+      "id": "F0389",
+      "function": "ROUNDDOWN",
+      "formula": "=ROUNDDOWN(2.19,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.1
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.1
+      },
+      "match": true
+    },
+    {
+      "id": "F0390",
+      "function": "ROUNDUP",
+      "formula": "=ROUNDUP(2.12,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.2
+      },
+      "match": true
+    },
+    {
+      "id": "F0391",
+      "function": "ROW",
+      "formula": "=ROW(A4)",
+      "gridforge": {
+        "type": "number",
+        "value": 4
+      },
+      "excel": {
+        "type": "number",
+        "value": 4
+      },
+      "match": true
+    },
+    {
+      "id": "F0392",
+      "function": "ROWS",
+      "formula": "=ROWS(A1:C5)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0393",
+      "function": "RRI",
+      "formula": "=RRI(2,100,121)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.10000000000000009
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.10000000000000009
+      },
+      "match": true
+    },
+    {
+      "id": "F0394",
+      "function": "RSQ",
+      "formula": "=RSQ(A1:A5,B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.9999999999999996
+      },
+      "match": true
+    },
+    {
+      "id": "F0395",
+      "function": "SCAN",
+      "formula": "=INDEX(SCAN(0,P1:P4,\"SUM\"),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0396",
+      "function": "SEARCH",
+      "formula": "=SEARCH(\"A\",\"cable\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0397",
+      "function": "SEARCHB",
+      "formula": "=SEARCHB(\"B\",\"abc\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0398",
+      "function": "SEC",
+      "formula": "=SEC(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0399",
+      "function": "SECH",
+      "formula": "=SECH(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0400",
+      "function": "SECOND",
+      "formula": "=SECOND(TIME(14,30,45))",
+      "gridforge": {
+        "type": "number",
+        "value": 45
+      },
+      "excel": {
+        "type": "number",
+        "value": 45
+      },
+      "match": true
+    },
+    {
+      "id": "F0401",
+      "function": "SEQUENCE",
+      "formula": "=INDEX(SEQUENCE(3,2),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0402",
+      "function": "SERIESSUM",
+      "formula": "=SERIESSUM(2,1,2,A1:A3)",
+      "gridforge": {
+        "type": "number",
+        "value": 114
+      },
+      "excel": {
+        "type": "number",
+        "value": 114
+      },
+      "match": true
+    },
+    {
+      "id": "F0403",
+      "function": "SHEET",
+      "formula": "=SHEET()",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0404",
+      "function": "SHEETS",
+      "formula": "=SHEETS()",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0405",
+      "function": "SIGN",
+      "formula": "=SIGN(-4)",
+      "gridforge": {
+        "type": "number",
+        "value": -1
+      },
+      "excel": {
+        "type": "number",
+        "value": -1
+      },
+      "match": true
+    },
+    {
+      "id": "F0406",
+      "function": "SIN",
+      "formula": "=SIN(PI()/2)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0407",
+      "function": "SINH",
+      "formula": "=SINH(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0408",
+      "function": "SKEW",
+      "formula": "=SKEW(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0409",
+      "function": "SKEW.P",
+      "formula": "=SKEW.P(A1:A3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0410",
+      "function": "SLN",
+      "formula": "=SLN(1000,0,5)",
+      "gridforge": {
+        "type": "number",
+        "value": 200
+      },
+      "excel": {
+        "type": "number",
+        "value": 200
+      },
+      "match": true
+    },
+    {
+      "id": "F0411",
+      "function": "SLOPE",
+      "formula": "=SLOPE(B1:B5,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0412",
+      "function": "SMALL",
+      "formula": "=SMALL(A1:A10,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0413",
+      "function": "SORT",
+      "formula": "=INDEX(SORT(M1:N3,1,-1),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0414",
+      "function": "SORTBY",
+      "formula": "=INDEX(SORTBY(M1:N3,P1:P3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 5
+      },
+      "excel": {
+        "type": "number",
+        "value": 5
+      },
+      "match": true
+    },
+    {
+      "id": "F0415",
+      "function": "SQRT",
+      "formula": "=SQRT(81)",
+      "gridforge": {
+        "type": "number",
+        "value": 9
+      },
+      "excel": {
+        "type": "number",
+        "value": 9
+      },
+      "match": true
+    },
+    {
+      "id": "F0416",
+      "function": "SQRTPI",
+      "formula": "=SQRTPI(4)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.5449077018110318
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.5449077018110318
+      },
+      "match": true
+    },
+    {
+      "id": "F0417",
+      "function": "STANDARDIZE",
+      "formula": "=STANDARDIZE(10,8,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0418",
+      "function": "STDEV",
+      "formula": "=STDEV(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 3.0276503540974917
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.0276503540974917
+      },
+      "match": true
+    },
+    {
+      "id": "F0419",
+      "function": "STDEV.P",
+      "formula": "=STDEV.P(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.4142135623730951
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.4142135623730951
+      },
+      "match": true
+    },
+    {
+      "id": "F0420",
+      "function": "STDEV.S",
+      "formula": "=STDEV.S(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.5811388300841898
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.5811388300841898
+      },
+      "match": true
+    },
+    {
+      "id": "F0421",
+      "function": "STDEVA",
+      "formula": "=STDEVA(1,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5773502691896257
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5773502691896258
+      },
+      "match": true
+    },
+    {
+      "id": "F0422",
+      "function": "STDEVP",
+      "formula": "=STDEVP(2,4,6)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.632993161855452
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.632993161855452
+      },
+      "match": true
+    },
+    {
+      "id": "F0423",
+      "function": "STDEVPA",
+      "formula": "=STDEVPA(1,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.4714045207910317
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.4714045207910317
+      },
+      "match": true
+    },
+    {
+      "id": "F0424",
+      "function": "STEYX",
+      "formula": "=STEYX(B1:B5,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0425",
+      "function": "SUBSTITUTE",
+      "formula": "=SUBSTITUTE(A1,\"old\",\"new\")",
+      "gridforge": {
+        "type": "string",
+        "value": "1"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1"
+      },
+      "match": true
+    },
+    {
+      "id": "F0426",
+      "function": "SUBTOTAL",
+      "formula": "=SUBTOTAL(9,A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 15
+      },
+      "excel": {
+        "type": "number",
+        "value": 15
+      },
+      "match": true
+    },
+    {
+      "id": "F0427",
+      "function": "SUM",
+      "formula": "=SUM(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 55
+      },
+      "excel": {
+        "type": "number",
+        "value": 55
+      },
+      "match": true
+    },
+    {
+      "id": "F0428",
+      "function": "SUMIF",
+      "formula": "=SUMIF(A1:A5,\">2\",B1:B5)",
+      "gridforge": {
+        "type": "number",
+        "value": 27
+      },
+      "excel": {
+        "type": "number",
+        "value": 27
+      },
+      "match": true
+    },
+    {
+      "id": "F0429",
+      "function": "SUMIFS",
+      "formula": "=SUMIFS(B1:B5,C1:C5,\"North\",A1:A5,\">2\")",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0430",
+      "function": "SUMPRODUCT",
+      "formula": "=SUMPRODUCT(A1:A3,B1:B3)",
+      "gridforge": {
+        "type": "number",
+        "value": 34
+      },
+      "excel": {
+        "type": "number",
+        "value": 34
+      },
+      "match": true
+    },
+    {
+      "id": "F0431",
+      "function": "SUMSQ",
+      "formula": "=SUMSQ(1,2,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 14
+      },
+      "excel": {
+        "type": "number",
+        "value": 14
+      },
+      "match": true
+    },
+    {
+      "id": "F0432",
+      "function": "SUMX2MY2",
+      "formula": "=SUMX2MY2(A1:A2,B1:B2)",
+      "gridforge": {
+        "type": "number",
+        "value": -29
+      },
+      "excel": {
+        "type": "number",
+        "value": -29
+      },
+      "match": true
+    },
+    {
+      "id": "F0433",
+      "function": "SUMX2PY2",
+      "formula": "=SUMX2PY2(A1:A2,B1:B2)",
+      "gridforge": {
+        "type": "number",
+        "value": 39
+      },
+      "excel": {
+        "type": "number",
+        "value": 39
+      },
+      "match": true
+    },
+    {
+      "id": "F0434",
+      "function": "SUMXMY2",
+      "formula": "=SUMXMY2(A1:A2,B1:B2)",
+      "gridforge": {
+        "type": "number",
+        "value": 13
+      },
+      "excel": {
+        "type": "number",
+        "value": 13
+      },
+      "match": true
+    },
+    {
+      "id": "F0435",
+      "function": "SWITCH",
+      "formula": "=SWITCH(2,1,1/0,2,99,0)",
+      "gridforge": {
+        "type": "number",
+        "value": 99
+      },
+      "excel": {
+        "type": "number",
+        "value": 99
+      },
+      "match": true
+    },
+    {
+      "id": "F0436",
+      "function": "SYD",
+      "formula": "=SYD(1000,0,5,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 333.3333333333333
+      },
+      "excel": {
+        "type": "number",
+        "value": 333.3333333333333
+      },
+      "match": true
+    },
+    {
+      "id": "F0437",
+      "function": "T",
+      "formula": "=T(\"Hello\")",
+      "gridforge": {
+        "type": "string",
+        "value": "Hello"
+      },
+      "excel": {
+        "type": "string",
+        "value": "Hello"
+      },
+      "match": true
+    },
+    {
+      "id": "F0438",
+      "function": "T.DIST",
+      "formula": "=T.DIST(1,7,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.8246916685898986
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.8246916685898963
+      },
+      "match": true
+    },
+    {
+      "id": "F0439",
+      "function": "T.DIST.2T",
+      "formula": "=T.DIST.2T(1,7)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.35061666282020276
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.3506166628202075
+      },
+      "match": true
+    },
+    {
+      "id": "F0440",
+      "function": "T.DIST.RT",
+      "formula": "=T.DIST.RT(1,7)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.17530833141010138
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.17530833141010374
+      },
+      "match": true
+    },
+    {
+      "id": "F0441",
+      "function": "T.INV",
+      "formula": "=T.INV(0.5,7)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0442",
+      "function": "T.INV.2T",
+      "formula": "=T.INV.2T(0.5,7)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.7111417780817872
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.7111417780817859
+      },
+      "match": true
+    },
+    {
+      "id": "F0443",
+      "function": "T.TEST",
+      "formula": "=T.TEST(M1:P1,P1:S1,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.031173412128735256
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.031173412128735475
+      },
+      "match": true
+    },
+    {
+      "id": "F0444",
+      "function": "TAKE",
+      "formula": "=INDEX(TAKE(M1:N3,1),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0445",
+      "function": "TAN",
+      "formula": "=TAN(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0446",
+      "function": "TANH",
+      "formula": "=TANH(0)",
+      "gridforge": {
+        "type": "number",
+        "value": 0
+      },
+      "excel": {
+        "type": "number",
+        "value": 0
+      },
+      "match": true
+    },
+    {
+      "id": "F0447",
+      "function": "TBILLEQ",
+      "formula": "=TBILLEQ(45000,45100,0.05)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.05140845070422535
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.05140845070422535
+      },
+      "match": true
+    },
+    {
+      "id": "F0448",
+      "function": "TBILLPRICE",
+      "formula": "=TBILLPRICE(45000,45100,0.05)",
+      "gridforge": {
+        "type": "number",
+        "value": 98.61111111111111
+      },
+      "excel": {
+        "type": "number",
+        "value": 98.61111111111111
+      },
+      "match": true
+    },
+    {
+      "id": "F0449",
+      "function": "TBILLYIELD",
+      "formula": "=TBILLYIELD(45000,45100,98)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.07346938775510203
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.07346938775510203
+      },
+      "match": true
+    },
+    {
+      "id": "F0450",
+      "function": "TDIST",
+      "formula": "=TDIST(1.5,10,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.1645073264454382
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.16450732644544028
+      },
+      "match": true
+    },
+    {
+      "id": "F0451",
+      "function": "TEXT",
+      "formula": "=TEXT(0.125,\"0.0%\")",
+      "gridforge": {
+        "type": "string",
+        "value": "12.5%"
+      },
+      "excel": {
+        "type": "string",
+        "value": "12.5%"
+      },
+      "match": true
+    },
+    {
+      "id": "F0452",
+      "function": "TEXTAFTER",
+      "formula": "=TEXTAFTER(\"one-two-three\",\"-\",2)",
+      "gridforge": {
+        "type": "string",
+        "value": "three"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0453",
+      "function": "TEXTBEFORE",
+      "formula": "=TEXTBEFORE(\"one-two-three\",\"-\",2)",
+      "gridforge": {
+        "type": "string",
+        "value": "one-two"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0454",
+      "function": "TEXTJOIN",
+      "formula": "=TEXTJOIN(\"|\",TRUE,D1:D3)",
+      "gridforge": {
+        "type": "string",
+        "value": "k1|k2|k3"
+      },
+      "excel": {
+        "type": "string",
+        "value": "k1|k2|k3"
+      },
+      "match": true
+    },
+    {
+      "id": "F0455",
+      "function": "TEXTSPLIT",
+      "formula": "=INDEX(TEXTSPLIT(\"a,b,c\",\",\"),1,1)",
+      "gridforge": {
+        "type": "string",
+        "value": "a"
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0456",
+      "function": "TIME",
+      "formula": "=TIME(14,30,45)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6046875
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6046875
+      },
+      "match": true
+    },
+    {
+      "id": "F0457",
+      "function": "TIMEVALUE",
+      "formula": "=TIMEVALUE(\"12:30:00\")",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5208333333333334
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5208333333333334
+      },
+      "match": true
+    },
+    {
+      "id": "F0458",
+      "function": "TINV",
+      "formula": "=TINV(0.05,10)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.2281388519862606
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.2281388519862744
+      },
+      "match": true
+    },
+    {
+      "id": "F0459",
+      "function": "TOCOL",
+      "formula": "=INDEX(TOCOL(M1:N3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0460",
+      "function": "TODAY",
+      "formula": "=TODAY()",
+      "gridforge": {
+        "type": "number",
+        "value": 46316
+      },
+      "excel": {
+        "type": "number",
+        "value": 46316
+      },
+      "match": true
+    },
+    {
+      "id": "F0461",
+      "function": "TOROW",
+      "formula": "=INDEX(TOROW(M1:N3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0462",
+      "function": "TRANSLATE",
+      "formula": "=TRANSLATE(\"hello\",\"en\",\"es\")",
+      "gridforge": {
+        "type": "string",
+        "value": "hola"
+      },
+      "excel": {
+        "type": "online-function-skipped",
+        "value": "Opt in using --allow-online-functions; may contact online services."
+      },
+      "match": false
+    },
+    {
+      "id": "F0463",
+      "function": "TRANSPOSE",
+      "formula": "=INDEX(TRANSPOSE(H1:I2),2,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0464",
+      "function": "TREND",
+      "formula": "=INDEX(TREND(B1:B5,A1:A5,A1:A5),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3.000000000000001
+      },
+      "match": true
+    },
+    {
+      "id": "F0465",
+      "function": "TRIM",
+      "formula": "=TRIM(A1)",
+      "gridforge": {
+        "type": "string",
+        "value": "1"
+      },
+      "excel": {
+        "type": "string",
+        "value": "1"
+      },
+      "match": true
+    },
+    {
+      "id": "F0466",
+      "function": "TRIMMEAN",
+      "formula": "=TRIMMEAN(A1:A5,0.4)",
+      "gridforge": {
+        "type": "number",
+        "value": 3
+      },
+      "excel": {
+        "type": "number",
+        "value": 3
+      },
+      "match": true
+    },
+    {
+      "id": "F0467",
+      "function": "TRIMRANGE",
+      "formula": "=INDEX(TRIMRANGE(M1:N3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0468",
+      "function": "TRUE",
+      "formula": "=TRUE()",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0469",
+      "function": "TRUNC",
+      "formula": "=TRUNC(-3.987,2)",
+      "gridforge": {
+        "type": "number",
+        "value": -3.98
+      },
+      "excel": {
+        "type": "number",
+        "value": -3.98
+      },
+      "match": true
+    },
+    {
+      "id": "F0470",
+      "function": "TTEST",
+      "formula": "=TTEST(A1:A5,B1:B5,2,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.03526520347507889
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.03526520347508003
+      },
+      "match": true
+    },
+    {
+      "id": "F0471",
+      "function": "TYPE",
+      "formula": "=TYPE(\"hello\")",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0472",
+      "function": "UNICHAR",
+      "formula": "=UNICHAR(9733)",
+      "gridforge": {
+        "type": "string",
+        "value": "★"
+      },
+      "excel": {
+        "type": "string",
+        "value": "★"
+      },
+      "match": true
+    },
+    {
+      "id": "F0473",
+      "function": "UNICODE",
+      "formula": "=UNICODE(\"★\")",
+      "gridforge": {
+        "type": "number",
+        "value": 9733
+      },
+      "excel": {
+        "type": "number",
+        "value": 9733
+      },
+      "match": true
+    },
+    {
+      "id": "F0474",
+      "function": "UNIQUE",
+      "formula": "=INDEX(UNIQUE(M1:M4),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0475",
+      "function": "UPPER",
+      "formula": "=UPPER(\"hello\")",
+      "gridforge": {
+        "type": "string",
+        "value": "HELLO"
+      },
+      "excel": {
+        "type": "string",
+        "value": "HELLO"
+      },
+      "match": true
+    },
+    {
+      "id": "F0476",
+      "function": "VALUE",
+      "formula": "=VALUE(\"4.5\")",
+      "gridforge": {
+        "type": "number",
+        "value": 4.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 4.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0477",
+      "function": "VALUETOTEXT",
+      "formula": "=VALUETOTEXT(\"cat\",1)",
+      "gridforge": {
+        "type": "string",
+        "value": "\"cat\""
+      },
+      "excel": {
+        "type": "string",
+        "value": "\"cat\""
+      },
+      "match": true
+    },
+    {
+      "id": "F0478",
+      "function": "VAR",
+      "formula": "=VAR(A1:A10)",
+      "gridforge": {
+        "type": "number",
+        "value": 9.166666666666666
+      },
+      "excel": {
+        "type": "number",
+        "value": 9.166666666666666
+      },
+      "match": true
+    },
+    {
+      "id": "F0479",
+      "function": "VAR.P",
+      "formula": "=VAR.P(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0480",
+      "function": "VAR.S",
+      "formula": "=VAR.S(A1:A5)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0481",
+      "function": "VARA",
+      "formula": "=VARA(1,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.3333333333333333
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.3333333333333335
+      },
+      "match": true
+    },
+    {
+      "id": "F0482",
+      "function": "VARP",
+      "formula": "=VARP(2,4,6)",
+      "gridforge": {
+        "type": "number",
+        "value": 2.6666666666666665
+      },
+      "excel": {
+        "type": "number",
+        "value": 2.6666666666666665
+      },
+      "match": true
+    },
+    {
+      "id": "F0483",
+      "function": "VARPA",
+      "formula": "=VARPA(1,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.2222222222222222
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.2222222222222222
+      },
+      "match": true
+    },
+    {
+      "id": "F0484",
+      "function": "VDB",
+      "formula": "=VDB(10000,1000,5,0,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 4000
+      },
+      "excel": {
+        "type": "number",
+        "value": 4000
+      },
+      "match": true
+    },
+    {
+      "id": "F0485",
+      "function": "VLOOKUP",
+      "formula": "=VLOOKUP(\"k2\",D1:E3,2,FALSE)",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0486",
+      "function": "VSTACK",
+      "formula": "=INDEX(VSTACK(M1:N3,P1:Q3),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0487",
+      "function": "WEEKDAY",
+      "formula": "=WEEKDAY(DATE(2026,10,20),2)",
+      "gridforge": {
+        "type": "number",
+        "value": 2
+      },
+      "excel": {
+        "type": "number",
+        "value": 2
+      },
+      "match": true
+    },
+    {
+      "id": "F0488",
+      "function": "WEEKNUM",
+      "formula": "=WEEKNUM(DATE(2026,1,1),1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0489",
+      "function": "WEIBULL",
+      "formula": "=WEIBULL(2,1,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "match": true
+    },
+    {
+      "id": "F0490",
+      "function": "WEIBULL.DIST",
+      "formula": "=WEIBULL.DIST(2,1,2,TRUE)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.6321205588285577
+      },
+      "match": true
+    },
+    {
+      "id": "F0491",
+      "function": "WORKDAY",
+      "formula": "=DAY(WORKDAY(DATE(2026,10,19),5))",
+      "gridforge": {
+        "type": "number",
+        "value": 26
+      },
+      "excel": {
+        "type": "number",
+        "value": 26
+      },
+      "match": true
+    },
+    {
+      "id": "F0492",
+      "function": "WORKDAY.INTL",
+      "formula": "=WORKDAY.INTL(DATE(2026,10,19),5,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 46321
+      },
+      "excel": {
+        "type": "number",
+        "value": 46321
+      },
+      "match": true
+    },
+    {
+      "id": "F0493",
+      "function": "WRAPCOLS",
+      "formula": "=INDEX(WRAPCOLS(M1:M4,2),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0494",
+      "function": "WRAPROWS",
+      "formula": "=INDEX(WRAPROWS(M1:M4,2),1,1)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NAME?"
+      },
+      "match": false
+    },
+    {
+      "id": "F0495",
+      "function": "XIRR",
+      "formula": "=XIRR(F1:F5,G1:G5)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.15302512211857267
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.1530251204967499
+      },
+      "match": true
+    },
+    {
+      "id": "F0496",
+      "function": "XLOOKUP",
+      "formula": "=XLOOKUP(\"k2\",D1:D3,E1:E3,\"missing\")",
+      "gridforge": {
+        "type": "number",
+        "value": 20
+      },
+      "excel": {
+        "type": "number",
+        "value": 20
+      },
+      "match": true
+    },
+    {
+      "id": "F0497",
+      "function": "XMATCH",
+      "formula": "=XMATCH(\"East\",D1:D5)",
+      "gridforge": {
+        "type": "number",
+        "value": 1
+      },
+      "excel": {
+        "type": "number",
+        "value": 1
+      },
+      "match": true
+    },
+    {
+      "id": "F0498",
+      "function": "XNPV",
+      "formula": "=XNPV(0,F1:F5,G1:G5)",
+      "gridforge": {
+        "type": "number",
+        "value": 400
+      },
+      "excel": {
+        "type": "error",
+        "value": "#NUM!"
+      },
+      "match": false
+    },
+    {
+      "id": "F0499",
+      "function": "XOR",
+      "formula": "=XOR(TRUE,FALSE,FALSE)",
+      "gridforge": {
+        "type": "boolean",
+        "value": true
+      },
+      "excel": {
+        "type": "boolean",
+        "value": true
+      },
+      "match": true
+    },
+    {
+      "id": "F0500",
+      "function": "YEAR",
+      "formula": "=YEAR(DATE(2026,10,20))",
+      "gridforge": {
+        "type": "number",
+        "value": 2026
+      },
+      "excel": {
+        "type": "number",
+        "value": 2026
+      },
+      "match": true
+    },
+    {
+      "id": "F0501",
+      "function": "YEARFRAC",
+      "formula": "=YEARFRAC(DATE(2020,1,1),DATE(2021,1,1),3)",
+      "gridforge": {
+        "type": "number",
+        "value": 1.0027397260273974
+      },
+      "excel": {
+        "type": "number",
+        "value": 1.0027397260273974
+      },
+      "match": true
+    },
+    {
+      "id": "F0502",
+      "function": "YIELD",
+      "formula": "=YIELD(45000,45600,0.05,99,100,2)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.05643959259888143
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.05643959259888173
+      },
+      "match": true
+    },
+    {
+      "id": "F0503",
+      "function": "YIELDDISC",
+      "formula": "=YIELDDISC(45000,45100,98,100)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.07496876301541033
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.07496876301541024
+      },
+      "match": true
+    },
+    {
+      "id": "F0504",
+      "function": "YIELDMAT",
+      "formula": "=YIELDMAT(45000,45600,44800,0.04,99)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.04556527107645432
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.045565271076454354
+      },
+      "match": true
+    },
+    {
+      "id": "F0505",
+      "function": "Z.TEST",
+      "formula": "=Z.TEST(A1:A5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    },
+    {
+      "id": "F0506",
+      "function": "ZTEST",
+      "formula": "=ZTEST(A1:A5,3)",
+      "gridforge": {
+        "type": "number",
+        "value": 0.5
+      },
+      "excel": {
+        "type": "number",
+        "value": 0.5
+      },
+      "match": true
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+  PASS Page loads demo with working formulas
+  PASS v10 persistent-preference controls, light/dark contrast, Excel/Guided switch without data loss
+  PASS v10 modern formulas and matrix functions evaluate through spreadsheet grid
+  PASS Editing, dependency recalculation, undo/redo
+  PASS Malformed formula shows useful parser error
+  PASS Formatting and format history
+  PASS Right-click menu, formula paste, keyboard menu
+  PASS Custom sort preserves complete rows and undo
+  PASS Find, replace, and undo
+  PASS Conditional formatting and non-destructive filter
+  PASS Freeze panes and AutoSum
+  PASS Add, duplicate, switch independent worksheets
+  SKIP storage reload (browser navigation prohibited in this environment)
+  PASS JSON export (storage not tested)
+  PASS Actual XLSX download, ZIP integrity, UI re-import
+  PASS Bundled Excel fixture imports formulas and sheets
+  PASS New v4 formulas work through the browser grid
+  PASS v4 Excel gallery import supports modern Excel function prefixes
+  PASS v9 categorized formula browser shows 506 built-ins and 100 new
+  PASS v5 engineering, date, error, lazy and regex functions work in grid
+  PASS v5 safe action macro record, playback and JSON export
+  PASS v5 complete 80-function XLSX showcase imports and calculates
+  PASS v5 XLSM loads safely, original is byte-identical, edited XLSX strips VBA
+  PASS v6 dotted names, bitwise, lazy and reference-aware functions
+  PASS v6 90-function XLSX showcase imports and evaluates
+  PASS v6 safe macros preview without edits and replay after validation
+  PASS v8 Data Studio 100 actions, search, preview, atomic edit and undo/redo
+  PASS v8 Data Studio aggregation, relative fill, range and undo
+  PASS v9 Excel-style ribbon, command search and 100 new categorized functions
+  PASS v9 getting started guide and new Excel formulas in browser
+  PASS Browser JavaScript exceptions
+BROWSER REGRESSION PASSED (offline embedded document (storage reload skipped)): 30 checks in 29.0s

@@ -1,0 +1,1 @@
+PASS XLSM edited values, formulas, new cells, original VBA, binary parts, calc flags, structure safeguards: {"changedCells": 3, "preservedParts": 8, "outputSize": 4404, "warningCount": 2}

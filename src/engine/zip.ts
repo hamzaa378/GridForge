@@ -11,10 +11,14 @@ function set32(b:Uint8Array,o:number,v:number){set16(b,o,v);set16(b,o+2,Math.flo
 function join(chunks:Uint8Array[]):Uint8Array {let size=0;for(const c of chunks)size+=c.length;const out=new Uint8Array(size);let at=0;for(const c of chunks){out.set(c,at);at+=c.length;}return out;}
 /** Stored-entry ZIP writer: larger than deflated ZIP, universally readable by Excel/LibreOffice. */
 export function zipWrite(entries:Record<string,string>):Uint8Array {
+  return zipWriteBytes(Object.fromEntries(Object.entries(entries).map(([name,value])=>[name,te.encode(value)])));
+}
+/** Repackage all OOXML parts, including binary VBA projects, signatures and media. */
+export function zipWriteBytes(entries:Record<string,Uint8Array>):Uint8Array {
   const chunks:Uint8Array[]=[],directory:Uint8Array[]=[];let offset=0;
   for(const [name,content]of Object.entries(entries)){
     if(!name||name.includes('..')||name.startsWith('/'))throw Error('Invalid ZIP part name');
-    const filename=te.encode(name),bytes=te.encode(content);if(bytes.length>LIMIT_FILE)throw Error('ZIP part too large');
+    const filename=te.encode(name),bytes=content;if(bytes.length>LIMIT_FILE)throw Error('ZIP part too large');
     const hash=crc(bytes),local=new Uint8Array(30+filename.length);
     set32(local,0,0x04034b50);set16(local,4,20);set16(local,6,0x0800);set16(local,8,0);
     set32(local,14,hash);set32(local,18,bytes.length);set32(local,22,bytes.length);set16(local,26,filename.length);local.set(filename,30);
@@ -29,17 +33,25 @@ export function zipWrite(entries:Record<string,string>):Uint8Array {
   return join([...chunks,...directory,end]);
 }
 export async function zipRead(data:Uint8Array):Promise<Map<string,string>> {
+  const entries=await zipReadBytes(data),out=new Map<string,string>();
+  for(const [name,bytes] of entries){
+    if(name.endsWith('.xml')||name.endsWith('.rels'))out.set(name,td.decode(bytes));
+  }
+  return out;
+}
+/** Read and verify binary and XML entries without discarding VBA and unrelated features. */
+export async function zipReadBytes(data:Uint8Array):Promise<Map<string,Uint8Array>> {
   let end=-1;for(let p=data.length-22;p>=Math.max(0,data.length-65557);p--)if(u32(data,p)===0x06054b50){end=p;break;}
   if(end<0)throw Error('Not a ZIP / XLSX file.');const count=u16(data,end+10),directoryOffset=u32(data,end+16);
   if(count>3000||directoryOffset>=data.length)throw Error('Invalid or oversized XLSX archive.');
-  const out=new Map<string,string>();let at=directoryOffset,total=0;
+  const out=new Map<string,Uint8Array>();let at=directoryOffset,total=0;
   for(let i=0;i<count;i++) {
     if(u32(data,at)!==0x02014b50)throw Error('Corrupt XLSX ZIP directory.');
     const method=u16(data,at+10),expectedCrc=u32(data,at+16),compressed=u32(data,at+20),uncompressed=u32(data,at+24);
     const len=u16(data,at+28),extra=u16(data,at+30),comment=u16(data,at+32),offset=u32(data,at+42);
     const name=td.decode(data.subarray(at+46,at+46+len));at+=46+len+extra+comment;
     if(uncompressed>LIMIT_FILE||(total+=uncompressed)>LIMIT_TOTAL||name.includes('..')||name.startsWith('/'))throw Error('Unsafe or oversized XLSX ZIP archive.');
-    if(!name.endsWith('.xml')&&!name.endsWith('.rels'))continue;
+    if(!name||name.endsWith('/')||name.includes('\\')||name.includes('..')||name.startsWith('/'))throw Error('Unsafe ZIP entry name.');
     if(u32(data,offset)!==0x04034b50)throw Error('Invalid XLSX local ZIP header.');
     const pos=offset+30+u16(data,offset+26)+u16(data,offset+28);
     if(pos+compressed>data.length)throw Error('Truncated XLSX part.');
@@ -51,7 +63,8 @@ export async function zipRead(data:Uint8Array):Promise<Map<string,string>> {
       bytes=new Uint8Array(await new Response(stream).arrayBuffer());
     } else throw Error('Unsupported ZIP compression method '+method);
     if(bytes.length!==uncompressed||crc(bytes)!==expectedCrc)throw Error(`Invalid XLSX ZIP checksum in ${name}`);
-    out.set(name,td.decode(bytes));
+    if(out.has(name))throw Error('Duplicate OOXML ZIP entry.');
+    out.set(name,new Uint8Array(bytes));
   }
   return out;
 }

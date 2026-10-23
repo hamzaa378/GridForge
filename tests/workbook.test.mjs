@@ -10,7 +10,7 @@ const err=(w,ref)=>w.getValue(ref).error?.code;
 const formula=(str)=>value(sheet({A1:str}),'A1');
 
 test('challenge capacity: at least 10,000 addressable cells',()=>{const w=new Workbook();assert.ok(w.rows*w.cols>=10000);assert.equal(w.rows*w.cols,20800);});
-test('56 independently implemented functions registered',()=>{assert.ok(Object.keys(functions).length>=30);assert.ok(['SUM','IF','VLOOKUP'].every(k=>functions[k]));});
+test('original 56 functions remain registered after expansion',()=>{assert.ok(Object.keys(functions).length>=30);assert.ok(['SUM','IF','VLOOKUP'].every(k=>functions[k]));});
 test('lexer recognizes references, range punctuation and quoted commas',()=>{const ts=tokenize('SUM($A$1:B3,"hi,world")');assert.deepEqual(ts.filter(t=>t.kind==='ref').map(t=>t.text),['$A$1','B3']);assert.equal(ts.filter(t=>t.kind==='string')[0].text,'"hi,world"');});
 test('Pratt parser honors precedence and right associative exponent',()=>{assert.equal(formula('=2+3*4'),14);assert.equal(formula('=2^3^2'),512);assert.equal(formula('=-(2+3)^2'),-25);assert.equal(formula('=-2^2'),-4);});
 test('arithmetic, unary, string concatenation and comparisons',()=>{assert.equal(formula('=(10-4)/3'),2);assert.equal(formula('="VIT "&"Tech"'),'VIT Tech');assert.equal(formula('=5>=2'),true);assert.equal(formula('=5<>5'),false);assert.equal(formula('=10/0'),null);assert.equal(err(sheet({A1:'=10/0'}),'A1'),'#DIV/0!');});

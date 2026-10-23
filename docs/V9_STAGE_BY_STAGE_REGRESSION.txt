@@ -1,0 +1,122 @@
+GridForge v9 post-UI-change independent regression stages
+Core: 4/4 stages passing, 550/550 Node tests.
+ selective
+  ---
+  duration_ms: 91.700023
+  type: 'test'
+  ...
+1..550
+# tests 550
+# suites 0
+# pass 550
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1058.260389
+PASS: Engine and document unit tests
+
+========================================================================
+10,000-formula dependency benchmark
+$ npm run benchmark
+========================================================================
+
+> gridforge-gdg-frontend-task2@9.0.0 benchmark
+> npm run build && node scripts/benchmark.mjs
+
+
+> gridforge-gdg-frontend-task2@9.0.0 build
+> tsc -p tsconfig.json && node scripts/copy-static.mjs
+
+Static assets copied to dist/.
+{
+  "node": "v22.16.0",
+  "rows": 400,
+  "columns": 52,
+  "capacity": 20800,
+  "populated": 10400,
+  "formulas": 10000,
+  "initialBuildMs": 158.575,
+  "initialRecalculated": 10400,
+  "singleSourceEdit": {
+    "affected": 26,
+    "recalculated": 26,
+    "elapsedMs": 0.092
+  },
+  "isolatedEdit": {
+    "affected": 1,
+    "recalculated": 1,
+    "elapsedMs": 0.007
+  }
+}
+PASS: 10,000-formula dependency benchmark
+
+========================================================================
+10,000-cell Data Studio stress and undo benchmark
+$ npm run benchmark:tools
+========================================================================
+
+> gridforge-gdg-frontend-task2@9.0.0 benchmark:tools
+> npm run build && node scripts/benchmark_tools_v8.mjs
+
+
+> gridforge-gdg-frontend-task2@9.0.0 build
+> tsc -p tsconfig.json && node scripts/copy-static.mjs
+
+Static assets copied to dist/.
+{
+  "features": 100,
+  "selectedCells": 10000,
+  "edited": 10000,
+  "previewMs": 39.46,
+  "applyMs": 50.88,
+  "undoVerified": true,
+  "unrelatedPreserved": true,
+  "oversizeRejected": true
+}
+PASS: 10,000-cell Data Studio stress and undo benchmark
+
+REGRESSION PASS: 4/4 stages in 14.2s.
+
+Browser: 28/28 checks passed in isolated Chromium run (storage reload skipped by hosted browser).
+  PASS Page loads demo with working formulas
+  PASS Editing, dependency recalculation, undo/redo
+  PASS Malformed formula shows useful parser error
+  PASS Formatting and format history
+  PASS Right-click menu, formula paste, keyboard menu
+  PASS Custom sort preserves complete rows and undo
+  PASS Find, replace, and undo
+  PASS Conditional formatting and non-destructive filter
+  PASS Freeze panes and AutoSum
+  PASS Add, duplicate, switch independent worksheets
+  SKIP storage reload (browser navigation prohibited in this environment)
+  PASS JSON export (storage not tested)
+  PASS Actual XLSX download, ZIP integrity, UI re-import
+  PASS Bundled Excel fixture imports formulas and sheets
+  PASS New v4 formulas work through the browser grid
+  PASS v4 Excel gallery import supports modern Excel function prefixes
+  PASS v9 categorized formula browser shows 406 built-ins and 100 new
+  PASS v5 engineering, date, error, lazy and regex functions work in grid
+  PASS v5 safe action macro record, playback and JSON export
+  PASS v5 complete 80-function XLSX showcase imports and calculates
+  PASS v5 XLSM loads safely, original is byte-identical, edited XLSX strips VBA
+  PASS v6 dotted names, bitwise, lazy and reference-aware functions
+  PASS v6 90-function XLSX showcase imports and evaluates
+  PASS v6 safe macros preview without edits and replay after validation
+  PASS v8 Data Studio 100 actions, search, preview, atomic edit and undo/redo
+  PASS v8 Data Studio aggregation, relative fill, range and undo
+  PASS v9 Excel-style ribbon, command search and 100 new categorized functions
+  PASS v9 getting started guide and new Excel formulas in browser
+  PASS Browser JavaScript exceptions
+BROWSER REGRESSION PASSED (offline embedded document (storage reload skipped)): 28 checks in 18.6s
+
+XLSM preservation and bridge protocol tests:
+PASS XLSM edited values, formulas, new cells, original VBA, binary parts, calc flags, structure safeguards: {"changedCells": 3, "preservedParts": 8, "outputSize": 4404, "warningCount": 2}
+127.0.0.1 "GET /health HTTP/1.1" 200 -
+127.0.0.1 "POST /run HTTP/1.1" 403 -
+127.0.0.1 "POST /run HTTP/1.1" 403 -
+127.0.0.1 "POST /run HTTP/1.1" 400 -
+127.0.0.1 "POST /run HTTP/1.1" 400 -
+PASS VBA bridge authentication, origin restriction, macro-name validation, and XLSM preflight (8 checks)
+
+NOTE: A subsequent combined test runner invocation stalled in a hosted Chromium session and was terminated by the execution time limit; all seven stages passed in an earlier complete run and all relevant stages were checked independently after the last UI update.
