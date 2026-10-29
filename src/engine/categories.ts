@@ -1,12 +1,13 @@
 /** Excel-like navigation categories. Every registered function has exactly one category. */
 import {functions, v5Categories, v6Categories,v9Categories,v10Categories} from './functions.js';
 const groups:Record<string,string[]>={
+ 'External & Connected':[],
  'Database':[],
  'Compatibility':[],
  'Other':[],
  'Financial':'PMT PV FV NPV RATE NPER IPMT PPMT EFFECT NOMINAL SLN SYD DDB MIRR IRR XNPV XIRR FVSCHEDULE RRI'.split(' '),
  'Logical':'IF IFERROR IFS SWITCH AND OR NOT XOR CHOOSE'.split(' '),
- 'Lookup & Reference':'VLOOKUP HLOOKUP XLOOKUP MATCH INDEX LOOKUP ROWS COLUMNS ADDRESS'.split(' '),
+ 'Lookup & Reference':'VLOOKUP HLOOKUP XLOOKUP MATCH INDEX LOOKUP ROWS COLUMNS ADDRESS GETPIVOTDATA'.split(' '),
  'Date & Time':'DATE YEAR MONTH DAY TODAY NOW TIME HOUR MINUTE SECOND DAYS EDATE EOMONTH WEEKDAY NETWORKDAYS WORKDAY DATEDIF YEARFRAC DAYS360 WEEKNUM ISOWEEKNUM DATEVALUE TIMEVALUE NETWORKDAYSINTL'.split(' '),
  'Information':'ISBLANK ISNUMBER ISTEXT ISERR ISERROR ISNA ISEVEN ISODD ISLOGICAL ISNONTEXT TYPE'.split(' '),
  'Text':'LEN UPPER LOWER TRIM CONCAT CONCATENATE LEFT RIGHT MID REPLACE FIND SEARCH SUBSTITUTE EXACT VALUE TEXTJOIN TEXTBEFORE TEXTAFTER CLEAN CODE CHAR UNICODE UNICHAR NUMBERVALUE PROPER REPT T N DOLLAR FIXED TEXT LENB LEFTB RIGHTB MIDB FINDB SEARCHB REPLACEB REGEXTEST REGEXREPLACE'.split(' '),
@@ -15,6 +16,7 @@ const groups:Record<string,string[]>={
 };
 // Accept newly registered functions even if a category map has an omission.
 const membership=new Map<string,string>();
+for(const name of ['CUBEKPIMEMBER','CUBEMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','CUBESET','CUBEVALUE','RTD','STOCKHISTORY','WEBSERVICE']) groups['External & Connected']!.push(name);
 for(const [category,names]of Object.entries(groups))for(const name of names)if(functions[name]&&!membership.has(name))membership.set(name,category);
 for(const [category,names]of Object.entries(v10Categories))for(const name of names)if(functions[name]&&!membership.has(name))membership.set(name,category);
 for(const [category,names]of Object.entries(v9Categories))for(const name of names)if(functions[name]&&!membership.has(name))membership.set(name,category);

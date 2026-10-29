@@ -10,10 +10,10 @@ const fixture=[...Array.from({length:5},(_,i)=>({ref:`A${i+1}`,raw:String(i+1)})
 
 test('v9 registry has exactly 100 genuinely new function names and categories',()=>{
  assert.equal(v9FunctionNames.length,100);
- assert.equal(functionNames.length,506);
+ assert.equal(functionNames.length,516);
  assert.deepEqual(Object.keys(formulas).sort(),v9FunctionNames);
- assert.equal(Object.values(categorizedFunctions).flat().length,506);
- assert.equal(new Set(Object.values(categorizedFunctions).flat()).size,506);
+ assert.equal(Object.values(categorizedFunctions).flat().length,516);
+ assert.equal(new Set(Object.values(categorizedFunctions).flat()).size,516);
  for(const name of v9FunctionNames)assert.notEqual(functionCategory(name),'',name);
 });
 for(const [name,formula] of Object.entries(formulas))test(`v9 ${name} executes with worksheet values`,()=>{

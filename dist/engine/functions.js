@@ -3,6 +3,7 @@ import { v5Functions, v5FunctionNames, v5Categories } from './functions_v5.js';
 import { v6Functions, v6FunctionNames, v6Categories } from './functions_v6.js';
 import { v9Functions, v9Aliases, v9FunctionNames, v9Categories } from './functions_v9.js';
 import { buildV10Functions, v10Categories } from './functions_v10.js';
+import { connectedFunctionDefinitions, connectedFunctionNames, connectedFunctionRequirements } from './functions_connected.js';
 export { v6FunctionNames, v6Categories, v9FunctionNames, v9Categories };
 export class SheetError extends Error {
     code;
@@ -86,6 +87,18 @@ export function matchCriterion(v, criterion) {
         default: return false;
     }
 }
+const matchOrder = (a, b) => {
+    const rank = (v) => v === null ? 0 : typeof v === 'number' ? 1 : typeof v === 'string' ? 2 : 3;
+    const ar = rank(a), br = rank(b);
+    if (ar !== br)
+        return ar - br;
+    if (typeof a === 'number' && typeof b === 'number')
+        return a < b ? -1 : a > b ? 1 : 0;
+    if (typeof a === 'boolean' && typeof b === 'boolean')
+        return Number(a) - Number(b);
+    const left = text(a).toLowerCase(), right = text(b).toLowerCase();
+    return left < right ? -1 : left > right ? 1 : 0;
+};
 const D = (description, example, run) => ({ description, example, run });
 export const functions = {
     SUM: D('Sum numeric values, ignoring text and blanks.', '=SUM(A1:A10)', a => result(nums(a).reduce((s, n) => s + n, 0))),
@@ -93,7 +106,7 @@ export const functions = {
     MIN: D('Smallest numeric value.', '=MIN(A1:A10)', a => { const n = nums(a); return n.length ? Math.min(...n) : 0; }),
     MAX: D('Largest numeric value.', '=MAX(A1:A10)', a => { const n = nums(a); return n.length ? Math.max(...n) : 0; }),
     COUNT: D('Count numeric cells.', '=COUNT(A1:A10)', a => nums(a).length),
-    COUNTA: D('Count nonempty cells.', '=COUNTA(A1:A10)', a => flatten(a).filter(nonEmpty).length),
+    COUNTA: D('Count nonempty values, including empty text and errors.', '=COUNTA(A1:A10)', a => flatten(a).filter(x => x !== null).length),
     COUNTBLANK: D('Count blank cells in a range.', '=COUNTBLANK(A1:A10)', a => flatten(a).filter(x => !nonEmpty(x)).length),
     MEDIAN: D('Median of numeric values.', '=MEDIAN(A1:A10)', a => { const n = sortNums(a); return n.length ? n.length % 2 ? n[(n.length - 1) / 2] : (n[n.length / 2 - 1] + n[n.length / 2]) / 2 : error('#NUM!', 'MEDIAN has no numeric values.'); }),
     PRODUCT: D('Multiply numeric values.', '=PRODUCT(A1:A3)', a => result(nums(a).reduce((p, n) => p * n, 1))),
@@ -115,7 +128,7 @@ export const functions = {
     LEN: D('Number of characters.', '=LEN(A1)', a => { want(a, 1, 1); return text(at(a, 0)).length; }),
     UPPER: D('Convert text to uppercase.', '=UPPER(A1)', a => { want(a, 1, 1); return text(at(a, 0)).toUpperCase(); }),
     LOWER: D('Convert text to lowercase.', '=LOWER(A1)', a => { want(a, 1, 1); return text(at(a, 0)).toLowerCase(); }),
-    TRIM: D('Remove extra whitespace.', '=TRIM(A1)', a => { want(a, 1, 1); return text(at(a, 0)).trim().replace(/\s+/g, ' '); }),
+    TRIM: D('Remove extra ASCII spaces, leaving one space between words.', '=TRIM(A1)', a => { want(a, 1, 1); return text(at(a, 0)).replace(/ +/g, ' ').replace(/^ | $/g, ''); }),
     CONCAT: D('Join text or ranges.', '=CONCAT(A1," ",B1)', a => flatten(a).map(text).join('')),
     LEFT: D('Take the leftmost characters.', '=LEFT(A1,3)', a => { want(a, 1, 2); return text(at(a, 0)).slice(0, a.length === 1 ? 1 : Math.max(0, numericArg(a, 1))); }),
     RIGHT: D('Take the rightmost characters.', '=RIGHT(A1,3)', a => { want(a, 1, 2); const s = text(at(a, 0)), n = a.length === 1 ? 1 : Math.max(0, numericArg(a, 1)); return n === 0 ? '' : s.slice(-n); }),
@@ -133,13 +146,13 @@ export const functions = {
     NOT: D('Negate a boolean.', '=NOT(A1>10)', a => { want(a, 1, 1); return !bool(at(a, 0)); }),
     ISNUMBER: D('Check if a value is numeric.', '=ISNUMBER(A1)', a => { want(a, 1, 1); return typeof at(a, 0) === 'number'; }),
     ISTEXT: D('Check if a value contains text.', '=ISTEXT(A1)', a => { want(a, 1, 1); return typeof at(a, 0) === 'string'; }),
-    ISBLANK: D('Check if a cell is empty.', '=ISBLANK(A1)', a => { want(a, 1, 1); return !nonEmpty(at(a, 0)); }),
+    ISBLANK: D('Check if a cell is truly empty (a formula returning "" is not blank).', '=ISBLANK(A1)', a => { want(a, 1, 1); return at(a, 0) === null; }),
     SUMIF: D('Sum values matching a criterion.', '=SUMIF(A1:A5,">10",B1:B5)', a => { want(a, 2, 3); const range = flatten([a[0]]), sumRange = a.length === 3 ? flatten([a[2]]) : range; if (range.length !== sumRange.length)
         return error('#VALUE!', 'SUMIF ranges must have the same size.'); return result(range.reduce((s, x, i) => s + (matchCriterion(x, at(a, 1)) && typeof sumRange[i] === 'number' ? sumRange[i] : 0), 0)); }),
     COUNTIF: D('Count cells matching a criterion.', '=COUNTIF(A1:A10,">10")', a => { want(a, 2, 2); return flatten([a[0]]).filter(x => matchCriterion(x, at(a, 1))).length; }),
     AVERAGEIF: D('Average numeric matches.', '=AVERAGEIF(A1:A10,">5",B1:B10)', a => { want(a, 2, 3); const range = flatten([a[0]]), values = a.length === 3 ? flatten([a[2]]) : range; if (range.length !== values.length)
         return error('#VALUE!', 'AVERAGEIF ranges must have the same size.'); const n = values.filter((x, i) => matchCriterion(range[i], at(a, 1)) && typeof x === 'number'); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : error('#DIV/0!', 'No numeric values matched.'); }),
-    VLOOKUP: D('Find first-column match and return a column from the table.', '=VLOOKUP(E2,A2:C8,3,FALSE)', a => {
+    VLOOKUP: D('Find an exact match or an approximate next-smaller match in the first table column.', '=VLOOKUP(E2,A2:C8,3,FALSE)', a => {
         want(a, 3, 4);
         const table = a[1];
         if (!Array.isArray(table))
@@ -147,23 +160,69 @@ export const functions = {
         const col = Math.trunc(numericArg(a, 2)) - 1;
         if (col < 0 || col >= (table[0]?.length ?? 0))
             return error('#REF!', 'VLOOKUP return column is outside the table.');
-        const key = at(a, 0), approx = a.length === 4 ? bool(at(a, 3)) : false;
+        const key = at(a, 0), approx = a.length < 4 || bool(at(a, 3));
         let row;
-        for (const cells of table) {
-            const current = scalar(cells[0]);
-            if (matchCriterion(current, key)) {
-                row = cells;
-                break;
+        if (approx) {
+            for (let i = 1; i < table.length; i++)
+                if (matchOrder(scalar(table[i - 1][0]), scalar(table[i][0])) > 0)
+                    return error('#N/A', 'VLOOKUP approximate lookup requires ascending sorted first-column data.');
+            for (const cells of table) {
+                const current = scalar(cells[0]), order = matchOrder(current, key);
+                if (order <= 0)
+                    row = cells;
+                else
+                    break;
             }
-            if (approx && typeof current === 'number' && typeof key === 'number' && current <= key)
-                row = cells;
+        }
+        else {
+            for (const cells of table) {
+                const current = scalar(cells[0]);
+                if (matchCriterion(current, key)) {
+                    row = cells;
+                    break;
+                }
+            }
         }
         return row ? scalar(row[col]) : error('#N/A', `VLOOKUP could not find '${text(key)}'.`);
     }),
-    MATCH: D('Return 1-based position of an exact match.', '=MATCH("pear",A1:A10,0)', a => { want(a, 2, 3); if (a.length === 3 && numericArg(a, 2) !== 0)
-        return error('#ARG!', 'MATCH supports exact mode (0) only.'); const pos = flatten([a[1]]).findIndex(x => matchCriterion(x, at(a, 0))); return pos >= 0 ? pos + 1 : error('#N/A', 'MATCH found no matching value.'); }),
-    INDEX: D('Return the value at 1-based row and column.', '=INDEX(A1:C5,2,3)', a => { want(a, 2, 3); const data = a[0]; if (!Array.isArray(data))
-        return error('#VALUE!', 'INDEX expects a range.'); const r = Math.trunc(numericArg(a, 1)) - 1, c = a.length === 3 ? Math.trunc(numericArg(a, 2)) - 1 : 0; return data[r]?.[c] === undefined ? error('#REF!', 'INDEX position is outside the range.') : scalar(data[r]?.[c]); }),
+    MATCH: D('Return the relative position of an exact or approximate match.', '=MATCH("pear",A1:A10,0)', a => {
+        want(a, 2, 3);
+        const lookup = at(a, 0), items = flatten([a[1]]), mode = a.length === 3 ? numericArg(a, 2) : 1;
+        if (![-1, 0, 1].includes(mode))
+            return error('#N/A', 'MATCH match_type must be -1, 0 or 1.');
+        if (!items.length)
+            return error('#N/A', 'MATCH lookup array is empty.');
+        if (mode === 0) {
+            const pos = items.findIndex(x => matchCriterion(x, lookup));
+            return pos >= 0 ? pos + 1 : error('#N/A', 'MATCH found no matching value.');
+        }
+        for (let i = 1; i < items.length; i++) {
+            const order = matchOrder(items[i - 1], items[i]);
+            if (mode === 1 ? order > 0 : order < 0)
+                return error('#N/A', `MATCH lookup array is not sorted ${mode === 1 ? 'ascending' : 'descending'}.`);
+        }
+        let candidate = -1;
+        for (let i = 0; i < items.length; i++) {
+            const order = matchOrder(items[i], lookup);
+            if (mode === 1 ? order <= 0 : order >= 0)
+                candidate = i;
+            else if (mode === -1)
+                break;
+        }
+        return candidate >= 0 ? candidate + 1 : error('#N/A', 'MATCH found no eligible value.');
+    }),
+    INDEX: D('Return a value, row, column, or array at 1-based positions; zero selects a whole row or column.', '=INDEX(A1:C5,0,2)', a => { want(a, 2, 3); const data = a[0]; if (!Array.isArray(data))
+        return error('#VALUE!', 'INDEX expects a range.'); const row = Math.trunc(numericArg(a, 1)), column = a.length === 3 ? Math.trunc(numericArg(a, 2)) : 1; if (row < 0 || column < 0)
+        return error('#VALUE!', 'INDEX row and column numbers cannot be negative.'); if (row === 0 && column === 0)
+        return data.map(line => line.map(value => value ?? null)); if (row === 0) {
+        const c = column - 1;
+        if (c >= (data[0]?.length ?? 0))
+            return error('#REF!', 'INDEX column is outside the range.');
+        return data.map(line => [line[c] ?? null]);
+    } if (row > data.length)
+        return error('#REF!', 'INDEX row is outside the range.'); if (column === 0)
+        return [(data[row - 1] ?? []).map(value => value ?? null)]; const c = column - 1; if (c >= (data[row - 1]?.length ?? 0))
+        return error('#REF!', 'INDEX column is outside the range.'); return scalar(data[row - 1]?.[c]); }),
     LARGE: D('k-th largest numeric value.', '=LARGE(A1:A10,2)', a => { want(a, 2, 2); const n = sortNums([a[0]]).reverse(), k = Math.trunc(numericArg(a, 1)); return k < 1 || k > n.length ? error('#NUM!', 'LARGE rank is out of range.') : n[k - 1]; }),
     SMALL: D('k-th smallest numeric value.', '=SMALL(A1:A10,2)', a => { want(a, 2, 2); const n = sortNums([a[0]]), k = Math.trunc(numericArg(a, 1)); return k < 1 || k > n.length ? error('#NUM!', 'SMALL rank is out of range.') : n[k - 1]; }),
     STDEV: D('Sample standard deviation.', '=STDEV(A1:A10)', a => { const n = nums(a); if (n.length < 2)
@@ -174,8 +233,8 @@ export const functions = {
 Object.assign(functions, moreFunctions, v5Functions, v6Functions, v9Functions);
 Object.assign(functions, v9Aliases(functions));
 const v10Functions = buildV10Functions(functions);
-Object.assign(functions, v10Functions);
+Object.assign(functions, v10Functions, connectedFunctionDefinitions);
 export const v10FunctionNames = Object.keys(v10Functions);
-export { v10Categories };
+export { v10Categories, connectedFunctionNames, connectedFunctionRequirements };
 export { v5FunctionNames, v5Categories };
 export const functionNames = Object.keys(functions).sort();

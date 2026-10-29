@@ -1,0 +1,74 @@
+name: Windows desktop installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ['desktop-v*']
+permissions:
+  contents: read
+jobs:
+  windows-installer:
+    name: Build and smoke-check installer (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Build GridForge, Excel bridge and installer
+        shell: pwsh
+        run: ./desktop/build_windows.ps1
+      - name: Validate new macro template and CLI
+        shell: pwsh
+        run: |
+          node scripts/run_macro_offline.mjs --workbook examples/sample_gridforge_workbook.json --macro examples/macros/parameterized_tax.json --parameters examples/macros/parameter_values.json --dry-run
+          if ($LASTEXITCODE -ne 0) { throw 'Offline macro CLI failed' }
+      - name: Check executable bundles (no UI)
+        shell: pwsh
+        run: |
+          ./build/portable/GridForge/GridForge.exe --check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Test-Path './build/portable/GridForgeExcelBridge.exe')) { exit 1 }
+          if (-not (Get-ChildItem './build/release/*-win64.exe')) { exit 1 }
+      - name: Silent installer smoke (install, verify, uninstall)
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem './build/release/GridForge-Setup-*-win64.exe' | Select-Object -First 1
+          $result = Start-Process -FilePath $installer.FullName -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru -Wait
+          if ($result.ExitCode -ne 0) { throw "Silent install failed: $($result.ExitCode)" }
+          $destination = Join-Path $env:LOCALAPPDATA 'Programs/GridForge'
+          $installed = Join-Path $destination 'GridForge.exe'
+          if (-not (Test-Path $installed)) { throw 'Installed GridForge.exe missing' }
+          & $installed --check
+          if ($LASTEXITCODE -ne 0) { throw 'Installed application asset check failed' }
+          $uninstall = Join-Path $destination 'unins000.exe'
+          if (-not (Test-Path $uninstall)) { throw 'Uninstaller missing' }
+          $result = Start-Process -FilePath $uninstall -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru -Wait
+          if ($result.ExitCode -ne 0) { throw "Silent uninstall failed: $($result.ExitCode)" }
+      - name: Package portable GridForge folder
+        shell: pwsh
+        run: |
+          Compress-Archive -Path ./build/portable/GridForge, ./build/portable/GridForgeExcelBridge.exe -DestinationPath ./build/release/GridForge-Portable-win64.zip
+      - name: Checksums and file sizes
+        shell: pwsh
+        run: |
+          Get-ChildItem ./build/release/* | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash)  $($_.Name)"
+          } | Set-Content ./build/release/SHA256SUMS.txt
+          Get-Content ./build/release/SHA256SUMS.txt
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GridForge-Windows-x64-Installer-and-Portable
+          path: |
+            build/release/*
+          if-no-files-found: error
+          retention-days: 30

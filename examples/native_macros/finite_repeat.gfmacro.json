@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "name": "Offline repeated text replace",
+  "sheetName": "Sheet 1",
+  "steps": [
+    { "kind": "repeat", "times": 3, "steps": [
+      { "kind": "replace", "find": "A", "replace": "AA", "caseSensitive": true }
+    ] }
+  ]
+}

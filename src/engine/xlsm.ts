@@ -4,12 +4,12 @@
  */
 import {SpreadsheetDocument} from './document.js';
 import {zipReadBytes,zipWriteBytes} from './zip.js';
-import {parseRef,tokenize} from './parser.js';
+import {colToName,parseRef,tokenize} from './parser.js';
 
 const MAIN='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const DECODER=new TextDecoder(),ENCODER=new TextEncoder();
-export interface XlsmExportReport {bytes:Uint8Array;editedCells:number; preservedParts:number;warnings:string[]}
+export interface XlsmExportReport {bytes:Uint8Array;editedCells:number;editedNames:number;preservedParts:number;warnings:string[]}
 const nodeList=(n:Document|Element,tag:string):Element[]=>Array.from(n.getElementsByTagNameNS('*',tag));
 const getAttribute=(n:Element,key:string)=>n.getAttribute(key)??'';
 function readXml(input:string):Document {
@@ -85,8 +85,9 @@ export async function exportEditedXlsm(original:Uint8Array,before:SpreadsheetDoc
     throw Error('Adding, deleting, reordering or renaming sheets cannot be merged into the original XLSM safely. Restore the original sheets or export XLSX.');
   }
   const sheetPaths=originalSheetParts(parts);
-  const warnings:string[]=[];let editedCells=0,styleEdits=0;
-  for(const sheet of after.sheets){
+  const warnings:string[]=[];let editedCells=0,editedNames=0,styleEdits=0;
+  const workbook=readXml(DECODER.decode(parts.get('xl/workbook.xml')!));
+  for(const [sheetIndex,sheet] of after.sheets.entries()){
     const source=before.sheets.find(x=>x.name===sheet.name)!;
     const path=sheetPaths.get(sheet.name);if(!path)throw Error(`Missing original worksheet '${sheet.name}'.`);
     const originalEntries=new Map(source.book.allEntries().map(x=>[x.ref,x.raw]));
@@ -96,18 +97,31 @@ export async function exportEditedXlsm(original:Uint8Array,before:SpreadsheetDoc
     const beforeStyles=new Map(source.book.allStyles().map(x=>[x.ref,JSON.stringify(x.style)]));
     const afterStyles=new Map(sheet.book.allStyles().map(x=>[x.ref,JSON.stringify(x.style)]));
     styleEdits+=[...new Set([...beforeStyles.keys(),...afterStyles.keys()])].filter(ref=>(beforeStyles.get(ref)??'{}')!==(afterStyles.get(ref)??'{}')).length;
-    if(!changed.length)continue;
-    const sheetXml=readXml(DECODER.decode(parts.get(path)!));
-    const existing=new Map(nodeList(sheetXml,'c').map(x=>[getAttribute(x,'r').toUpperCase(),x]));
-    for(const ref of changed){
-      const c=existing.get(ref)??createCell(sheetXml,ref);
-      updateCell(sheetXml,c,currentEntries.get(ref)??'');editedCells++;
+    if(changed.length){
+      const sheetXml=readXml(DECODER.decode(parts.get(path)!));
+      const existing=new Map(nodeList(sheetXml,'c').map(x=>[getAttribute(x,'r').toUpperCase(),x]));
+      for(const ref of changed){
+        const c=existing.get(ref)??createCell(sheetXml,ref);
+        updateCell(sheetXml,c,currentEntries.get(ref)??'');editedCells++;
+      }
+      parts.set(path,writeXml(sheetXml));
     }
-    parts.set(path,writeXml(sheetXml));
+    const oldNames=source.book.getDefinedNames(),newNames=sheet.book.getDefinedNames();
+    if(JSON.stringify(oldNames)!==JSON.stringify(newNames)){
+      const oldByKey=new Map(oldNames.map(n=>[n.name.toLowerCase(),n])),newByKey=new Map(newNames.map(n=>[n.name.toLowerCase(),n]));
+      const changedKeys=new Set([...oldByKey.keys(),...newByKey.keys()].filter(key=>JSON.stringify(oldByKey.get(key))!==JSON.stringify(newByKey.get(key))));
+      let container=nodeList(workbook,'definedNames')[0];
+      if(!container){container=workbook.createElementNS(MAIN,'definedNames');const calc=nodeList(workbook,'calcPr')[0];workbook.documentElement.insertBefore(container,calc??null);}
+      for(const node of nodeList(container,'definedName'))if(getAttribute(node,'localSheetId')!==''&&Number(getAttribute(node,'localSheetId'))===sheetIndex&&changedKeys.has(getAttribute(node,'name').toLowerCase()))container.removeChild(node);
+      for(const item of newNames){if(!changedKeys.has(item.name.toLowerCase()))continue;
+        const node=workbook.createElementNS(MAIN,'definedName');node.setAttribute('name',item.name);node.setAttribute('localSheetId',String(sheetIndex));if(item.comment)node.setAttribute('comment',item.comment);
+        const range=item.ref.split(':').map(ref=>{const p=parseRef(ref)!;return `$${colToName(p.col)}$${p.row+1}`;}).join(':');node.textContent=`'${sheet.name.replace(/'/g,"''")}'!${range}`;container.appendChild(node);editedNames++;
+      }
+      editedNames+=oldNames.filter(item=>changedKeys.has(item.name.toLowerCase())&&!newByKey.has(item.name.toLowerCase())).length;
+    }
   }
   // Recalculate formula caches when Microsoft Excel opens the file again.
-  if(editedCells){
-    const workbook=readXml(DECODER.decode(parts.get('xl/workbook.xml')!));
+  if(editedCells||editedNames){
     let calc=nodeList(workbook,'calcPr')[0];
     if(!calc){calc=workbook.createElementNS(MAIN,'calcPr');workbook.documentElement.appendChild(calc);}
     calc.setAttribute('fullCalcOnLoad','1');calc.setAttribute('forceFullCalc','1');
@@ -116,5 +130,5 @@ export async function exportEditedXlsm(original:Uint8Array,before:SpreadsheetDoc
   if(styleEdits)warnings.push(`${styleEdits} GridForge formatting changes were not merged. Original Excel formatting is preserved; edit styles in Excel for this XLSM.`);
   warnings.push('VBA project and unrelated Office parts are preserved byte-for-byte as ZIP entry payloads, not executed.');
   warnings.push('Digital document-level signatures may become invalid when worksheets change. Back up and verify this file in Microsoft Excel.');
-  return {bytes:zipWriteBytes(Object.fromEntries(parts)),editedCells,preservedParts:parts.size,warnings};
+  return {bytes:zipWriteBytes(Object.fromEntries(parts)),editedCells,editedNames,preservedParts:parts.size,warnings};
 }

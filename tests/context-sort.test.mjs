@@ -22,6 +22,14 @@ test('sort changes only selected columns, and stable duplicates preserve input o
  assert.deepEqual([w.getRaw('B1'),w.getRaw('B2'),w.getRaw('B3')],['second','third','first']);
  assert.deepEqual([w.getRaw('C1'),w.getRaw('C2'),w.getRaw('C3')],['outside1','outside2','outside3']);
 });
+test('multi-level sort applies secondary direction and rejects duplicate keys',()=>{
+ const w=make({A1:'Group',B1:'Points',C1:'Name',A2:'Red',B2:'1',C2:'Alice',A3:'Blue',B3:'2',C3:'Ben',A4:'Red',B4:'2',C4:'Cara',A5:'Blue',B5:'1',C5:'Dan'});
+ const keys=[{column:0,descending:false},{column:1,descending:true}],tx=sortRangeTransaction(w,selected(0,4,0,2),keys,false,true);w.applyTransaction(tx.edits,tx.styles);
+ assert.deepEqual([w.getRaw('A2'),w.getRaw('B2'),w.getRaw('C2')],['Blue','2','Ben']);
+ assert.deepEqual([w.getRaw('A3'),w.getRaw('B3'),w.getRaw('C3')],['Blue','1','Dan']);
+ assert.deepEqual([w.getRaw('A4'),w.getRaw('B4'),w.getRaw('C4')],['Red','2','Cara']);
+ assert.throws(()=>sortRangeTransaction(w,selected(0,4,0,2),[{column:0,descending:false},{column:0,descending:true}],false,true),/unique columns/i);
+});
 test('copy/paste adjusts relative formulas, includes styles and can undo',()=>{
  const w=make({A1:'3',B1:'=A1*2'});w.patchStyles(['B1'],{bold:true});
  const snap=snapshotCells(w,selected(0,0,1,1),'s1');

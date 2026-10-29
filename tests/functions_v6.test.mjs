@@ -19,9 +19,9 @@ const cases=[
 cases[cases.findIndex(c=>c[0]==='WORKDAY.INTL')][2]=run('=DATE(2026,10,26)').value;
 test('v6 adds exactly 90 unique functions in consistent Excel-style categories',()=>{
  assert.equal(v6FunctionNames.length,90);assert.equal(new Set(v6FunctionNames).size,90);
- assert.equal(functionNames.length,506);assert.equal(cases.length,90);
+ assert.equal(functionNames.length,516);assert.equal(cases.length,90);
  assert.deepEqual(cases.map(c=>c[0]).sort(),v6FunctionNames);
- assert.equal(Object.values(categorizedFunctions).flat().length,506);
+ assert.equal(Object.values(categorizedFunctions).flat().length,516);
  for(const name of v6FunctionNames)assert.ok(functionCategory(name));
 });
 for(const [name,formula,expected] of cases)test(`v6 ${name} : ${formula}`,()=>{

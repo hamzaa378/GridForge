@@ -1,0 +1,11 @@
+{
+  "version": 4,
+  "name": "Clean contacts and remove duplicate IDs",
+  "sheetName": "Sheet 1",
+  "parameters": [],
+  "steps": [
+    {"kind": "cleanText", "range": "B2:B10", "operation": "proper"},
+    {"kind": "cleanText", "range": "C2:C10", "operation": "lower"},
+    {"kind": "removeDuplicates", "range": "A1:D10", "hasHeader": true, "keyColumns": [0]}
+  ]
+}

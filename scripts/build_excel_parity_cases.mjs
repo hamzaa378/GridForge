@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 const cases=[];
-function add(id,formula,{inputs={},category='core',expected,kind='scalar',note=''}={}){
+function add(id,formula,{inputs={},category='core',expected,expectedSpill,kind='scalar',note=''}={}){
   if(cases.some(c=>c.id===id))throw Error('Duplicate id '+id);
-  cases.push({id,formula,inputs,category,kind,...(expected===undefined?{}:{referenceExpected:expected}),...(note?{note}:{})});
+  cases.push({id,formula,inputs,category,kind,...(expected===undefined?{}:{referenceExpected:expected}),...(expectedSpill===undefined?{}:{expectedSpill}),...(note?{note}:{})});
 }
 // Expected values below are fixed reference examples, not a claim that Excel was run locally.
 const math=[
@@ -43,7 +43,7 @@ const refCases=[
  ['range-sum','=SUM(A1:A4)',{A1:2,A2:3,A3:4,A4:5},14],
  ['range-blank-count','=COUNTBLANK(A1:A4)',{A1:2,A3:4},2],
  ['range-count-numeric','=COUNT(A1:A4)',{A1:2,A2:'foo',A3:4,A4:5},3],
- ['range-text-ignored','=SUM(A1:A3)',{A1:2,A2:'3',A3:4},6],
+ ['range-text-ignored','=SUM(A1:A3)',{A1:2,A2:{text:'3'},A3:4},6],
  ['range-average','=AVERAGE(A1:A4)',{A1:2,A2:4,A3:6,A4:8},5],
  ['range-sample-stdev','=STDEV.S(A1:A3)',{A1:1,A2:2,A3:3},1],
  ['range-var-s','=VAR.S(A1:A3)',{A1:1,A2:2,A3:3},1],
@@ -74,15 +74,15 @@ for(const x of [0,1,2,3,5,7,13,17,29,37,43,71,97,127,199,255]) {
  add(`math-divide-${x}`,`=(${x+5}*6)/3`,{expected:(x+5)*2,category:'generated-math'});
  add(`math-round-neg-${x}`,`=ROUND(-${x}.5,0)`,{expected:-(x+1),category:'generated-math'});
 }
-// These cases are included specifically to expose known semantic limitations.
-for(const [id,formula] of [
- ['dynamic-sequence-spill','=SEQUENCE(2,2)'],
- ['dynamic-filter-spill','=FILTER(A1:A3,B1:B3)'],
- ['dynamic-unique-spill','=UNIQUE(A1:A3)'],
- ['dynamic-textsplit-spill','=TEXTSPLIT("A,B",",")']]){
- add(id,formula,{category:'dynamic-arrays',kind:'expected-gap',inputs:{A1:1,A2:2,A3:1,B1:1,B2:0,B3:1},note:'Excel returns a spilled dynamic array, GridForge currently returns a single-cell error.'});
+// Array results are checked at the anchor and across the spill range.
+for(const [id,formula,expectedSpill] of [
+ ['dynamic-sequence-spill','=SEQUENCE(2,2)',[[1,2],[3,4]]],
+ ['dynamic-filter-spill','=FILTER(A1:A3,B1:B3)',[[1],[1]]],
+ ['dynamic-unique-spill','=UNIQUE(A1:A3)',[[1],[2]]],
+ ['dynamic-textsplit-spill','=TEXTSPLIT("A,B",",")',[["A","B"]]]]){
+ add(id,formula,{category:'dynamic-arrays',kind:'spill',expected:expectedSpill[0][0],expectedSpill,inputs:{A1:1,A2:2,A3:1,B1:1,B2:0,B3:1},note:'GridForge spills the result into adjacent cells; a Microsoft Excel comparison is still required for parity evidence.'});
 }
 // Avoid volatile functions and network/locale-specific functions in the scalar agreement denominator.
 const output={schema:'gridforge-excel-parity/1',description:'Deterministic cross-engine formula probes; Excel execution required for true differential results.',comparisonCell:'K5',cases};
 fs.writeFileSync(new URL('../tests/excel_parity_cases.json',import.meta.url),JSON.stringify(output,null,2)+'\n');
-console.log(`${cases.length} cases generated; ${cases.filter(c=>c.kind==='scalar').length} scalar, ${cases.filter(c=>c.kind==='expected-gap').length} known array gaps`);
+console.log(`${cases.length} cases generated; ${cases.filter(c=>c.kind==='scalar').length} scalar, ${cases.filter(c=>c.kind==='spill').length} spill cases`);

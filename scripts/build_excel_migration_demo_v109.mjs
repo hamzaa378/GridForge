@@ -1,0 +1,23 @@
+/** Produces a self-contained GridForge/XLSX gallery, no Python/Excel dependencies. */
+import {writeFileSync,mkdirSync} from 'node:fs';
+import {Workbook} from '../dist/engine/workbook.js';
+import {SpreadsheetDocument} from '../dist/engine/document.js';
+import {TABLE_STYLES} from '../dist/engine/tables.js';
+import {CHART_KINDS} from '../dist/engine/charts.js';
+import {exportXlsx} from '../dist/engine/xlsx.js';
+const w=new Workbook(400,52);
+const header=['Month','Revenue','Expenses','Profit'];
+const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const edits=header.map((s,i)=>({ref:`${String.fromCharCode(65+i)}1`,raw:s}));
+months.forEach((month,i)=>{const r=i+2;edits.push({ref:`A${r}`,raw:month},{ref:`B${r}`,raw:String(14000+(i%4)*1700+i*530)},{ref:`C${r}`,raw:String(7400+(i%3)*650+i*230)},{ref:`D${r}`,raw:`=B${r}-C${r}`});});
+w.applyEdits(edits,false);
+const doc=new SpreadsheetDocument(w);
+doc.active.tools.tables=[{id:'table-main',name:'AnnualSales',range:'A1:D13',style:'TableStyleMedium4',header:true,bandedRows:true,bandedColumns:false,firstColumn:true,lastColumn:false}];
+doc.active.tools.charts=CHART_KINDS.map((kind,i)=>({id:`chart-sample-${i+1}`,kind,theme:['office','forest','colorful','sunset','ocean','monochrome'][i%6],title:`${kind.replace(/-/g,' ')} · Sales`,range:'A1:D13',x:600+(i%2)*535,y:60+Math.floor(i/2)*350,width:510,height:316,legend:'bottom',xAxisTitle:'Month',yAxisTitle:'USD'}));
+const gallery=doc.addSheet('Table Styles');const x=[];
+TABLE_STYLES.forEach((style,i)=>{const r=i*6+1;for(let c=0;c<4;c++)x.push({ref:`${String.fromCharCode(65+c)}${r}`,raw:['Region','Q1','Q2','Q3'][c]});for(let j=1;j<=3;j++)x.push(...[{ref:`A${r+j}`,raw:['North','South','East'][j-1]},{ref:`B${r+j}`,raw:String(1000+i*120+j*90)},{ref:`C${r+j}`,raw:String(1100+i*130+j*130)},{ref:`D${r+j}`,raw:`=B${r+j}+C${r+j}`}]);gallery.tools.tables.push({id:`table-style-${i+1}`,name:`Style${i+1}`,range:`A${r}:D${r+3}`,style,header:true,bandedRows:true,bandedColumns:false,firstColumn:true,lastColumn:false});});
+gallery.book.applyEdits(x,false);doc.selectSheet(doc.sheets[0].id);
+mkdirSync('examples',{recursive:true});
+writeFileSync('examples/Excel_Migration_Demo_v10_9.xlsx',exportXlsx(doc));
+writeFileSync('examples/Excel_Migration_Demo_v10_9.json',JSON.stringify(doc.toJSON(),null,2));
+console.log(`Wrote 13 source-linked native XLSX charts and ${doc.sheets.reduce((n,s)=>n+s.tools.tables.length,0)} named tables across ${doc.sheets.length} worksheets.`);

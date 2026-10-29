@@ -1,0 +1,133 @@
+{
+  "format": "gridforge",
+  "version": 3,
+  "activeId": "s1",
+  "sheets": [
+    {
+      "id": "s1",
+      "name": "Sheet 1",
+      "workbook": {
+        "version": 2,
+        "rows": 400,
+        "cols": 52,
+        "cells": {
+          "A1": "Month",
+          "B1": "Revenue",
+          "C1": "Margin",
+          "D1": "Profit",
+          "A2": "Jan",
+          "B2": "12000",
+          "C2": "0.12",
+          "D2": "=[@Revenue]*[@Margin]",
+          "A3": "Feb",
+          "B3": "14500",
+          "C3": "0.15",
+          "D3": "=[@Revenue]*[@Margin]",
+          "A4": "Mar",
+          "B4": "13800",
+          "C4": "0.13",
+          "D4": "=[@Revenue]*[@Margin]",
+          "A5": "Apr",
+          "B5": "17200",
+          "C5": "0.18",
+          "D5": "=[@Revenue]*[@Margin]",
+          "A6": "May",
+          "B6": "19600",
+          "C6": "0.2",
+          "D6": "=[@Revenue]*[@Margin]"
+        },
+        "styles": {}
+      },
+      "tools": {
+        "freezeRows": 0,
+        "freezeCols": 0,
+        "filter": null,
+        "conditional": [
+          {
+            "start": "B2",
+            "end": "B6",
+            "operator": "dataBar",
+            "threshold": 0,
+            "color": "#4472c4",
+            "negativeColor": "#c0504d",
+            "barStyle": "gradient",
+            "showValue": true
+          }
+        ],
+        "charts": [
+          {
+            "id": "chart-performance",
+            "kind": "combo",
+            "theme": "office",
+            "title": "Revenue and profit margin",
+            "range": "A1:C6",
+            "x": 220,
+            "y": 80,
+            "width": 560,
+            "height": 340,
+            "legend": "bottom",
+            "xAxisTitle": "Month",
+            "yAxisTitle": "Revenue ($)",
+            "secondaryYAxisTitle": "Profit margin",
+            "yAxisNumberFormat": "currency",
+            "majorGridlines": true,
+            "minorGridlines": true,
+            "seriesOptions": [
+              {
+                "axis": "primary",
+                "kind": "column",
+                "errorBars": {
+                  "type": "percentage",
+                  "value": 5
+                }
+              },
+              {
+                "axis": "secondary",
+                "kind": "line",
+                "errorBars": {
+                  "type": "standardDeviation",
+                  "value": 1
+                },
+                "trendline": {
+                  "type": "linear",
+                  "forward": 1,
+                  "showEquation": true,
+                  "showR2": true
+                }
+              }
+            ]
+          }
+        ],
+        "tables": [
+          {
+            "id": "table-monthly",
+            "name": "MonthlyPerformance",
+            "range": "A1:D6",
+            "style": "TableStyleMedium4",
+            "header": true,
+            "bandedRows": true,
+            "bandedColumns": false,
+            "firstColumn": false,
+            "lastColumn": false,
+            "calculatedColumns": [
+              {
+                "column": 3,
+                "formula": "=[@Revenue]*[@Margin]",
+                "overrides": []
+              }
+            ]
+          }
+        ],
+        "columnWidths": {
+          "0": 100,
+          "1": 150,
+          "2": 115,
+          "3": 150
+        },
+        "rowHeights": {
+          "0": 30
+        }
+      }
+    }
+  ]
+}

@@ -27,8 +27,16 @@ jobs:
         run: python scripts/python_smoke.py
       - name: Excel 506-function saved-reference regression
         run: npm run parity:snapshot
-      - name: Full regression suite (typecheck, 821+ tests, 506 registered formulas, 100 Data Studio tools, XLSM and VBA security checks)
-        run: npm run regression
+      - name: Core regression suite (TypeScript, 847+ tests and two 10k benchmarks)
+        run: npm run regression:core
+      - name: Offline macro CLI dry run
+        run: node scripts/run_macro_offline.mjs --workbook examples/sample_gridforge_workbook.json --macro examples/macros/parameterized_tax.json --parameters examples/macros/parameter_values.json --dry-run
+      - name: Isolated ribbon usability smoke (new tabs, shortcuts, themes, warnings)
+        run: npm run regression:ribbon
+      - name: XLSM preservation test
+        run: python scripts/test_xlsm_browser.py
+      - name: Excel VBA bridge protocol security test
+        run: python scripts/test_vba_bridge_protocol.py
       - name: Upload compiled site
         if: always()
         uses: actions/upload-artifact@v4

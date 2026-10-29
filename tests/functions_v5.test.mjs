@@ -84,12 +84,12 @@ const cases=[
 test('v5: exactly 80 unique new functions and 216 overall, categorized by Excel-style families',()=>{
  assert.equal(v5FunctionNames.length,80);
  assert.equal(new Set(v5FunctionNames).size,80);
- assert.equal(functionNames.length,506);
+ assert.equal(functionNames.length,516);
  assert.deepEqual(cases.map(c=>c[0]).sort(),v5FunctionNames);
  assert.ok(categoryNames.includes('Financial'));
  const groups=Object.values(categorizedFunctions).flat();
- assert.equal(groups.length,506,'All functions appear in one and only one group.');
- assert.equal(new Set(groups).size,506);
+ assert.equal(groups.length,516,'All functions appear in one and only one group.');
+ assert.equal(new Set(groups).size,516);
  for(const name of v5FunctionNames)assert.ok(functions[name],`Missing ${name}`);
 });
 for(const [name,formula,expected] of cases){

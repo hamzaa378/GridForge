@@ -30,6 +30,10 @@ export function findCells(book:Workbook,needle:string,caseSensitive=false,includ
   });
   return items.sort((a,b)=>{const x=parseRef(a.ref)!,y=parseRef(b.ref)!;return x.row-y.row||x.col-y.col;});
 }
+export interface WorkbookSearchMatch extends SearchMatch {sheetId:string;sheetName:string}
+export function findAcrossSheets(sheets:readonly {id:string;name:string;book:Workbook;hidden:boolean}[],needle:string,caseSensitive=false,includeFormulas=true):WorkbookSearchMatch[]{
+  return sheets.filter(sheet=>!sheet.hidden).flatMap(sheet=>findCells(sheet.book,needle,caseSensitive,includeFormulas).map(match=>({...match,sheetId:sheet.id,sheetName:sheet.name})));
+}
 export function replaceCells(book:Workbook,needle:string,replacement:string,caseSensitive=false,includeFormulas=false):Edit[]{
   if(!needle)throw Error('Enter text to find.');
   return findCells(book,needle,caseSensitive,includeFormulas).map(({ref,raw})=>{
@@ -43,17 +47,22 @@ export function replaceCells(book:Workbook,needle:string,replacement:string,case
 /** A single atomic, undoable data-and-format transaction for a selected rectangle.
  * Other columns are intentionally untouched; sorting an entire table is the caller's job.
  */
-export function sortRangeTransaction(book:Workbook,b:Rect,byCol:number,descending=false,firstRowHeader=false):{edits:Edit[];styles:StyleEdit[]}{
-  if(byCol<b.c1||byCol>b.c2)throw Error('Sort key is outside the selection.');
+export interface SortKey {column:number;descending:boolean}
+export function sortRangeTransaction(book:Workbook,b:Rect,byCol:number|SortKey[],descending=false,firstRowHeader=false):{edits:Edit[];styles:StyleEdit[]}{
+  const keys=typeof byCol==='number'?[{column:byCol,descending}]:byCol;
+  if(!keys.length||keys.length>16||keys.some(key=>key.column<b.c1||key.column>b.c2||!Number.isInteger(key.column))||new Set(keys.map(key=>key.column)).size!==keys.length)throw Error('Sort keys must be unique columns inside the selection.');
   const from=b.r1+(firstRowHeader?1:0);if(b.r2<=from)return {edits:[],styles:[]};
   const entries=[];
-  for(let r=from;r<=b.r2;r++)entries.push({original:r,key:book.getValue(address(r,byCol)),raw:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getRaw(address(r,b.c1+j))),styles:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getStyle(address(r,b.c1+j)))});
+  for(let r=from;r<=b.r2;r++)entries.push({original:r,keys:keys.map(key=>book.getValue(address(r,key.column))),raw:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getRaw(address(r,b.c1+j))),styles:Array.from({length:b.c2-b.c1+1},(_,j)=>book.getStyle(address(r,b.c1+j)))});
   entries.sort((a,b)=>{
-    const x=a.key.value,y=b.key.value;if(a.key.error&&!b.key.error)return 1;if(b.key.error&&!a.key.error)return -1;
-    if(x===null||x==='')return y===null||y===''?a.original-b.original:1;
-    if(y===null||y==='')return -1;
-    const comparison=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true,sensitivity:'base'});
-    return (descending?-comparison:comparison)||a.original-b.original;
+    for(let index=0;index<keys.length;index++){
+      const x=a.keys[index]!,y=b.keys[index]!,key=keys[index]!;if(x.error&&!y.error)return 1;if(y.error&&!x.error)return -1;
+      if(x.value===null||x.value===''){if(y.value===null||y.value==='')continue;return 1;}
+      if(y.value===null||y.value==='')return -1;
+      const comparison=typeof x.value==='number'&&typeof y.value==='number'?x.value-y.value:String(x.value).localeCompare(String(y.value),undefined,{numeric:true,sensitivity:'base'});
+      if(comparison)return key.descending?-comparison:comparison;
+    }
+    return a.original-b.original;
   });
   const edits:Edit[]=[],styles:StyleEdit[]=[];entries.forEach((item,index)=>{const destination=from+index;
     item.raw.forEach((raw,delta)=>{const adjusted=raw.startsWith('=')?shiftFormula(raw,destination-item.original,0):raw;

@@ -1,14 +1,15 @@
 {
   "name": "gridforge-gdg-frontend-task2",
-  "version": "10.3.0",
+  "version": "11.26.0",
   "private": true,
   "type": "module",
-  "description": "GridForge 506-function local browser spreadsheet, with deterministic Excel compatibility fixtures and optional real Microsoft Excel COM differential audit.",
+  "description": "GridForge standalone spreadsheet with an Excel 2019-style workspace, cross-worksheet formulas, refreshable Pivot Summary reports, worksheet tools, formula functions, native charts, and a Windows installer build kit.",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
     "start": "node scripts/serve.mjs",
     "dev": "npm run build && npm run start",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "macro:run": "npm run build && node scripts/run_macro_offline.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "benchmark": "npm run build && node scripts/benchmark.mjs",
     "regression": "node scripts/regression.mjs",
@@ -28,13 +29,26 @@
     "parity:506:gridforge": "npm run build && node scripts/build_excel_parity_506.mjs",
     "parity:506:excel": "python scripts/excel_parity_506_desktop.py",
     "parity:506:compare": "python scripts/excel_parity_506_compare.py",
-    "parity:snapshot": "npm run build && node scripts/verify_excel_snapshot.mjs"
+    "parity:snapshot": "npm run build && node scripts/verify_excel_snapshot.mjs",
+    "regression:ribbon": "python scripts/smoke_ribbon_v10_4.py",
+    "parity:connected:excel": "python scripts/excel_connected_windows.py",
+    "charts:smoke": "python scripts/smoke_native_charts_v108.py",
+    "charts:excel": "python scripts/verify_excel_charts_windows.py",
+    "charts:smoke:v109": "python scripts/smoke_tables_charts_v109.py",
+    "charts:excel:v109": "python scripts/verify_excel_migration_windows_v109.py",
+    "gallery:v109": "npm run build && node scripts/build_excel_migration_demo_v109.mjs",
+    "migration:smoke": "python scripts/smoke_migration_v110.py",
+    "migration:demo": "npm run build && node scripts/build_migration_demo_v110.mjs",
+    "migration:excel": "python scripts/verify_excel_migration_windows_v110.py",
+    "demo:v111": "npm run build && node scripts/build_v111_demo.mjs",
+    "demo:v112": "npm run build && node scripts/build_v112_demo.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "license": "MIT",
   "devDependencies": {
+    "@xmldom/xmldom": "^0.9.12",
     "typescript": "^5.8.3"
   }
 }

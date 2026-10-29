@@ -1,0 +1,20 @@
+{
+  "node": "v22.16.0",
+  "rows": 400,
+  "columns": 52,
+  "capacity": 20800,
+  "populated": 10400,
+  "formulas": 10000,
+  "initialBuildMs": 132.546,
+  "initialRecalculated": 10400,
+  "singleSourceEdit": {
+    "affected": 26,
+    "recalculated": 26,
+    "elapsedMs": 0.055
+  },
+  "isolatedEdit": {
+    "affected": 1,
+    "recalculated": 1,
+    "elapsedMs": 0.005
+  }
+}

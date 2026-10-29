@@ -3,11 +3,18 @@
  * Deliberately bounded importer: never run macros, external links or uploaded code.
  */
 import { SpreadsheetDocument } from './document.js';
-import { Workbook } from './workbook.js';
-import { parseRef, colToName, shiftFormula, tokenize } from './parser.js';
-import { cleanStyle } from './format.js';
+import { Workbook, display } from './workbook.js';
+import { parseRef, colToName, nameToCol, shiftFormula, tokenize } from './parser.js';
+import { cleanStyle, isExcelDateNumberFormat } from './format.js';
 import { zipWrite, zipRead } from './zip.js';
 import { freshTools, validateTools } from './sheettools.js';
+import { nativeChartXml, nativeDrawingXml, nativeDrawingRelationships, drawingRelationshipType, isNativeChartEx } from './ooxml_charts.js';
+import { CHART_PALETTES, validateChart, chartRange } from './charts.js';
+import { tableRange, tableColumns, validateTable } from './tables.js';
+import { buildPivotSummary, pivotChartRange, pivotSourceFieldHeaders, validatePivotSummary } from './pivot.js';
+import { nativePivotParts } from './ooxml_pivots.js';
+import { nativeSlicerCacheXml, nativeSlicerViewXml, nativeSlicerListExtension } from './ooxml_slicers.js';
+import { buildCachedQueryRefresh, buildQueryRefresh } from './power_query.js';
 const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const relns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const pkgns = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -104,7 +111,35 @@ const color = (n) => {
     const v = n?.getAttribute('rgb');
     return v && /^[0-9a-f]{8}$/i.test(v) ? '#' + v.slice(-6).toLowerCase() : undefined;
 };
+const supportedHyperlinkTarget = (target) => { if (!target || target.length > 2048 || /[\u0000-\u0020\\]/.test(target))
+    return false; try {
+    const url = new URL(target);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !!url.hostname || url.protocol === 'mailto:' && /^mailto:[^\s@]+@[^\s@]+$/i.test(target);
+}
+catch {
+    return false;
+} };
 function fileName(name) { return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 72) || 'GridForge'; }
+function splitPrintTitleUnion(expression) {
+    const parts = [];
+    let start = 0, quoted = false;
+    for (let i = 0; i < expression.length; i++)
+        if (expression[i] === "'") {
+            if (quoted && expression[i + 1] === "'") {
+                i++;
+                continue;
+            }
+            quoted = !quoted;
+        }
+        else if (expression[i] === ',' && !quoted) {
+            parts.push(expression.slice(start, i).trim());
+            start = i + 1;
+        }
+    if (quoted)
+        return null;
+    parts.push(expression.slice(start).trim());
+    return parts;
+}
 function styleCatalog(doc) {
     const map = new Map([['{}', 0]]), styles = [{}];
     for (const sheet of doc.sheets)
@@ -115,14 +150,16 @@ function styleCatalog(doc) {
                 styles.push(normalized);
             }
         }
-    const fonts = [{ bold: false, italic: false, underline: false, color: '' }], fills = [''], fontMap = new Map(), fillMap = new Map();
-    function fontId(s) { const key = JSON.stringify([!!s.bold, !!s.italic, !!s.underline, s.color ?? '']); if (!fontMap.has(key)) {
-        if (!s.bold && !s.italic && !s.underline && !s.color) {
+    const fonts = [{ bold: false, italic: false, underline: false, strike: false, color: '', fontFamily: 'Calibri', fontSize: 11 }], fills = [''], fontMap = new Map(), fillMap = new Map(), customFormatIds = new Map();
+    function customFormatId(code) { if (!customFormatIds.has(code))
+        customFormatIds.set(code, 165 + customFormatIds.size); return customFormatIds.get(code); }
+    function fontId(s) { const key = JSON.stringify([!!s.bold, !!s.italic, !!s.underline, !!s.strike, s.color ?? '', s.fontFamily ?? 'Calibri', s.fontSize ?? 11]); if (!fontMap.has(key)) {
+        if (!s.bold && !s.italic && !s.underline && !s.strike && !s.color && !s.fontFamily && !s.fontSize) {
             fontMap.set(key, 0);
         }
         else {
             fontMap.set(key, fonts.length);
-            fonts.push({ bold: !!s.bold, italic: !!s.italic, underline: !!s.underline, color: s.color ?? '' });
+            fonts.push({ bold: !!s.bold, italic: !!s.italic, underline: !!s.underline, strike: !!s.strike, color: s.color ?? '', fontFamily: s.fontFamily ?? 'Calibri', fontSize: s.fontSize ?? 11 });
         }
     } return fontMap.get(key); }
     function fillId(s) { if (!s.background)
@@ -130,22 +167,28 @@ function styleCatalog(doc) {
         fillMap.set(s.background, fills.length + 1);
         fills.push(s.background);
     } return fillMap.get(s.background); }
-    const xfs = styles.map(s => { const font = fontId(s), fill = fillId(s); return `<xf numFmtId="${({ general: 0, number: 2, integer: 1, currency: 164, percent: 10 })[s.numberFormat ?? 'general']}" fontId="${font}" fillId="${fill}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyAlignment="1">${s.align ? `<alignment horizontal="${s.align}"/>` : ''}</xf>`; });
-    const fontXML = fonts.map(f => `<font><sz val="11"/><name val="Calibri"/>${f.bold ? '<b/>' : ''}${f.italic ? '<i/>' : ''}${f.underline ? '<u/>' : ''}${f.color ? `<color rgb="FF${f.color.slice(1).toUpperCase()}"/>` : '<color theme="1"/>'}</font>`).join('');
+    const borderNames = ['', 'all', 'bottom', 'top', 'left', 'right'], borderId = (name) => name ? Math.max(1, borderNames.indexOf(name)) : 0;
+    const xfs = styles.map(s => { const font = fontId(s), fill = fillId(s); let numFmtId = ({ general: 0, number: 2, integer: 1, currency: 164, percent: 10 })[s.numberFormat ?? 'general']; if (s.dateFormatCode)
+        numFmtId = customFormatId(s.dateFormatCode);
+    else if (s.customNumberFormatCode)
+        numFmtId = customFormatId(s.customNumberFormatCode); return `<xf numFmtId="${numFmtId}" fontId="${font}" fillId="${fill}" borderId="${borderId(s.border)}" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyAlignment="1">${s.align || s.verticalAlign || s.wrap || s.indent ? `<alignment${s.align ? ` horizontal="${s.align}"` : ''}${s.verticalAlign ? ` vertical="${s.verticalAlign}"` : ''}${s.indent ? ` indent="${s.indent}"` : ''}${s.wrap ? ' wrapText="1"' : ''}/>` : ''}</xf>`; });
+    const customFormatXml = [...customFormatIds].map(([code, id]) => `<numFmt numFmtId="${id}" formatCode="${esc(code)}"/>`).join('');
+    const fontXML = fonts.map(f => `<font><sz val="${f.fontSize}"/><name val="${f.fontFamily}"/>${f.bold ? '<b/>' : ''}${f.italic ? '<i/>' : ''}${f.underline ? '<u/>' : ''}${f.strike ? '<strike/>' : ''}${f.color ? `<color rgb="FF${f.color.slice(1).toUpperCase()}"/>` : '<color theme="1"/>'}</font>`).join('');
     const fillXML = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>', ...fills.slice(1).map(f => `<fill><patternFill patternType="solid"><fgColor rgb="FF${f.slice(1).toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`)].join('');
-    return { xml: xml(`<styleSheet xmlns="${ns}"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts><fonts count="${fonts.length}">${fontXML}</fonts><fills count="${fills.length + 1}">${fillXML}</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`), index: map };
+    return { xml: xml(`<styleSheet xmlns="${ns}"><numFmts count="${1 + customFormatIds.size}"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/>${customFormatXml}</numFmts><fonts count="${fonts.length}">${fontXML}</fonts><fills count="${fills.length + 1}">${fillXML}</fills><borders count="6"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border><border><left/><right/><top/><bottom style="thin"/><diagonal/></border><border><left/><right/><top style="thin"/><bottom/><diagonal/></border><border><left style="thin"/><right/><top/><bottom/><diagonal/></border><border><left/><right style="thin"/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`), index: map };
 }
 function styleFromXlsx(parts) {
     const file = parts.get('xl/styles.xml');
     if (!file)
         return [{}];
     const root = parseXml(file).documentElement;
-    const fonts = nodes(direct(root, 'fonts') ?? root, 'font').map(n => ({ bold: !!direct(n, 'b'), italic: !!direct(n, 'i'), underline: !!direct(n, 'u'), color: color(direct(n, 'color')) }));
+    const fonts = nodes(direct(root, 'fonts') ?? root, 'font').map(n => ({ bold: !!direct(n, 'b'), italic: !!direct(n, 'i'), underline: !!direct(n, 'u'), strike: !!direct(n, 'strike'), fontSize: Number(attr(direct(n, 'sz') ?? n, 'val')) || 11, fontFamily: attr(direct(n, 'name') ?? n, 'val') || 'Calibri', color: color(direct(n, 'color')) }));
     const fills = nodes(direct(root, 'fills') ?? root, 'fill').map(n => { const pf = direct(n, 'patternFill'); return attr(pf ?? n, 'patternType') === 'solid' ? color(direct(pf, 'fgColor')) : undefined; });
     const formats = new Map(nodes(direct(root, 'numFmts') ?? root, 'numFmt').map(x => [int(attr(x, 'numFmtId')), attr(x, 'formatCode')]));
     const cellxfs = direct(root, 'cellXfs');
     if (!cellxfs)
         return [{}];
+    const builtInDateCodes = { 14: 'm/d/yy', 15: 'd-mmm-yy', 16: 'd-mmm', 17: 'mmm-yy', 22: 'm/d/yy h:mm', 27: '[$-404]e/m/d', 28: '[$-404]e"年"m"月"d"日"', 29: '[$-404]e"年"m"月"d"日"', 30: 'm/d/yy', 31: 'yyyy"年"m"月"d"日"', 32: 'h"時"mm"分"', 33: 'h"時"mm"分"ss"秒"', 34: 'yyyy"年"m"月"', 35: 'm"月"d"日"', 36: '[$-404]e/m/d', 50: '[$-404]e/m/d', 51: '[$-404]e"年"m"月"d"日"', 52: 'yyyy"年"m"月"', 53: 'm"月"d"日"', 54: 'm"月"d"日"', 55: 'yyyy"年"m"月"', 56: 'm"月"d"日"', 57: '[$-404]e/m/d', 58: '[$-404]e"年"m"月"d"日"' };
     return nodes(cellxfs, 'xf').map(x => {
         const font = fonts[int(attr(x, 'fontId'))] ?? fonts[0], fill = fills[int(attr(x, 'fillId'))];
         const s = {};
@@ -155,14 +198,39 @@ function styleFromXlsx(parts) {
             s.italic = true;
         if (font?.underline)
             s.underline = true;
+        if (font?.strike)
+            s.strike = true;
+        if (font && font.fontSize >= 8 && font.fontSize <= 36)
+            s.fontSize = font.fontSize;
+        if (['Aptos', 'Calibri', 'Arial', 'Segoe UI', 'Georgia', 'Consolas', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Times New Roman', 'Cambria', 'Garamond'].includes(font?.fontFamily ?? ''))
+            s.fontFamily = font.fontFamily;
         if (font?.color)
             s.color = font.color;
         if (fill)
             s.background = fill;
         const alignment = direct(x, 'alignment');
+        if (alignment?.getAttribute('wrapText') === '1')
+            s.wrap = true;
         if (alignment && ['center', 'right'].includes(attr(alignment, 'horizontal')))
             s.align = attr(alignment, 'horizontal');
-        const fmtId = int(attr(x, 'numFmtId')), fmt = (formats.get(fmtId) ?? '').toLowerCase();
+        if (alignment && ['top', 'center'].includes(attr(alignment, 'vertical')))
+            s.verticalAlign = attr(alignment, 'vertical');
+        const indent = alignment ? Number(attr(alignment, 'indent')) : NaN;
+        if (Number.isInteger(indent) && indent > 0 && indent <= 250)
+            s.indent = indent;
+        const borderId = int(attr(x, 'borderId')), border = nodes(direct(root, 'borders') ?? root, 'border')[borderId];
+        if (borderId === 1)
+            s.border = 'all';
+        else if (border) {
+            const active = ['left', 'right', 'top', 'bottom'].filter(edge => { const node = direct(border, edge); return !!node && !!attr(node, 'style'); });
+            if (active.length === 1 && ['bottom', 'top', 'left', 'right'].includes(active[0]))
+                s.border = active[0];
+        }
+        const fmtId = int(attr(x, 'numFmtId')), rawFormat = formats.get(fmtId) ?? builtInDateCodes[fmtId] ?? '', fmt = rawFormat.toLowerCase();
+        if (rawFormat && isExcelDateNumberFormat(rawFormat))
+            s.dateFormatCode = rawFormat;
+        else if (formats.has(fmtId) && !(fmtId === 164 && rawFormat === '"$"#,##0.00'))
+            s.customNumberFormatCode = rawFormat;
         if (fmtId === 10 || fmtId === 9 || fmt.includes('%'))
             s.numberFormat = 'percent';
         else if ([5, 6, 7, 8, 44].includes(fmtId) || /[$€£]/.test(fmt))
@@ -174,7 +242,23 @@ function styleFromXlsx(parts) {
         return cleanStyle(s);
     });
 }
-function sheetXML(book, tool, styles) {
+function dateFormatStyleIdsFromXlsx(parts) {
+    const file = parts.get('xl/styles.xml');
+    if (!file)
+        return new Set();
+    const root = parseXml(file).documentElement, formats = new Map(nodes(direct(root, 'numFmts') ?? root, 'numFmt').map(node => [int(attr(node, 'numFmtId')), attr(node, 'formatCode')])), builtInDateFormats = new Set([14, 15, 16, 17, 22, ...Array.from({ length: 5 }, (_, index) => 27 + index), ...Array.from({ length: 3 }, (_, index) => 34 + index), ...Array.from({ length: 9 }, (_, index) => 50 + index)]), cellxfs = direct(root, 'cellXfs');
+    if (!cellxfs)
+        return new Set();
+    const isDateFormat = (numFmtId, code) => builtInDateFormats.has(numFmtId) || !!code && isExcelDateNumberFormat(code);
+    return new Set(nodes(cellxfs, 'xf').flatMap((style, index) => { const numFmtId = int(attr(style, 'numFmtId')), code = formats.get(numFmtId) ?? ''; return isDateFormat(numFmtId, code) ? [index] : []; }));
+}
+/** Filter values in Excel's native AutoFilter representation; preserve multi-column rules. */
+function excelFilterColumns(spec) {
+    if (spec.criteria?.length)
+        return spec.criteria.map(c => `<filterColumn colId="${c.column - spec.startCol}"><filters>${c.values.map(v => `<filter val="${esc(v)}"/>`).join('')}</filters></filterColumn>`).join('');
+    return spec.query ? `<filterColumn colId="${spec.column - spec.startCol}"><customFilters><customFilter operator="equal" val="*${esc(spec.query)}*"/></customFilters></filterColumn>` : '';
+}
+function sheetXML(book, tool, styles, viewOptions) {
     const content = new Map();
     for (const item of book.allEntries()) {
         const p = parseRef(item.ref);
@@ -190,7 +274,15 @@ function sheetXML(book, tool, styles) {
         if (!content.get(p.row).some(c => c.ref === ref))
             content.get(p.row).push({ ref, raw: '' });
     }
-    const rows = [...content].sort((a, b) => a[0] - b[0]).map(([r, values]) => `<row r="${r + 1}">${values.sort((a, b) => parseRef(a.ref).col - parseRef(b.ref).col).map(({ ref, raw }) => {
+    for (const row of Object.keys(tool.rowHeights).map(Number)) {
+        if (!content.has(row))
+            content.set(row, []);
+    }
+    for (const row of tool.hiddenRows) {
+        if (!content.has(row))
+            content.set(row, []);
+    }
+    const rows = [...content].sort((a, b) => a[0] - b[0]).map(([r, values]) => `<row r="${r + 1}"${tool.hiddenRows.includes(r) ? ' hidden="1"' : ''}${tool.rowHeights[r] !== undefined ? ` ht="${(tool.rowHeights[r] * .75).toFixed(2)}" customHeight="1"` : ''}>${values.sort((a, b) => parseRef(a.ref).col - parseRef(b.ref).col).map(({ ref, raw }) => {
         const st = styleMap.get(ref) ?? 0, attrS = st ? ` s="${st}"` : '';
         if (raw === '')
             return `<c r="${ref}"${attrS}/>`;
@@ -208,11 +300,50 @@ function sheetXML(book, tool, styles) {
         return `<c r="${ref}"${attrS} t="inlineStr"><is><t xml:space="preserve">${esc(raw)}</t></is></c>`;
     }).join('')}</row>`).join('');
     const pane = tool.freezeRows || tool.freezeCols ? `<pane xSplit="${tool.freezeCols}" ySplit="${tool.freezeRows}" topLeftCell="${colToName(tool.freezeCols)}${tool.freezeRows + 1}" state="frozen"/>` : '';
-    const filter = tool.filter ? `<autoFilter ref="${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}">${tool.filter.query ? `<filterColumn colId="${tool.filter.column - tool.filter.startCol}"><customFilters><customFilter operator="equal" val="*${esc(tool.filter.query)}*"/></customFilters></filterColumn>` : ''}</autoFilter>` : '';
-    const cf = tool.conditional.map((r, i) => `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="cellIs" priority="${i + 1}" operator="${({ gt: 'greaterThan', lt: 'lessThan', eq: 'equal' })[r.operator]}" dxfId="${i}"><formula>${r.threshold}</formula></cfRule></conditionalFormatting>`).join('');
-    return xml(`<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><sheetData>${rows}</sheetData>${filter}${cf}</worksheet>`);
+    // Table filters belong in the table XML; a second sheet-wide filter over the same range would conflict in Excel.
+    const tableOwnsFilter = tool.filter && tool.tables.some(t => t.range.toUpperCase() === `${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}`);
+    const filter = tool.filter && !tableOwnsFilter ? `<autoFilter ref="${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}">${excelFilterColumns(tool.filter)}</autoFilter>` : '';
+    const cf = tool.conditional.map((r, i) => r.operator === 'scale' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="colorScale" priority="${i + 1}"><colorScale><cfvo type="min"/>${r.midColor ? '<cfvo type="percentile" val="50"/>' : ''}<cfvo type="max"/><color rgb="FF${(r.startColor ?? '#ffffff').slice(1).toUpperCase()}"/>${r.midColor ? `<color rgb="FF${r.midColor.slice(1).toUpperCase()}"/>` : ''}<color rgb="FF${r.color.slice(1).toUpperCase()}"/></colorScale></cfRule></conditionalFormatting>` : r.operator === 'dataBar' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="dataBar" priority="${i + 1}"><dataBar showValue="${r.showValue === false ? 0 : 1}"><cfvo type="${r.minValue === undefined ? 'min' : 'num'}"${r.minValue === undefined ? '' : ` val="${r.minValue}"`}/><cfvo type="${r.maxValue === undefined ? 'max' : 'num'}"${r.maxValue === undefined ? '' : ` val="${r.maxValue}"`}/><color rgb="FF${r.color.slice(1).toUpperCase()}"/></dataBar></cfRule></conditionalFormatting>` : `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="cellIs" priority="${i + 1}" operator="${{ gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', eq: 'equal', ne: 'notEqual', between: 'between', notBetween: 'notBetween' }[r.operator]}" dxfId="${i}"><formula>${r.threshold}</formula>${r.operator === 'between' || r.operator === 'notBetween' ? `<formula>${r.threshold2}</formula>` : ''}</cfRule></conditionalFormatting>`).join('');
+    const dataValidations = tool.dataValidations.length ? `<dataValidations count="${tool.dataValidations.length}">${tool.dataValidations.map(rule => {
+        const sqref = rule.start === rule.end ? rule.start : `${rule.start}:${rule.end}`;
+        const prompt = rule.promptMessage || rule.promptTitle, showInput = rule.showInputMessage ?? Boolean(prompt), alert = ` errorStyle="${rule.errorStyle ?? 'stop'}" allowBlank="${rule.allowBlank ? 1 : 0}" showErrorMessage="${(rule.showErrorMessage ?? true) ? 1 : 0}"${showInput ? ' showInputMessage="1"' : ''}${rule.promptTitle ? ` promptTitle="${esc(rule.promptTitle)}"` : ''}${rule.promptMessage ? ` prompt="${esc(rule.promptMessage)}"` : ''}${rule.errorTitle ? ` errorTitle="${esc(rule.errorTitle)}"` : ''}${rule.errorMessage ? ` error="${esc(rule.errorMessage)}"` : ''}`;
+        if (rule.type === 'list') {
+            const formula = rule.sourceRange ? rule.sourceRange.split(':').map(ref => { const p = parseRef(ref); return `$${colToName(p.col)}$${p.row + 1}`; }).join(':') : '"' + (rule.values ?? []).join(',').replace(/"/g, '""') + '"';
+            return `<dataValidation type="list"${alert} sqref="${esc(sqref)}"><formula1>${esc(formula)}</formula1></dataValidation>`;
+        }
+        const operator = rule.operator ?? (rule.min !== undefined && rule.max !== undefined ? 'between' : rule.min !== undefined ? 'greaterThanOrEqual' : 'lessThanOrEqual'), excelOperator = operator === 'equalTo' ? 'equal' : operator === 'notEqualTo' ? 'notEqual' : operator;
+        return `<dataValidation type="${rule.type}" operator="${excelOperator}"${alert} sqref="${esc(sqref)}"><formula1>${rule.min ?? rule.max}</formula1>${operator === 'between' || operator === 'notBetween' ? `<formula2>${rule.max}</formula2>` : ''}</dataValidation>`;
+    }).join('')}</dataValidations>` : '';
+    const page = tool.pageSetup, paperSize = { letter: 1, legal: 5, a3: 8, a4: 9, tabloid: 3 }[page.paper];
+    const pageOptions = `<printOptions gridLines="${page.printGridlines ? 1 : 0}" headings="${page.printHeadings ? 1 : 0}"/><pageMargins left="${page.marginLeft}" right="${page.marginRight}" top="${page.marginTop}" bottom="${page.marginBottom}" header="0.3" footer="0.3"/><pageSetup paperSize="${paperSize}" orientation="${page.orientation}" fitToWidth="${page.fitWidth}" fitToHeight="${page.fitHeight}"/>`;
+    const colIndices = new Set([...Object.keys(tool.columnWidths).map(Number), ...tool.hiddenColumns]);
+    const cols = [...colIndices].sort((a, b) => a - b).map(col => { const width = tool.columnWidths[col] ?? 126, hidden = tool.hiddenColumns.includes(col); return `<col min="${col + 1}" max="${col + 1}" width="${((width - 5) / 7).toFixed(2)}" customWidth="1"${hidden ? ' hidden="1"' : ''}/>`; }).join('');
+    const viewAttributes = `${viewOptions?.showGridLines === false ? ' showGridLines="0"' : ''}${viewOptions?.zoomScale !== undefined ? ` zoomScale="${viewOptions.zoomScale}"` : ''}${viewOptions?.zoomScaleNormal !== undefined ? ` zoomScaleNormal="${viewOptions.zoomScaleNormal}"` : ''}`;
+    return xml(`<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0"${viewAttributes}>${pane}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="22.5"/>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rows}</sheetData>${filter}${cf}${dataValidations}${pageOptions}</worksheet>`);
 }
 export function exportXlsx(doc) {
+    // Build a consistent, refreshed snapshot without mutating the open document.
+    doc = SpreadsheetDocument.fromJSON(doc.toJSON());
+    for (const sheet of doc.sheets) {
+        for (const query of sheet.tools.queries) {
+            const result = query.sourceKind && query.sourceKind !== 'worksheet' ? buildCachedQueryRefresh(sheet.book, query) : buildQueryRefresh(sheet.book, query);
+            sheet.book.applyEdits(result.edits, false);
+            query.lastOutputRange = result.outputRange;
+        }
+        for (const spec of sheet.tools.pivotTables) {
+            const source = doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === (spec.sourceSheet ?? sheet.name).toLocaleLowerCase());
+            if (!source)
+                throw Error(`Pivot source worksheet “${spec.sourceSheet}” is missing.`);
+            const expandedSpec = { ...spec };
+            delete expandedSpec.collapsedRows;
+            delete expandedSpec.collapsedColumns;
+            const summary = buildPivotSummary(sheet.book, expandedSpec, source.book);
+            sheet.book.applyEdits(summary.edits, false);
+            sheet.book.applyStyles(summary.styleEdits, false);
+            spec.lastOutputRange = summary.outputRange;
+            spec.lastPercentCells = summary.percentCells;
+        }
+    }
     const parts = {}, sty = styleCatalog(doc);
     // DXFs are intentionally not persisted as named rules by Excel unless a dxf is written.
     const dxfs = doc.sheets.flatMap(s => s.tools.conditional);
@@ -227,20 +358,795 @@ export function exportXlsx(doc) {
     }
     parts['xl/styles.xml'] = sty.xml.replace('</styleSheet>', `<dxfs count="${dxfs.length}">${dxfNodes}</dxfs></styleSheet>`);
     const typeEntries = [];
+    const pivotTableNames = new Map(), pivotChartIndexesBySheet = new Map();
+    let nextPivotName = 0;
+    for (const destination of doc.sheets)
+        for (const pivot of destination.tools.pivotTables)
+            pivotTableNames.set(`${destination.id}:${pivot.id}`, `GridForgePivot${++nextPivotName}`);
+    let chartIndex = 1, tableIndex = 1, pivotIndex = 0;
+    const workbookPivotRefs = [], workbookPivotRels = [], workbookSlicerRefs = [], workbookSlicerRels = [], sheetPivotCacheIds = new Map(), sheetPivotFieldItems = new Map(), pivotCacheBySignature = new Map(), writtenPivotCaches = new Set();
+    let slicerCacheIndex = 0, pivotTableIndex = 0;
+    const totalPivotCount = doc.sheets.reduce((count, sheet) => count + sheet.tools.pivotTables.length, 0);
     doc.sheets.forEach((sheet, i) => {
-        let worksheet = sheetXML(sheet.book, sheet.tools, sty.index);
+        let worksheet = sheetXML(sheet.book, sheet.tools, sty.index, sheet.viewOptions);
         const offset = offsets[i];
         let next = 0;
         worksheet = worksheet.replace(/dxfId="\d+"/g, () => `dxfId="${offset + next++}"`);
+        const sheetRels = [];
+        const hasDrawing = sheet.tools.charts.length > 0 || sheet.tools.pivotSlicers.length > 0;
+        const drawingSlicers = [];
+        if (hasDrawing) {
+            const drawingIndex = i + 1;
+            worksheet = worksheet.replace('</worksheet>', `<drawing xmlns:r="${relns}" r:id="rId1"/></worksheet>`);
+            sheetRels.push(`<Relationship Id="rId1" Type="${drawingRelationshipType}" Target="../drawings/drawing${drawingIndex}.xml"/>`);
+            parts[`xl/drawings/drawing${drawingIndex}.xml`] = nativeDrawingXml(sheet.tools.charts, drawingSlicers);
+            parts[`xl/drawings/_rels/drawing${drawingIndex}.xml.rels`] = nativeDrawingRelationships(sheet.tools.charts, chartIndex);
+            typeEntries.push(`<Override PartName="/xl/drawings/drawing${drawingIndex}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`);
+            const pivotChartIndexes = new Map();
+            for (const chart of sheet.tools.charts) {
+                const tableName = chart.pivotId && !isNativeChartEx(chart.kind) ? pivotTableNames.get(`${sheet.id}:${chart.pivotId}`) : undefined;
+                parts[`xl/charts/chart${chartIndex}.xml`] = nativeChartXml(sheet.book, sheet.name, chart, tableName);
+                typeEntries.push(`<Override PartName="/xl/charts/chart${chartIndex}.xml" ContentType="${isNativeChartEx(chart.kind) ? 'application/vnd.ms-office.chartex+xml' : 'application/vnd.openxmlformats-officedocument.drawingml.chart+xml'}"/>`);
+                if (tableName && chart.pivotId) {
+                    const indexes = pivotChartIndexes.get(chart.pivotId) ?? [];
+                    indexes.push(chartIndex - 1);
+                    pivotChartIndexes.set(chart.pivotId, indexes);
+                }
+                chartIndex++;
+            }
+            pivotChartIndexesBySheet.set(sheet.id, pivotChartIndexes);
+        }
+        if (sheet.tools.tables.length) {
+            const relStart = hasDrawing ? 2 : 1;
+            const refs = [];
+            for (let t = 0; t < sheet.tools.tables.length; t++) {
+                const table = sheet.tools.tables[t], number = tableIndex++, rid = `rId${relStart + t}`;
+                const bounds = tableRange(table.range, sheet.book.rows, sheet.book.cols), names = tableColumns(sheet.book, table);
+                const columns = names.map((name, k) => { const calculated = table.calculatedColumns?.find(c => c.column === k); return `<tableColumn id="${k + 1}" name="${esc(name)}">${calculated ? `<calculatedColumnFormula>${esc(calculated.formula.replace(/^=/, ''))}</calculatedColumnFormula>` : ''}</tableColumn>`; }).join('');
+                parts[`xl/tables/table${number}.xml`] = xml(`<table xmlns="${ns}" id="${number}" name="${esc(table.name)}" displayName="${esc(table.name)}" ref="${esc(table.range)}" headerRowCount="${table.header ? 1 : 0}" totalsRowShown="0"><autoFilter ref="${esc(table.range)}">${sheet.tools.filter && sheet.tools.filter.startRow === bounds.r1 && sheet.tools.filter.endRow === bounds.r2 && sheet.tools.filter.startCol === bounds.c1 && sheet.tools.filter.endCol === bounds.c2 ? excelFilterColumns(sheet.tools.filter) : ''}</autoFilter><tableColumns count="${names.length}">${columns}</tableColumns><tableStyleInfo name="${table.style}" showFirstColumn="${table.firstColumn ? 1 : 0}" showLastColumn="${table.lastColumn ? 1 : 0}" showRowStripes="${table.bandedRows ? 1 : 0}" showColumnStripes="${table.bandedColumns ? 1 : 0}"/></table>`);
+                typeEntries.push(`<Override PartName="/xl/tables/table${number}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
+                sheetRels.push(`<Relationship Id="${rid}" Type="${relns}/table" Target="../tables/table${number}.xml"/>`);
+                refs.push(`<tablePart r:id="${rid}"/>`);
+            }
+            worksheet = worksheet.replace('</worksheet>', `<tableParts xmlns:r="${relns}" count="${refs.length}">${refs.join('')}</tableParts></worksheet>`);
+        }
+        if (sheet.tools.pivotTables.length) {
+            const refs = [], relStart = (hasDrawing ? 2 : 1) + sheet.tools.tables.length;
+            for (let p = 0; p < sheet.tools.pivotTables.length; p++) {
+                const originalSpec = sheet.tools.pivotTables[p], spec = { ...originalSpec };
+                delete spec.collapsedRows;
+                delete spec.collapsedColumns;
+                const sourceSheet = doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === (spec.sourceSheet ?? sheet.name).toLocaleLowerCase());
+                if (!sourceSheet)
+                    throw Error(`Pivot source worksheet “${spec.sourceSheet}” is missing.`);
+                if (spec.sourceTable) {
+                    const table = sourceSheet.tools.tables.find(item => item.name.toLocaleLowerCase() === spec.sourceTable.toLocaleLowerCase());
+                    if (!table)
+                        throw Error(`Pivot source table “${spec.sourceTable}” is missing.`);
+                    spec.sourceRange = table.range.replace(/\$/g, '').toUpperCase();
+                }
+                const groupedFields = [...new Set([...(spec.dateGroups ?? []), ...(spec.numberGroups ?? []), ...(spec.manualGroups ?? [])].map(group => group.field))].sort((a, b) => a - b), groupSort = groupedFields.map(field => [field, spec.fieldSortOrders?.[String(field)] ?? spec.sortOrder ?? 'ascending']), cacheSignature = JSON.stringify([sourceSheet.name.toLocaleLowerCase(), spec.sourceRange.replace(/\$/g, '').toUpperCase(), spec.sourceTable?.toLocaleLowerCase() ?? null, spec.dateGroups ?? [], spec.numberGroups ?? [], spec.manualGroups ?? [], groupSort]), existingCacheId = pivotCacheBySignature.get(cacheSignature), cacheId = existingCacheId ?? ++pivotIndex;
+                if (existingCacheId === undefined)
+                    pivotCacheBySignature.set(cacheSignature, cacheId);
+                const tableName = pivotTableNames.get(`${sheet.id}:${spec.id}`) ?? `GridForgePivot${pivotTableIndex + 1}`, pivotNo = ++pivotTableIndex, relId = `rId${relStart + p}`, summary = buildPivotSummary(sheet.book, spec, sourceSheet.book), outputRange = summary.outputRange;
+                const chartIndexes = pivotChartIndexesBySheet.get(sheet.id)?.get(spec.id) ?? [], native = nativePivotParts(sourceSheet.book, sourceSheet.name, spec, cacheId, tableName, outputRange, sheet.book, chartIndexes, { collapsedRows: originalSpec.collapsedRows, collapsedColumns: originalSpec.collapsedColumns });
+                sheetPivotCacheIds.set(`${sheet.id}:${spec.id}`, cacheId);
+                sheetPivotFieldItems.set(`${sheet.id}:${spec.id}`, native.fieldItems);
+                if (!writtenPivotCaches.has(cacheId)) {
+                    parts[`xl/pivotCache/pivotCacheDefinition${cacheId}.xml`] = native.cacheDefinition;
+                    parts[`xl/pivotCache/pivotCacheDefinition${cacheId}.xml.rels`] = native.cacheRelationships;
+                    parts[`xl/pivotCache/pivotCacheRecords${cacheId}.xml`] = native.cacheRecords;
+                    writtenPivotCaches.add(cacheId);
+                    const workbookRelId = `rId${doc.sheets.length + 1 + cacheId}`;
+                    workbookPivotRefs.push(`<pivotCache cacheId="${cacheId}" r:id="${workbookRelId}"/>`);
+                    workbookPivotRels.push(`<Relationship Id="${workbookRelId}" Type="${relns}/pivotCacheDefinition" Target="pivotCache/pivotCacheDefinition${cacheId}.xml"/>`);
+                    typeEntries.push(`<Override PartName="/xl/pivotCache/pivotCacheDefinition${cacheId}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"/>`, `<Override PartName="/xl/pivotCache/pivotCacheRecords${cacheId}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml"/>`);
+                }
+                parts[`xl/pivotTables/pivotTable${pivotNo}.xml`] = native.tableDefinition;
+                parts[`xl/pivotTables/_rels/pivotTable${pivotNo}.xml.rels`] = native.tableRelationships;
+                typeEntries.push(`<Override PartName="/xl/pivotTables/pivotTable${pivotNo}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml"/>`);
+                sheetRels.push(`<Relationship Id="${relId}" Type="${relns}/pivotTable" Target="../pivotTables/pivotTable${pivotNo}.xml"/>`);
+                refs.push(`<pivotTablePart r:id="${relId}"/>`);
+            }
+            worksheet = worksheet.replace('</worksheet>', `<pivotTableParts xmlns:r="${relns}" count="${refs.length}">${refs.join('')}</pivotTableParts></worksheet>`);
+        }
+        if (sheet.tools.pivotSlicers.length) {
+            const relationshipIds = [];
+            for (const [slicerIndex, slicer] of sheet.tools.pivotSlicers.entries()) {
+                const pivotPosition = sheet.tools.pivotTables.findIndex(pivot => pivot.id === slicer.pivotId);
+                if (pivotPosition < 0)
+                    throw Error(`PivotTable slicer “${slicer.caption}” has no primary PivotTable.`);
+                const pivot = sheet.tools.pivotTables[pivotPosition], pivotName = pivotTableNames.get(`${sheet.id}:${pivot.id}`);
+                if (!pivotName)
+                    throw Error(`PivotTable slicer “${slicer.caption}” has no native PivotTable definition.`);
+                // The native field item sequence is the order referenced by both PivotField items and the SlicerCache.
+                const nativeFieldItems = sheetPivotFieldItems.get(`${sheet.id}:${pivot.id}`)?.find(item => item.field === slicer.field)?.items;
+                if (!nativeFieldItems)
+                    throw Error(`PivotTable slicer “${slicer.caption}” field is not present in the native PivotCache.`);
+                const fieldHeaders = pivotSourceFieldHeaders(doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === (pivot.sourceSheet ?? sheet.name).toLocaleLowerCase()).book, pivot.sourceRange);
+                const cacheId = sheetPivotCacheIds.get(`${sheet.id}:${pivot.id}`);
+                if (cacheId === undefined)
+                    throw Error(`PivotTable slicer “${slicer.caption}” could not resolve its PivotCache.`);
+                const connectedPivotNames = [slicer.pivotId, ...(slicer.pivotIds ?? [])].flatMap(pivotId => { const connectedId = sheetPivotCacheIds.get(`${sheet.id}:${pivotId}`), connectedName = pivotTableNames.get(`${sheet.id}:${pivotId}`); return connectedId === cacheId && connectedName ? [{ tabId: i + 1, name: connectedName }] : []; });
+                const itemFilter = pivot.itemFilters?.find(filter => filter.field === slicer.field), selectedItems = itemFilter ? itemFilter.values.map(value => value ?? '') : null;
+                const name = `GridForgeSlicer${++slicerCacheIndex}`, cacheName = `GridForgeSlicerCache${slicerCacheIndex}`;
+                const view = { name, cacheName, caption: slicer.caption, x: slicer.x, y: slicer.y, width: slicer.width, height: slicer.height };
+                const slicerCacheXml = nativeSlicerCacheXml({ cacheName, sourceName: fieldHeaders[slicer.field] ?? `Column ${slicer.field + 1}`, pivotCacheId: cacheId, pivotTables: connectedPivotNames.length ? connectedPivotNames : [{ tabId: i + 1, name: pivotName }], items: nativeFieldItems, selectedItems });
+                const slicerPartIndex = i + 1, cachePartIndex = slicerCacheIndex, cacheRelId = `rId${doc.sheets.length + 1 + totalPivotCount + cachePartIndex}`;
+                parts[`xl/slicers/slicer${slicerPartIndex}.xml`] = nativeSlicerViewXml([...drawingSlicers, view]);
+                parts[`xl/slicerCaches/slicerCache${cachePartIndex}.xml`] = slicerCacheXml;
+                if (slicerIndex === 0)
+                    typeEntries.push(`<Override PartName="/xl/slicers/slicer${slicerPartIndex}.xml" ContentType="application/vnd.ms-excel.slicer+xml"/>`);
+                typeEntries.push(`<Override PartName="/xl/slicerCaches/slicerCache${cachePartIndex}.xml" ContentType="application/vnd.ms-excel.slicerCache+xml"/>`);
+                workbookSlicerRefs.push(`<x14:slicerCache r:id="${cacheRelId}"/>`);
+                workbookSlicerRels.push(`<Relationship Id="${cacheRelId}" Type="${relns.replace('officeDocument/2006/relationships', 'officeDocument/2007/relationships')}/slicerCache" Target="slicerCaches/slicerCache${cachePartIndex}.xml"/>`);
+                if (slicerIndex === 0) {
+                    const viewRelId = `rId${sheetRels.length + 1}`;
+                    sheetRels.push(`<Relationship Id="${viewRelId}" Type="${relns.replace('officeDocument/2006/relationships', 'officeDocument/2007/relationships')}/slicer" Target="../slicers/slicer${slicerPartIndex}.xml"/>`);
+                    relationshipIds.push(viewRelId);
+                }
+                drawingSlicers.push(view);
+            }
+            // Rewrite after adding slicer anchors and worksheet relationships.
+            const drawingIndex = i + 1;
+            parts[`xl/drawings/drawing${drawingIndex}.xml`] = nativeDrawingXml(sheet.tools.charts, drawingSlicers);
+            parts[`xl/slicers/slicer${i + 1}.xml`] = nativeSlicerViewXml(drawingSlicers);
+            worksheet = worksheet.replace('</worksheet>', `<extLst>${nativeSlicerListExtension(relationshipIds)}</extLst></worksheet>`);
+        }
+        if (sheet.tools.hyperlinks.length) {
+            const links = [];
+            for (const link of sheet.tools.hyperlinks) {
+                let relationAttribute = '';
+                if (link.target) {
+                    const id = `rId${sheetRels.length + 1}`;
+                    sheetRels.push(`<Relationship Id="${id}" Type="${relns}/hyperlink" Target="${esc(link.target)}" TargetMode="External"/>`);
+                    relationAttribute = ` r:id="${id}"`;
+                }
+                links.push(`<hyperlink ref="${esc(link.ref)}"${relationAttribute}${link.location ? ` location="${esc(link.location)}"` : ''}${link.tooltip ? ` tooltip="${esc(link.tooltip)}"` : ''}${link.display ? ` display="${esc(link.display)}"` : ''}/>`);
+            }
+            worksheet = worksheet.replace('<printOptions', `<hyperlinks${sheet.tools.hyperlinks.some(link => link.target) ? ` xmlns:r="${relns}"` : ''}>${links.join('')}</hyperlinks><printOptions`);
+        }
+        if (sheet.tabColor || sheet.tools.pageSetup.fitWidth || sheet.tools.pageSetup.fitHeight)
+            worksheet = worksheet.replace('<worksheet xmlns="' + ns + '">', `<worksheet xmlns="${ns}"><sheetPr>${sheet.tabColor ? `<tabColor rgb="FF${sheet.tabColor.slice(1).toUpperCase()}"/>` : ''}${sheet.tools.pageSetup.fitWidth || sheet.tools.pageSetup.fitHeight ? '<pageSetUpPr fitToPage="1"/>' : ''}</sheetPr>`);
+        if (sheetRels.length)
+            parts[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = xml(`<Relationships xmlns="${pkgns}">${sheetRels.join('')}</Relationships>`);
         parts[`xl/worksheets/sheet${i + 1}.xml`] = worksheet;
         typeEntries.push(`<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
     });
     parts['[Content_Types].xml'] = xml(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${typeEntries.join('')}</Types>`);
     parts['_rels/.rels'] = xml(`<Relationships xmlns="${pkgns}"><Relationship Id="rId1" Type="${relns}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
-    parts['xl/_rels/workbook.xml.rels'] = xml(`<Relationships xmlns="${pkgns}">${doc.sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${relns}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${doc.sheets.length + 1}" Type="${relns}/styles" Target="styles.xml"/></Relationships>`);
-    parts['xl/workbook.xml'] = xml(`<workbook xmlns="${ns}" xmlns:r="${relns}"><bookViews><workbookView activeTab="${Math.max(0, doc.sheets.findIndex(s => s.id === doc.activeId))}"/></bookViews><sheets>${doc.sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`);
+    parts['xl/_rels/workbook.xml.rels'] = xml(`<Relationships xmlns="${pkgns}">${doc.sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${relns}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${doc.sheets.length + 1}" Type="${relns}/styles" Target="styles.xml"/>${workbookPivotRels.join('')}${workbookSlicerRels.join('')}</Relationships>`);
+    const definedNames = doc.sheets.flatMap((sheet, localSheetId) => {
+        const quotedSheet = esc(`'${sheet.name.replace(/'/g, "''")}'`), titleParts = [...(sheet.tools.pageSetup.repeatRows ? [`${quotedSheet}!$${sheet.tools.pageSetup.repeatRows.split(':')[0]}:$${sheet.tools.pageSetup.repeatRows.split(':')[1]}`] : []), ...(sheet.tools.pageSetup.repeatColumns ? [`${quotedSheet}!$${sheet.tools.pageSetup.repeatColumns.split(':')[0]}:$${sheet.tools.pageSetup.repeatColumns.split(':')[1]}`] : [])];
+        return [...sheet.book.getDefinedNames().map(item => {
+                const absolute = item.ref.split(':').map(ref => { const p = parseRef(ref); return `$${colToName(p.col)}$${p.row + 1}`; }).join(':');
+                return `<definedName name="${esc(item.name)}" localSheetId="${localSheetId}"${item.comment ? ` comment="${esc(item.comment)}"` : ''}>'${sheet.name.replace(/'/g, "''")}'!${absolute}</definedName>`;
+            }), ...(sheet.tools.pageSetup.printArea ? [`<definedName name="_xlnm.Print_Area" localSheetId="${localSheetId}">${quotedSheet}!${sheet.tools.pageSetup.printArea.split(':').map(ref => { const p = parseRef(ref); return `$${colToName(p.col)}$${p.row + 1}`; }).join(':')}</definedName>`] : []), ...(titleParts.length ? [`<definedName name="_xlnm.Print_Titles" localSheetId="${localSheetId}">${titleParts.join(',')}</definedName>`] : [])];
+    }).join('');
+    const slicerExtension = workbookSlicerRefs.length ? `<extLst><ext uri="{BBE1A952-AA13-448e-AADC-164F8A28A991}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:slicerCaches xmlns:r="${relns}">${workbookSlicerRefs.join('')}</x14:slicerCaches></ext></extLst>` : '';
+    parts['xl/workbook.xml'] = xml(`<workbook xmlns="${ns}" xmlns:r="${relns}"><bookViews><workbookView activeTab="${Math.max(0, doc.sheets.findIndex(s => s.id === doc.activeId))}"/></bookViews><sheets>${doc.sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}"${s.hidden ? ' state="hidden"' : ''} r:id="rId${i + 1}"/>`).join('')}</sheets>${definedNames ? `<definedNames>${definedNames}</definedNames>` : ''}${workbookPivotRefs.length ? `<pivotCaches>${workbookPivotRefs.join('')}</pivotCaches>` : ''}<calcPr calcId="191029" fullCalcOnLoad="1"/>${slicerExtension}</workbook>`);
     return zipWrite(parts);
 }
+/** Read named Excel tables from verified local OOXML relationships, never external targets. */
+function importNativeTables(parts, sheetPath, sheet, book, warnings) {
+    const refs = nodes(sheet, 'tablePart');
+    if (!refs.length)
+        return { tables: [], filter: null };
+    const relPath = sheetPath.replace(/\/[^/]+$/, '/_rels/') + sheetPath.split('/').at(-1) + '.rels';
+    const relText = parts.get(relPath);
+    if (!relText) {
+        warnings.push('Table relationships missing.');
+        return { tables: [], filter: null };
+    }
+    const relationships = new Map(nodes(parseXml(relText), 'Relationship').filter(n => !attr(n, 'TargetMode')).map(n => [attr(n, 'Id'), attr(n, 'Target')]));
+    const output = [];
+    let tableFilter = null;
+    for (const node of refs) {
+        try {
+            const rid = node.getAttributeNS(relns, 'id') ?? attr(node, 'r:id'), target = relationships.get(rid);
+            if (!target || !/^\.\.\/tables\/table[0-9]+\.xml$/.test(target))
+                continue;
+            const data = parts.get('xl/' + target.slice(3));
+            if (!data)
+                continue;
+            const xmlDoc = parseXml(data), root = xmlDoc.documentElement, style = nodes(xmlDoc, 'tableStyleInfo')[0], sourceName = attr(root, 'displayName', attr(root, 'name'));
+            const known = ['TableStyleMedium2', 'TableStyleMedium4', 'TableStyleMedium7', 'TableStyleMedium9', 'TableStyleMedium15', 'TableStyleMedium21', 'TableStyleLight1', 'TableStyleLight9', 'TableStyleDark1', 'TableStyleDark4'];
+            const styleName = attr(style ?? root, 'name');
+            if (!known.includes(styleName))
+                warnings.push(`Table ${sourceName}: unrecognized Excel theme ${styleName}; using Medium 2.`);
+            const bounds = tableRange(attr(root, 'ref'), book.rows, book.cols), tableCols = nodes(xmlDoc, 'tableColumn');
+            const calculatedColumns = tableCols.map((column, index) => ({ column: index, formula: nodes(column, 'calculatedColumnFormula')[0]?.textContent ?? '' })).filter(x => x.formula.startsWith('=') || x.formula.length > 0).map(x => ({ column: x.column, formula: x.formula.startsWith('=') ? x.formula : `=${x.formula}`, overrides: Array.from({ length: bounds.r2 - bounds.r1 }, (_, i) => i).filter(i => { const raw = book.getRaw(`${colToName(bounds.c1 + x.column)}${bounds.r1 + 2 + i}`); return !!raw && !raw.startsWith('='); }) }));
+            const table = validateTable({ id: `table-import-${output.length + 1}`, name: sourceName, range: attr(root, 'ref'), style: known.includes(styleName) ? styleName : 'TableStyleMedium2', header: attr(root, 'headerRowCount', '1') !== '0', bandedRows: attr(style ?? root, 'showRowStripes', '1') === '1', bandedColumns: attr(style ?? root, 'showColumnStripes', '0') === '1', firstColumn: attr(style ?? root, 'showFirstColumn', '0') === '1', lastColumn: attr(style ?? root, 'showLastColumn', '0') === '1', ...(calculatedColumns.length ? { calculatedColumns } : {}) }, book.rows, book.cols);
+            output.push(table);
+            if (!tableFilter) {
+                const auto = nodes(xmlDoc, 'autoFilter')[0], filtered = auto ? nodes(auto, 'filterColumn') : [];
+                const b = tableRange(table.range, book.rows, book.cols), criteria = filtered.map(col => ({ column: b.c1 + int(attr(col, 'colId')), values: nodes(col, 'filter').map(v => attr(v, 'val')) })).filter(col => col.values.length);
+                if (criteria.length)
+                    tableFilter = { startRow: b.r1, endRow: b.r2, startCol: b.c1, endCol: b.c2, column: criteria[0].column, query: '', criteria };
+            }
+        }
+        catch (e) {
+            warnings.push(`Could not import one Excel table: ${e instanceof Error ? e.message : 'invalid table'}`);
+        }
+    }
+    return { tables: output, filter: tableFilter };
+}
+/** Import the supported row/column/value/report-filter PivotTable subset emitted by GridForge. */
+function importNativePivots(parts, sheetPath, sheet, book, sheetName, warnings, doc, nativeNames) {
+    const refs = nodes(sheet, 'pivotTablePart');
+    if (!refs.length)
+        return [];
+    const relPath = sheetPath.replace(/\/[^/]+$/, '/_rels/') + sheetPath.split('/').at(-1) + '.rels', relText = parts.get(relPath);
+    if (!relText) {
+        warnings.push(`${sheetName}: PivotTable relationships are missing.`);
+        return [];
+    }
+    const relationships = new Map(nodes(parseXml(relText), 'Relationship').filter(n => !attr(n, 'TargetMode')).map(n => [attr(n, 'Id'), attr(n, 'Target')]));
+    const resolve = (base, target) => { if (!target || target.includes('\\') || /^[a-z]+:/i.test(target))
+        return null; const stack = base.split('/'); stack.pop(); for (const part of target.replace(/^\//, '').split('/')) {
+        if (part === '..')
+            stack.pop();
+        else if (part && part !== '.')
+            stack.push(part);
+    } const path = stack.join('/'); return path.startsWith('xl/') && !path.includes('..') ? path : null; };
+    const output = [], globalNamedRanges = new Map(), workbookXml = parts.get('xl/workbook.xml');
+    if (workbookXml) {
+        const definitions = nodes(parseXml(workbookXml), 'definedName').filter(node => !node.hasAttribute('localSheetId')), rangePattern = /^(?:'((?:[^']|'')+)'|([^!]+))!\s*(\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?)$/i, seen = new Set();
+        for (const definition of definitions) {
+            const name = attr(definition, 'name'), key = name.toLocaleLowerCase(), expression = (definition.textContent ?? '').trim().replace(/^=/, ''), match = rangePattern.exec(expression);
+            if (!name)
+                continue;
+            if (seen.has(key)) {
+                globalNamedRanges.set(key, null);
+                continue;
+            }
+            seen.add(key);
+            if (!match)
+                continue;
+            const sheetName = (match[1] ?? match[2] ?? '').replace(/''/g, "'"), sourceSheet = doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase());
+            if (sourceSheet)
+                globalNamedRanges.set(key, { sheet: sourceSheet.name, range: match[3].replace(/\$/g, '').toUpperCase() });
+        }
+    }
+    for (const ref of refs) {
+        try {
+            const rid = ref.getAttributeNS(relns, 'id') ?? attr(ref, 'r:id'), target = relationships.get(rid), pivotPath = target ? resolve(sheetPath, target) : null;
+            if (!pivotPath || !pivotPath.startsWith('xl/pivotTables/'))
+                continue;
+            const pivotXml = parts.get(pivotPath), pivotRelsPath = pivotPath.replace(/\/[^/]+$/, '/_rels/') + pivotPath.split('/').at(-1) + '.rels', pivotRelsXml = parts.get(pivotRelsPath);
+            if (!pivotXml || !pivotRelsXml)
+                throw Error('Pivot definition or its cache relationship is missing.');
+            const pivot = parseXml(pivotXml), pivotRelationshipNodes = nodes(parseXml(pivotRelsXml), 'Relationship').filter(n => !attr(n, 'TargetMode')), cacheRelation = pivotRelationshipNodes.find(n => attr(n, 'Type').endsWith('/pivotCacheDefinition'));
+            if (!cacheRelation)
+                throw Error('Pivot cache relationship is missing.');
+            const cacheTarget = attr(cacheRelation, 'Target');
+            const cachePath = cacheTarget ? resolve(pivotPath, cacheTarget) : null, cacheXml = cachePath ? parts.get(cachePath) : undefined;
+            if (!cacheXml)
+                throw Error('Pivot cache definition is unavailable.');
+            const cache = parseXml(cacheXml), source = nodes(cache, 'worksheetSource')[0], sourceName = attr(source ?? cache.documentElement, 'name'), declaredSheet = attr(source ?? cache.documentElement, 'sheet'), namedTable = sourceName ? doc.sheets.flatMap(candidate => candidate.tools.tables.filter(table => table.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase() && (!declaredSheet || candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase())).map(table => ({ sheet: candidate, range: table.range })))[0] : undefined, namedRange = sourceName ? doc.sheets.flatMap(candidate => candidate.book.getDefinedNames().filter(name => name.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase() && (!declaredSheet || candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase())).map(name => ({ sheet: candidate, range: name.ref })))[0] : undefined, globalRangeEntry = sourceName ? globalNamedRanges.get(sourceName.toLocaleLowerCase()) ?? undefined : undefined, globalNamedRange = globalRangeEntry && (!declaredSheet || globalRangeEntry.sheet.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase()) ? globalRangeEntry : undefined, sourceEntry = declaredSheet ? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase()) : namedTable?.sheet ?? namedRange?.sheet ?? (globalNamedRange ? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === globalNamedRange.sheet.toLocaleLowerCase()) : undefined) ?? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase()), sourceSheet = sourceEntry?.name ?? (declaredSheet || sheetName), sourceRange = attr(source ?? cache.documentElement, 'ref') || (namedTable && namedTable.sheet.id === sourceEntry?.id ? namedTable.range : namedRange && namedRange.sheet.id === sourceEntry?.id ? namedRange.range : globalNamedRange && globalNamedRange.sheet.toLocaleLowerCase() === sourceEntry?.name.toLocaleLowerCase() ? globalNamedRange.range : '');
+            if (!sourceEntry)
+                throw Error(`Pivot source worksheet “${sourceSheet}” is unavailable.`);
+            if (!sourceRange)
+                throw Error(sourceName ? `Pivot source table or named range “${sourceName}” is unavailable or is not a direct worksheet range.` : 'Pivot source range is missing.');
+            const sourceBook = sourceEntry.book;
+            const range = tableRange(sourceRange, sourceBook.rows, sourceBook.cols), width = range.c2 - range.c1 + 1, cacheFields = nodes(cache, 'cacheField');
+            const groupedCacheFields = new Map();
+            for (let index = width; index < cacheFields.length; index++) {
+                const cacheField = cacheFields[index], group = nodes(cacheField, 'fieldGroup')[0], rangeProperties = group ? nodes(group, 'rangePr')[0] : undefined, discrete = group ? nodes(group, 'discretePr')[0] : undefined, base = int(attr(group ?? cacheFields[index], 'base', '-1')), groupBy = attr(rangeProperties ?? cacheFields[index], 'groupBy');
+                if (!group || base < 0 || base >= width)
+                    throw Error('This PivotTable has an unsupported grouped cache field.');
+                if ([...groupedCacheFields.values()].some(item => item.field === base))
+                    throw Error('Only one imported date or numeric group per source field is supported.');
+                if (rangeProperties && ['years', 'quarters', 'months', 'days'].includes(groupBy)) {
+                    const interval = attr(rangeProperties, 'groupInterval', '1');
+                    if (groupBy === 'days' && interval === '7')
+                        groupedCacheFields.set(index, { field: base, unit: 'weeks' });
+                    else if (groupBy === 'days' && interval !== '1')
+                        throw Error('This PivotTable uses an unsupported date grouping interval.');
+                    else
+                        groupedCacheFields.set(index, { field: base, unit: groupBy });
+                }
+                else if (rangeProperties && (groupBy === 'range' || !groupBy && rangeProperties.hasAttribute('startNum'))) {
+                    const interval = Number(attr(rangeProperties, 'groupInterval', 'NaN')), startText = attr(rangeProperties, 'startNum'), endText = attr(rangeProperties, 'endNum'), start = startText === '' ? undefined : Number(startText), end = endText === '' ? undefined : Number(endText);
+                    if (!Number.isFinite(interval) || interval <= 0 || start !== undefined && !Number.isFinite(start) || end !== undefined && !Number.isFinite(end) || start !== undefined && end !== undefined && start >= end || start === undefined && attr(rangeProperties, 'autoStart') !== '1' || end === undefined && attr(rangeProperties, 'autoEnd') !== '1')
+                        throw Error('This PivotTable has invalid numeric grouping bounds.');
+                    groupedCacheFields.set(index, { field: base, numberGroup: { field: base, interval, ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }) } });
+                }
+                else if (discrete) {
+                    const baseShared = nodes(cacheFields[base] ?? cache.documentElement, 'sharedItems')[0], baseItems = baseShared ? Array.from(baseShared.children).filter(node => ['s', 'n', 'b', 'm', 'e'].includes(node.localName)) : [], groupValuesNode = nodes(cacheField, 'groupItems')[0], groupValues = groupValuesNode ? Array.from(groupValuesNode.children).filter(node => ['s', 'n', 'b', 'm', 'e'].includes(node.localName)) : [], mapping = nodes(discrete, 'x');
+                    if (!baseItems.length || !groupValues.length || mapping.length !== baseItems.length)
+                        throw Error('This PivotTable has an incomplete discrete group mapping.');
+                    const grouped = new Map(), sourceCol = colToName(range.c1 + base), numericDisplay = new Map();
+                    for (let sr = range.r1 + 1; sr <= range.r2; sr++) {
+                        const cell = sourceBook.getValue(`${sourceCol}${sr + 1}`);
+                        if (typeof cell.value === 'number' && !numericDisplay.has(cell.value))
+                            numericDisplay.set(cell.value, display(cell));
+                    }
+                    const valueLabel = (node) => { if (node.localName === 'm')
+                        return null; if (node.localName === 'b')
+                        return attr(node, 'v') === '1' ? 'TRUE' : 'FALSE'; const raw = attr(node, 'v'); return node.localName === 'n' ? numericDisplay.get(Number(raw)) ?? raw : raw; };
+                    for (let itemIndex = 0; itemIndex < baseItems.length; itemIndex++) {
+                        const target = int(attr(mapping[itemIndex] ?? cache.documentElement, 'v', '-1')), groupValue = groupValues[target];
+                        if (target < 0 || !groupValue)
+                            throw Error('This PivotTable has an invalid discrete group index.');
+                        const label = valueLabel(groupValue) ?? '(blank group)';
+                        const entry = grouped.get(label.toLocaleLowerCase()) ?? { label, values: [] };
+                        entry.values.push(valueLabel(baseItems[itemIndex]));
+                        grouped.set(label.toLocaleLowerCase(), entry);
+                    }
+                    const groups = [...grouped.values()].filter(group => !(group.values.length === 1 && group.values[0] !== null && group.label.toLocaleLowerCase() === group.values[0].toLocaleLowerCase()));
+                    groupedCacheFields.set(index, { field: base, manualGroup: { field: base, groups } });
+                }
+                else
+                    throw Error('This PivotTable uses an unsupported grouped cache field.');
+            }
+            if (cacheFields.length !== width + groupedCacheFields.size)
+                throw Error('Pivot cache fields do not match the supported source and grouped fields.');
+            const row = nodes(pivot, 'rowFields').flatMap(n => nodes(n, 'field')), column = nodes(pivot, 'colFields').flatMap(n => nodes(n, 'field')), page = nodes(pivot, 'pageFields').flatMap(n => nodes(n, 'pageField')), data = nodes(pivot, 'dataFields').flatMap(n => nodes(n, 'dataField'));
+            if (row.length > width || column.length > width + 1 || page.length > width || data.length < 1 || data.length > book.cols)
+                throw Error('This PivotTable has more row, column, filter, or value fields than its source and destination can support.');
+            const parseAggregation = (value) => ({ sum: 'sum', count: 'count', countNums: 'countNumbers', average: 'average', min: 'min', max: 'max', product: 'product', stdDev: 'stdDev', stdDevp: 'stdDevp', var: 'var', varp: 'varp' }[value] ?? null), parseShowAs = (value) => ({ normal: 'normal', percent: 'percentOf', percentOfTotal: 'percentGrandTotal', percentOfRow: 'percentRowTotal', percentOfCol: 'percentColumnTotal', percentOfParentRow: 'percentParentRow', percentOfParentCol: 'percentParentColumn', runTotal: 'runningTotal', percentOfRunningTotal: 'percentRunningTotal', difference: 'differenceFrom', percentDiff: 'percentDifferenceFrom', rankAscending: 'rankAscending', rankDescending: 'rankDescending', index: 'index' }[value] ?? null), parsePivotShowAs = (item) => { const extensions = nodes(item, 'dataField').filter(extension => extension.hasAttribute('pivotShowAs')); if (extensions.length > 1 || extensions.length === 1 && item.hasAttribute('showDataAs'))
+                throw Error('This PivotTable has conflicting or duplicate Show Values As metadata.'); return parseShowAs(extensions.length ? attr(extensions[0], 'pivotShowAs') : attr(item, 'showDataAs', 'normal')); };
+            const fieldNodes = nodes(pivot, 'pivotFields').flatMap(n => nodes(n, 'pivotField')), importedBaseItem = (field, itemIndex) => { if (itemIndex === 1048828)
+                return 'previous'; if (itemIndex === 1048829)
+                return 'next'; const fieldItems = nodes(fieldNodes[field] ?? pivot.documentElement, 'item'), cacheIndex = int(attr(fieldItems[itemIndex] ?? pivot.documentElement, 'x', '-1')), cacheField = cacheFields[field], groupItems = nodes(cacheField ?? pivot.documentElement, 'groupItems')[0], sharedNode = groupItems ?? nodes(cacheField ?? pivot.documentElement, 'sharedItems')[0], sharedValues = sharedNode ? Array.from(sharedNode.children).filter(n => ['s', 'n', 'b', 'm', 'e'].includes(n.localName)) : [], selected = sharedValues[cacheIndex]; if (itemIndex < 0 || cacheIndex < 0 || !selected)
+                throw Error('Pivot % Of or Difference From Base Item could not be resolved from its cache.'); return { label: selected.localName === 'm' ? '' : selected.localName === 'b' ? (attr(selected, 'v') === '1' ? 'TRUE' : 'FALSE') : attr(selected, 'v') }; };
+            const rowCacheFields = row.map(field => int(attr(field, 'x', '-1'))), columnCacheFields = column.map(field => int(attr(field, 'x', '-1'))).filter(field => field >= 0), mapAxisField = (field) => groupedCacheFields.get(field)?.field ?? field, rowFields = rowCacheFields.map(mapAxisField), rowField = rowFields[0] ?? -1, columnFields = columnCacheFields.map(mapAxisField), multipleValues = column.some(field => int(attr(field, 'x', '-1')) === -2), valueFields = data.map(item => int(attr(item, 'fld', '-1'))), valueField = valueFields[0], filterFields = page.map(item => int(attr(item, 'fld', '-1'))), measures = data.map(item => { const showAs = parsePivotShowAs(item), baseField = int(attr(item, 'baseField', '-1')), baseItem = int(attr(item, 'baseItem', '0')); return { field: int(attr(item, 'fld', '-1')), aggregation: parseAggregation(attr(item, 'subtotal', 'sum')), showAs, ...(['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(showAs ?? '') ? { baseField: mapAxisField(baseField) } : {}), ...(showAs === 'percentOf' || showAs === 'differenceFrom' || showAs === 'percentDifferenceFrom' ? { baseItem: importedBaseItem(baseField, baseItem) } : {}), caption: attr(item, 'name') }; }), dateGroups = [...new Set([...rowCacheFields, ...columnCacheFields])].flatMap(cacheField => { const group = groupedCacheFields.get(cacheField); return group?.unit ? [{ field: group.field, unit: group.unit }] : []; }), numberGroups = [...new Map([...rowCacheFields, ...columnCacheFields].flatMap(cacheField => { const group = groupedCacheFields.get(cacheField); return group?.numberGroup ? [[group.field, group.numberGroup]] : []; })).values()], manualGroups = [...new Map([...rowCacheFields, ...columnCacheFields].flatMap(cacheField => { const group = groupedCacheFields.get(cacheField); return group?.manualGroup ? [[group.field, group.manualGroup]] : []; })).values()];
+            if (rowCacheFields.some(field => field < 0 || field >= cacheFields.length) || new Set(rowFields).size !== rowFields.length || columnCacheFields.some(field => field >= cacheFields.length) || new Set(columnFields).size !== columnFields.length || valueFields.some(field => field < 0 || field >= width) || new Set(filterFields).size !== filterFields.length || rowFields.some(field => columnFields.includes(field) || filterFields.includes(field)) || columnFields.some(field => rowFields.includes(field) || filterFields.includes(field)) || filterFields.some(field => field < 0 || field >= width || valueFields.includes(field)) || (multipleValues !== (valueFields.length > 1)) || measures.some(m => !m.aggregation || !m.showAs))
+                throw Error('Pivot fields or aggregation are outside GridForge’s supported set.');
+            const labelFilterOperators = { captionEqual: 'equals', captionNotEqual: 'notEqual', captionBeginsWith: 'beginsWith', captionNotBeginsWith: 'notBeginsWith', captionEndsWith: 'endsWith', captionNotEndsWith: 'notEndsWith', captionContains: 'contains', captionNotContains: 'notContains', captionGreaterThan: 'greaterThan', captionGreaterThanOrEqual: 'greaterOrEqual', captionLessThan: 'lessThan', captionLessThanOrEqual: 'lessOrEqual', captionBetween: 'between', captionNotBetween: 'notBetween' }, labelFilterNodes = nodes(nodes(pivot, 'filters')[0] ?? pivot.documentElement, 'filter'), labelFilterCacheFields = new Set(labelFilterNodes.map(filter => int(attr(filter, 'fld', '-1')))), labelFilters = labelFilterNodes.map(filterNode => { const cacheField = int(attr(filterNode, 'fld', '-1')), operator = labelFilterOperators[attr(filterNode, 'type')], value = attr(filterNode, 'stringValue1'), hasValue2 = filterNode.hasAttribute('stringValue2'), value2 = attr(filterNode, 'stringValue2'); if (cacheField < 0 || cacheField >= cacheFields.length || !operator || !filterNode.hasAttribute('stringValue1') || !([...rowCacheFields, ...columnCacheFields].includes(cacheField)) || (['between', 'notBetween'].includes(operator) && !hasValue2) || !['between', 'notBetween'].includes(operator) && hasValue2)
+                throw Error('This PivotTable contains an unsupported or invalid label filter.'); return { field: mapAxisField(cacheField), operator, value, ...(hasValue2 ? { value2 } : {}) }; });
+            if (new Set(labelFilters.map(filter => filter.field)).size !== labelFilters.length)
+                throw Error('Multiple label filters on the same PivotTable field are not supported.');
+            const filters = page.map(pageField => { const filterField = int(attr(pageField, 'fld', '-1')), pivotField = fieldNodes[filterField], pivotItems = nodes(pivotField ?? pivot.documentElement, 'item'), sharedItems = nodes(cacheFields[filterField] ?? pivot.documentElement, 'sharedItems')[0], sharedValues = sharedItems ? Array.from(sharedItems.children).filter(n => ['s', 'n', 'b', 'm', 'e'].includes(n.localName)) : [], toValue = (item) => item.localName === 'm' ? null : item.localName === 'b' ? (attr(item, 'v') === '1' ? 'TRUE' : 'FALSE') : attr(item, 'v'); if (pageField.hasAttribute('item')) {
+                const pageItem = int(attr(pageField, 'item', '-1')), itemIndex = int(attr(pivotItems[pageItem] ?? pivot.documentElement, 'x', '-1')), shared = sharedValues[itemIndex];
+                if (pageItem < 0 || itemIndex < 0 || !shared)
+                    throw Error('Pivot report filter item could not be resolved from its cache.');
+                return { field: filterField, values: [toValue(shared)] };
+            } if (attr(pivotField ?? pivot.documentElement, 'multipleItemSelectionAllowed') === '1') {
+                const values = pivotItems.filter(item => attr(item, 'h') !== '1' && item.hasAttribute('x')).map(item => { const shared = sharedValues[int(attr(item, 'x', '-1'))]; if (!shared)
+                    throw Error('Pivot report filter selection could not be resolved from its cache.'); return toValue(shared); });
+                return { field: filterField, values };
+            } return { field: filterField, values: [] }; });
+            const itemFilters = [...rowCacheFields, ...columnCacheFields].flatMap(cacheField => { const pivotField = fieldNodes[cacheField], pivotItems = nodes(pivotField ?? pivot.documentElement, 'item'), groupItems = nodes(cacheFields[cacheField] ?? pivot.documentElement, 'groupItems')[0], sharedItems = nodes(cacheFields[cacheField] ?? pivot.documentElement, 'sharedItems')[0], sharedValues = groupedCacheFields.has(cacheField) && groupItems ? Array.from(groupItems.children).filter(n => ['s', 'n', 'b', 'm', 'e'].includes(n.localName)) : sharedItems ? Array.from(sharedItems.children).filter(n => ['s', 'n', 'b', 'm', 'e'].includes(n.localName)) : [], hidden = pivotItems.some(item => { const shared = sharedValues[int(attr(item, 'x', '-1'))]; return attr(item, 'h') === '1' && !!shared; }); if (!hidden || labelFilterCacheFields.has(cacheField))
+                return []; const values = pivotItems.filter(item => attr(item, 'h') !== '1' && item.hasAttribute('x')).map(item => { const shared = sharedValues[int(attr(item, 'x', '-1'))]; if (!shared)
+                throw Error('Pivot item selection could not be resolved from its cache.'); return shared.localName === 'm' ? null : shared.localName === 'b' ? (attr(shared, 'v') === '1' ? 'TRUE' : 'FALSE') : attr(shared, 'v'); }); return [{ field: mapAxisField(cacheField), values }]; });
+            const location = nodes(pivot, 'location')[0], outputRange = attr(location ?? pivot.documentElement, 'ref'), destination = outputRange.split(':')[0];
+            if (!destination || !outputRange)
+                throw Error('Pivot output location is missing.');
+            const savedSort = attr(fieldNodes[rowCacheFields[0]] ?? pivot.documentElement, 'sortType', 'ascending'), subtotalFields = rowCacheFields.filter(field => attr(fieldNodes[field] ?? pivot.documentElement, 'defaultSubtotal', '1') !== '0').map(mapAxisField), mixedSubtotals = subtotalFields.length > 0 && subtotalFields.length < rowFields.length, columnSubtotalFields = columnCacheFields.filter(field => attr(fieldNodes[field] ?? pivot.documentElement, 'defaultSubtotal', '1') !== '0').map(mapAxisField), mixedColumnSubtotals = columnSubtotalFields.length > 0 && columnSubtotalFields.length < columnFields.length, pageRows = int(attr(location ?? pivot.documentElement, 'rowPageCount', '0')), locationStart = parseRef(destination);
+            if (!locationStart || locationStart.row < pageRows)
+                throw Error('Pivot page-field region is outside the worksheet.');
+            const pivotDestination = `${colToName(locationStart.col)}${locationStart.row - pageRows + 1}`, locationEnd = parseRef(outputRange.split(':')[1] ?? destination);
+            if (!locationEnd)
+                throw Error('Pivot output extent is invalid.');
+            const previousOutputRange = `${pivotDestination}:${colToName(locationEnd.col)}${locationEnd.row + 1}`;
+            const cacheItemLabel = (cacheField, item) => { if (item.localName === 'm')
+                return null; if (item.localName === 'b')
+                return attr(item, 'v') === '1' ? 'TRUE' : 'FALSE'; const raw = attr(item, 'v'); if (item.localName === 'e')
+                return raw.startsWith('#') ? raw : `#${raw}!`; if (item.localName !== 'n')
+                return raw; const sourceField = mapAxisField(cacheField), sourceColumn = colToName(range.c1 + sourceField); for (let sourceRow = range.r1 + 1; sourceRow <= range.r2; sourceRow++) {
+                const cell = sourceBook.getValue(`${sourceColumn}${sourceRow + 1}`);
+                if (typeof cell.value === 'number' && cell.value === Number(raw))
+                    return display(cell);
+            } return raw; };
+            const manualItemOrders = [...new Set([...rowCacheFields, ...columnCacheFields])].flatMap(cacheField => { if (attr(fieldNodes[cacheField] ?? pivot.documentElement, 'sortType') !== 'manual')
+                return []; const cacheFieldNode = cacheFields[cacheField], groupItems = nodes(cacheFieldNode ?? pivot.documentElement, 'groupItems')[0], sharedItems = nodes(cacheFieldNode ?? pivot.documentElement, 'sharedItems')[0], sharedValues = groupItems ? Array.from(groupItems.children).filter(node => ['s', 'n', 'b', 'm', 'e'].includes(node.localName)) : sharedItems ? Array.from(sharedItems.children).filter(node => ['s', 'n', 'b', 'm', 'e'].includes(node.localName)) : [], pivotItems = nodes(fieldNodes[cacheField] ?? pivot.documentElement, 'item').filter(item => item.hasAttribute('x')), items = pivotItems.map(item => { const index = int(attr(item, 'x', '-1')), value = sharedValues[index]; if (index < 0 || !value)
+                throw Error('A manually sorted Pivot item could not be resolved from its cache.'); return cacheItemLabel(cacheField, value); }), uniqueItems = [...new Map(items.map(value => [value === null ? '' : value.toLocaleLowerCase(), value])).values()]; return [{ field: mapAxisField(cacheField), items: uniqueItems }]; });
+            const valueSorts = [...rowCacheFields, ...columnCacheFields].flatMap(cacheField => { const pivotField = fieldNodes[cacheField] ?? pivot.documentElement, scope = nodes(pivotField, 'autoSortScope')[0], area = scope ? nodes(scope, 'pivotArea')[0] : undefined, references = area ? nodes(area, 'references')[0] : undefined, reference = references ? nodes(references, 'reference').find(item => attr(item, 'field') === '4294967294') : undefined, measureIndex = reference ? int(attr(nodes(reference, 'x')[0] ?? pivot.documentElement, 'v', '-1')) : -1, order = attr(pivotField, 'sortType'); return measureIndex >= 0 && measureIndex < measures.length && (order === 'ascending' || order === 'descending') ? [{ field: mapAxisField(cacheField), measureField: measures[measureIndex].field, measureIndex, order: order }] : []; });
+            const valueFilterEntries = [...rowCacheFields, ...columnCacheFields].flatMap(cacheField => { const pivotField = fieldNodes[cacheField] ?? pivot.documentElement; if (attr(pivotField, 'autoShow') !== '1')
+                return []; const measureIndex = int(attr(pivotField, 'rankBy', '-1')), count = int(attr(pivotField, 'itemPageCount', '-1')), top = attr(pivotField, 'topAutoShow'); if (measureIndex < 0 || measureIndex >= measures.length || count < 1 || count > 255 || (top !== '0' && top !== '1'))
+                throw Error('This PivotTable has an invalid Top or Bottom value filter.'); return [{ field: mapAxisField(cacheField), measureField: measures[measureIndex].field, measureIndex, direction: top === '1' ? 'top' : 'bottom', count }]; });
+            const valueFilters = valueFilterEntries;
+            const valueSortFields = new Set(valueSorts.map(sort => sort.field)), fieldSortOrders = Object.fromEntries([...rowCacheFields, ...columnCacheFields].map(cacheField => { const field = mapAxisField(cacheField), sortType = attr(fieldNodes[cacheField] ?? pivot.documentElement, 'sortType', 'ascending'), order = valueSortFields.has(field) ? sortType === 'descending' ? 'valueDescending' : 'valueAscending' : ['ascending', 'descending', 'manual'].includes(sortType) ? sortType : 'ascending'; return [String(field), order]; }));
+            const spec = { id: `pivot-import-${output.length + 1}`, sourceRange, ...(namedTable && namedTable.sheet.id === sourceEntry.id ? { sourceTable: sourceName } : {}), ...(sourceSheet.toLocaleLowerCase() !== sheetName.toLocaleLowerCase() ? { sourceSheet } : {}), destination: pivotDestination, rowField, ...(rowFields.length > 1 ? { rowFields } : {}), valueField, ...(valueFields.length > 1 ? { valueFields } : {}), ...(measures.length > 1 || measures.some(m => m.showAs !== 'normal' || m.caption) ? { measures: measures.map(m => ({ ...m, aggregation: m.aggregation, showAs: m.showAs })) } : {}), ...(columnFields.length ? { columnField: columnFields[0], ...(columnFields.length > 1 ? { columnFields } : {}) } : {}), ...(filters.length ? { filters } : {}), ...(itemFilters.length ? { itemFilters } : {}), ...(labelFilters.length ? { labelFilters } : {}), ...(dateGroups.length ? { dateGroups } : {}), ...(numberGroups.length ? { numberGroups } : {}), ...(manualGroups.length ? { manualGroups } : {}), aggregation: measures[0].aggregation, sortOrder: ['ascending', 'descending', 'manual'].includes(savedSort) ? savedSort : 'ascending', fieldSortOrders, ...(manualItemOrders.length ? { manualItemOrders } : {}), ...(valueSorts.length ? { valueSorts } : {}), ...(valueFilters.length ? { valueFilters } : {}), layout: attr(pivot.documentElement, 'compact', '0') === '1' ? 'compact' : attr(pivot.documentElement, 'outline', '0') === '1' ? 'outline' : 'tabular', ...(() => { const showFields = [...new Set([...rowCacheFields, ...columnCacheFields].filter(field => attr(fieldNodes[field] ?? pivot.documentElement, 'showAll', '0') === '1').map(mapAxisField))]; return showFields.length ? { showEmptyItemsFields: showFields } : {}; })(), ...(attr(pivot.documentElement, 'showMissing', '0') === '1' ? { missingCaption: attr(pivot.documentElement, 'missingCaption') } : {}), ...(attr(pivot.documentElement, 'grandTotalCaption') ? { grandTotalCaption: attr(pivot.documentElement, 'grandTotalCaption') } : {}), ...(attr(pivot.documentElement, 'dataCaption') ? { valuesCaption: attr(pivot.documentElement, 'dataCaption') } : {}), ...(attr(pivot.documentElement, 'rowHeaderCaption') ? { rowHeaderCaption: attr(pivot.documentElement, 'rowHeaderCaption') } : {}), subtotalPosition: attr(pivot.documentElement, 'subtotalTop', '0') === '1' ? 'top' : 'bottom', blankRows: rowCacheFields.some(field => attr(fieldNodes[field] ?? pivot.documentElement, 'insertBlankRow', '0') === '1'), rowGrandTotals: attr(pivot.documentElement, 'rowGrandTotals', '1') !== '0', columnGrandTotals: attr(pivot.documentElement, 'colGrandTotals', '1') !== '0', subtotals: subtotalFields.length > 0, ...(mixedSubtotals ? { subtotalFields } : {}), columnSubtotals: columnSubtotalFields.length > 0, ...(mixedColumnSubtotals ? { columnSubtotalFields } : {}), lastOutputRange: previousOutputRange };
+            const checked = validatePivotSummary(spec, sourceBook.rows, sourceBook.cols, book.rows, book.cols), expandedSummary = buildPivotSummary(book, checked, sourceBook);
+            const collapsedPaths = (axisFields, paths) => { const result = new Map(); for (let depth = 0; depth < axisFields.length; depth++) {
+                const cacheField = axisFields[depth], fieldNode = fieldNodes[cacheField] ?? pivot.documentElement, marked = nodes(fieldNode, 'item').filter(item => attr(item, 'sd') === '1');
+                if (!marked.length)
+                    continue;
+                const groupItems = nodes(cacheFields[cacheField] ?? pivot.documentElement, 'groupItems')[0], sharedNode = groupItems ?? nodes(cacheFields[cacheField] ?? pivot.documentElement, 'sharedItems')[0], values = sharedNode ? Array.from(sharedNode.children).filter(node => ['s', 'n', 'b', 'm', 'e'].includes(node.localName)) : [], labels = new Set();
+                for (const item of marked) {
+                    const itemIndex = int(attr(item, 'x', '-1')), value = values[itemIndex];
+                    if (itemIndex < 0 || !value)
+                        continue;
+                    let label = value.localName === 'm' ? '' : value.localName === 'b' ? (attr(value, 'v') === '1' ? 'TRUE' : 'FALSE') : attr(value, 'v');
+                    if (value.localName === 'n' && !groupItems) {
+                        const sourceField = mapAxisField(cacheField), sourceColumn = colToName(range.c1 + sourceField);
+                        for (let row = range.r1 + 1; row <= range.r2; row++) {
+                            const cell = sourceBook.getValue(`${sourceColumn}${row + 1}`);
+                            if (typeof cell.value === 'number' && cell.value === Number(attr(value, 'v'))) {
+                                label = display(cell);
+                                break;
+                            }
+                        }
+                    }
+                    labels.add(label);
+                }
+                for (const path of paths)
+                    if (path.length > depth + 1 && labels.has(path[depth] === '\u0000' ? '' : path[depth])) {
+                        const prefix = path.slice(0, depth + 1);
+                        result.set(JSON.stringify(prefix.map(label => label.toLocaleLowerCase())), prefix);
+                    }
+            } return [...result.values()]; };
+            const collapsedRows = collapsedPaths(rowCacheFields, expandedSummary.rowPaths), collapsedColumns = collapsedPaths(columnCacheFields, expandedSummary.columnPaths);
+            if (collapsedRows.length)
+                checked.collapsedRows = collapsedRows;
+            if (collapsedColumns.length)
+                checked.collapsedColumns = collapsedColumns;
+            const restored = validatePivotSummary(checked, sourceBook.rows, sourceBook.cols, book.rows, book.cols), summary = buildPivotSummary(book, restored, sourceBook);
+            restored.lastOutputRange = summary.outputRange;
+            restored.lastPercentCells = summary.percentCells;
+            book.applyEdits(summary.edits, false);
+            book.applyStyles(summary.styleEdits, false);
+            const nativeName = attr(pivot.documentElement, 'name');
+            if (nativeName)
+                nativeNames?.set(restored.id, nativeName);
+            output.push(restored);
+        }
+        catch (e) {
+            warnings.push(`${sheetName}: PivotTable import skipped (${e instanceof Error ? e.message : 'unsupported PivotTable'}).`);
+        }
+    }
+    return output;
+}
+/** Import the bounded native Excel slicer subset emitted by this exporter. */
+function importNativeSlicers(parts, sheetPath, sheet, sheetEntry, document, nativeNames, warnings) {
+    const slicerRefs = nodes(sheet, 'slicer').filter(node => node.namespaceURI === 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main');
+    if (!slicerRefs.length)
+        return [];
+    const resolve = (base, target) => { if (!target || target.includes('\\') || /^[a-z]+:/i.test(target))
+        return null; const stack = base.split('/'); stack.pop(); for (const part of target.replace(/^\//, '').split('/')) {
+        if (part === '..')
+            stack.pop();
+        else if (part && part !== '.')
+            stack.push(part);
+    } const path = stack.join('/'); return path.startsWith('xl/') && !path.includes('..') ? path : null; };
+    const relsPath = (path) => path.replace(/\/[^/]+$/, '/_rels/') + path.split('/').at(-1) + '.rels';
+    const readRelationships = (path) => new Map(nodes(parseXml(parts.get(path) ?? '<Relationships/>'), 'Relationship').filter(node => !attr(node, 'TargetMode')).map(node => [attr(node, 'Id'), attr(node, 'Target')]));
+    const workbookRels = readRelationships('xl/_rels/workbook.xml.rels'), workbook = parseXml(parts.get('xl/workbook.xml') ?? '<workbook/>'), cacheParts = new Map();
+    for (const cacheRef of nodes(workbook, 'slicerCache')) {
+        const rid = cacheRef.getAttributeNS(relns, 'id') ?? attr(cacheRef, 'r:id'), target = workbookRels.get(rid), path = target ? resolve('xl/workbook.xml', target) : null;
+        if (!path)
+            continue;
+        const text = parts.get(path);
+        if (!text)
+            continue;
+        try {
+            const cache = parseXml(text), name = attr(cache.documentElement, 'name');
+            if (name)
+                cacheParts.set(name, { path, xml: cache });
+        }
+        catch {
+            warnings.push(`${sheetEntry.name}: invalid native slicer cache was ignored.`);
+        }
+    }
+    const sheetRels = readRelationships(relsPath(sheetPath)), output = [], used = new Set(), resolvedViews = slicerRefs.flatMap(reference => { try {
+        const rid = reference.getAttributeNS(relns, 'id') ?? attr(reference, 'r:id'), target = sheetRels.get(rid), path = target ? resolve(sheetPath, target) : null, text = path ? parts.get(path) : undefined;
+        if (!path || !text)
+            return [];
+        const parsed = parseXml(text);
+        return nodes(parsed, 'slicer').map(view => ({ view, viewName: attr(view, 'name') }));
+    }
+    catch {
+        return [];
+    } });
+    for (const [index, { view, viewName }] of resolvedViews.entries()) {
+        try {
+            const cacheName = attr(view, 'cache'), cacheEntry = cacheParts.get(cacheName);
+            if (!cacheEntry)
+                throw Error('slicer cache is missing');
+            const cache = cacheEntry.xml.documentElement, sourceName = attr(cache, 'sourceName'), nativePivotRefs = nodes(cache, 'pivotTable'), pivotByName = new Map([...nativeNames].map(([id, name]) => [name, id]));
+            const targets = nativePivotRefs.map(item => pivotByName.get(attr(item, 'name'))).filter((id) => !!id), primaryId = targets[0], pivot = sheetEntry.tools.pivotTables.find(item => item.id === primaryId);
+            if (!primaryId || !pivot)
+                throw Error('the linked PivotTable is not available on this worksheet');
+            const sourceNameResolved = pivot.sourceSheet ?? sheetEntry.name, sourceEntry = document.sheets.find(item => item.name.toLocaleLowerCase() === sourceNameResolved.toLocaleLowerCase()), sourceBook = sourceEntry?.book;
+            if (!sourceBook)
+                throw Error('the linked PivotTable source is not available');
+            const headers = pivotSourceFieldHeaders(sourceBook, pivot.sourceRange), field = headers.findIndex(header => header === sourceName);
+            if (field < 0)
+                throw Error('the slicer field is not present in the source range');
+            const axisFields = [...(pivot.rowFields ?? [pivot.rowField]), ...(pivot.columnFields ?? (pivot.columnField === undefined ? [] : [pivot.columnField]))], grouped = [...(pivot.dateGroups ?? []).map(group => group.field), ...(pivot.numberGroups ?? []).map(group => group.field), ...(pivot.manualGroups ?? []).map(group => group.field)];
+            if (!axisFields.includes(field) || grouped.includes(field))
+                throw Error('the slicer field is not an ungrouped PivotTable row or column field');
+            const partsRange = pivot.sourceRange.split(':'), first = parseRef(partsRange[0] ?? ''), last = parseRef(partsRange[1] ?? partsRange[0] ?? '');
+            if (!first || !last)
+                throw Error('invalid PivotTable source range');
+            const values = [], seen = new Set();
+            for (let row = first.row + 1; row <= last.row; row++) {
+                const cell = sourceBook.getValue(`${colToName(first.col + field)}${row + 1}`), value = cell.value === null || cell.value === '' ? null : display(cell), key = (value ?? '').toLocaleLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    values.push(value);
+                }
+            }
+            const selectedIndices = new Set(nodes(cache, 'items').flatMap(items => nodes(items, 'i').filter(item => attr(item, 's') === '1').map(item => int(attr(item, 'x', '-1'))))), selectedValues = values.filter((_, itemIndex) => selectedIndices.has(itemIndex));
+            const selected = selectedValues.length < values.length ? selectedValues : undefined;
+            const connected = [...new Set(targets)].filter(id => { const targetPivot = sheetEntry.tools.pivotTables.find(item => item.id === id); if (!targetPivot)
+                return false; const fields = [...(targetPivot.rowFields ?? [targetPivot.rowField]), ...(targetPivot.columnFields ?? (targetPivot.columnField === undefined ? [] : [targetPivot.columnField]))], groups = [...(targetPivot.dateGroups ?? []).map(group => group.field), ...(targetPivot.numberGroups ?? []).map(group => group.field), ...(targetPivot.manualGroups ?? []).map(group => group.field)]; return fields.includes(field) && !groups.includes(field) && targetPivot.sourceRange.replace(/\$/g, '').toUpperCase() === pivot.sourceRange.replace(/\$/g, '').toUpperCase() && (targetPivot.sourceSheet ?? sheetEntry.name).toLocaleLowerCase() === (pivot.sourceSheet ?? sheetEntry.name).toLocaleLowerCase(); });
+            const eligible = connected.length ? connected : [primaryId], pivotIds = eligible.filter(id => id !== primaryId), priorFilters = eligible.map(pivotId => ({ pivotId, values: null }));
+            for (const pivotId of eligible) {
+                const targetPivot = sheetEntry.tools.pivotTables.find(item => item.id === pivotId);
+                targetPivot.itemFilters = [...(targetPivot.itemFilters ?? []).filter(item => item.field !== field), ...(selected ? [{ field, values: [...selected] }] : [])];
+            }
+            let x = 80 + index * 24, y = 80 + index * 24, width = 220, height = 280;
+            const drawingTargets = [...sheetRels.values()].filter(target => target.includes('drawings/'));
+            for (const drawingTarget of drawingTargets) {
+                const drawingPath = resolve(sheetPath, drawingTarget), drawingText = drawingPath ? parts.get(drawingPath) : undefined;
+                if (!drawingText)
+                    continue;
+                const drawing = parseXml(drawingText), slicerShape = nodes(drawing, 'slicer').find(node => attr(node, 'name') === viewName);
+                if (!slicerShape)
+                    continue;
+                let anchor = slicerShape.parentNode;
+                while (anchor && anchor.nodeType === 1 && !['absoluteAnchor', 'oneCellAnchor', 'twoCellAnchor'].includes(anchor.localName))
+                    anchor = anchor.parentNode;
+                const pos = anchor && nodes(anchor, 'pos')[0], ext = anchor && nodes(anchor, 'ext')[0], from = anchor && nodes(anchor, 'from')[0], to = anchor && nodes(anchor, 'to')[0], marker = (node, name) => int(node ? (nodes(node, name)[0]?.textContent ?? '0') : '0'), startX = from ? marker(from, 'col') * 112 + marker(from, 'colOff') / 9525 : 0, startY = from ? marker(from, 'row') * 26 + marker(from, 'rowOff') / 9525 : 0, endX = to ? marker(to, 'col') * 112 + marker(to, 'colOff') / 9525 : 0, endY = to ? marker(to, 'row') * 26 + marker(to, 'rowOff') / 9525 : 0;
+                if (pos) {
+                    x = Math.max(0, Math.min(30000, Math.round(int(attr(pos, 'x')) / 9525)));
+                    y = Math.max(0, Math.min(30000, Math.round(int(attr(pos, 'y')) / 9525)));
+                }
+                else if (from) {
+                    x = Math.max(0, Math.min(30000, Math.round(startX)));
+                    y = Math.max(0, Math.min(30000, Math.round(startY)));
+                }
+                if (ext) {
+                    width = Math.max(180, Math.min(900, Math.round(int(attr(ext, 'cx')) / 9525)));
+                    height = Math.max(180, Math.min(900, Math.round(int(attr(ext, 'cy')) / 9525)));
+                }
+                else if (to && from) {
+                    width = Math.max(180, Math.min(900, Math.round(endX - startX)));
+                    height = Math.max(180, Math.min(900, Math.round(endY - startY)));
+                }
+                break;
+            }
+            let id = `slicer-native-${index + 1}`;
+            while (used.has(id))
+                id = `${id}-x`;
+            used.add(id);
+            output.push({ id, pivotId: primaryId, pivotIds, priorFilters, field, caption: attr(view, 'caption', sourceName), x, y, width, height });
+        }
+        catch (error) {
+            warnings.push(`${sheetEntry.name}: native slicer was skipped (${error instanceof Error ? error.message : 'unsupported slicer'}).`);
+        }
+    }
+    return output;
+}
+/** Import supported Excel-native DrawingML charts without executing formulas or external links. */
+function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, pivotSourceNames) {
+    const drawings = nodes(sheet, 'drawing');
+    if (!drawings.length)
+        return [];
+    const relPath = sheetPath.replace(/\/[^/]+$/, '/_rels/') + sheetPath.split('/').at(-1) + '.rels';
+    const sheetRels = parts.get(relPath);
+    if (!sheetRels) {
+        warnings.push(`${sheetName}: drawing relationships were unavailable.`);
+        return [];
+    }
+    const rels = new Map(nodes(parseXml(sheetRels), 'Relationship').filter(x => !attr(x, 'TargetMode')).map(x => [attr(x, 'Id'), attr(x, 'Target')]));
+    const result = [];
+    const resolve = (base, target) => { if (!target || target.includes('\\') || target.startsWith('http:') || target.startsWith('https:'))
+        return null; const stack = base.split('/'); stack.pop(); for (const part of target.replace(/^\//, '').split('/')) {
+        if (part === '..')
+            stack.pop();
+        else if (part && part !== '.')
+            stack.push(part);
+    } const path = stack.join('/'); return path.startsWith('xl/') && !path.includes('..') ? path : null; };
+    for (const node of drawings) {
+        const rid = node.getAttributeNS(relns, 'id') ?? attr(node, 'r:id');
+        const target = rels.get(rid);
+        if (!target)
+            continue;
+        const drawingPath = resolve(sheetPath, target);
+        if (!drawingPath || !drawingPath.startsWith('xl/drawings/'))
+            continue;
+        const drawing = parts.get(drawingPath), relationXml = parts.get(drawingPath.replace(/\/[^/]+$/, '/_rels/') + drawingPath.split('/').at(-1) + '.rels');
+        if (!drawing || !relationXml)
+            continue;
+        const chartRels = new Map(nodes(parseXml(relationXml), 'Relationship').filter(x => !attr(x, 'TargetMode')).map(x => [attr(x, 'Id'), attr(x, 'Target')]));
+        const parsed = parseXml(drawing);
+        for (const anchor of [...nodes(parsed, 'absoluteAnchor'), ...nodes(parsed, 'twoCellAnchor'), ...nodes(parsed, 'oneCellAnchor')]) {
+            if (result.length >= 24) {
+                warnings.push(`${sheetName}: chart import limited to 24 per worksheet.`);
+                break;
+            }
+            const chartReference = nodes(anchor, 'chart')[0];
+            if (!chartReference)
+                continue;
+            const id = chartReference.getAttributeNS(relns, 'id') ?? attr(chartReference, 'r:id');
+            const chartTarget = chartRels.get(id), chartPath = chartTarget ? resolve(drawingPath, chartTarget) : null;
+            if (!chartPath || !chartPath.startsWith('xl/charts/'))
+                continue;
+            const chartXml = parts.get(chartPath);
+            if (!chartXml)
+                continue;
+            try {
+                const chartDoc = parseXml(chartXml), plot = nodes(chartDoc, 'plotArea')[0], pivotSource = nodes(chartDoc, 'pivotSource')[0], pivotSourceName = pivotSource ? nodes(pivotSource, 'name')[0]?.textContent?.trim() ?? '' : '', chartExSeries = nodes(chartDoc, 'series')[0], chartExLayout = chartExSeries ? attr(chartExSeries, 'layoutId') : '';
+                if (chartExLayout) {
+                    const layout = chartExLayout, layoutProperties = nodes(chartExSeries ?? chartDoc.documentElement, 'layoutPr')[0], binning = layoutProperties ? nodes(layoutProperties, 'binning')[0] : undefined, binCountNode = binning ? nodes(binning, 'binCount')[0] : undefined, binSizeNode = binning ? nodes(binning, 'binSize')[0] : undefined, waterfallSubtotals = layoutProperties ? nodes(layoutProperties, 'subtotals')[0] : undefined, chartExRoot = nodes(chartDoc, 'chart')[0], chartExLegend = chartExRoot ? nodes(chartExRoot, 'legend')[0] : undefined, legendPosition = chartExLegend ? { b: 'bottom', t: 'top', r: 'right' }[attr(chartExLegend, 'pos')] : undefined;
+                    const layouts = { waterfall: 'waterfall', treemap: 'treemap', sunburst: 'sunburst', funnel: 'funnel', paretoLine: 'pareto', 'boxWhisker': 'box-whisker' };
+                    const kind = layouts[layout] ?? (layout === 'clusteredColumn' && binning ? 'histogram' : undefined);
+                    if (!kind)
+                        continue;
+                    const formulaRanges = [];
+                    for (const formula of nodes(chartDoc, 'f')) {
+                        const text = formula.textContent ?? '', match = /^(?:'((?:[^']|'')+)'|([^!]+))?!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)$/i.exec(text);
+                        if (!match)
+                            continue;
+                        const sheetRef = (match[1] ?? match[2] ?? '').replace(/''/g, "'");
+                        if (sheetRef && sheetRef.toLowerCase() !== sheetName.toLowerCase())
+                            continue;
+                        const a = parseRef(`${match[3]}${match[4]}`), b = parseRef(`${match[5]}${match[6]}`);
+                        if (a && b && a.row <= b.row && a.col <= b.col)
+                            formulaRanges.push({ r1: a.row, r2: b.row, c1: a.col, c2: b.col });
+                    }
+                    if (!formulaRanges.length || kind === 'histogram' && formulaRanges.length !== 1) {
+                        warnings.push(`${sheetName}: ChartEx chart has no supported local data range${kind === 'histogram' ? ' for its single numeric series' : ''}.`);
+                        continue;
+                    }
+                    if (kind === 'histogram' && binCountNode && binSizeNode) {
+                        warnings.push(`${sheetName}: ChartEx Histogram defines both a bin count and bin width.`);
+                        continue;
+                    }
+                    if (kind === 'histogram' && binCountNode) {
+                        const binCount = Number((binCountNode.textContent ?? '').trim());
+                        if (!Number.isInteger(binCount) || binCount < 1 || binCount > 50) {
+                            warnings.push(`${sheetName}: ChartEx Histogram uses a bin count outside GridForge's supported range.`);
+                            continue;
+                        }
+                    }
+                    if (kind === 'histogram' && binSizeNode) {
+                        const binWidth = Number((binSizeNode.textContent ?? '').trim());
+                        if (!Number.isFinite(binWidth) || binWidth <= 0 || binWidth > 1e15) {
+                            warnings.push(`${sheetName}: ChartEx Histogram uses a bin width outside GridForge's supported range.`);
+                            continue;
+                        }
+                    }
+                    const r1 = Math.min(...formulaRanges.map(r => r.r1)), r2 = Math.max(...formulaRanges.map(r => r.r2)), c1 = Math.min(...formulaRanges.map(r => r.c1)), c2 = Math.max(...formulaRanges.map(r => r.c2)), headerRow = Math.max(0, r1 - 1), range = `${colToName(c1)}${headerRow + 1}:${colToName(c2)}${r2 + 1}`;
+                    chartRange(range, book.rows, book.cols);
+                    const p = nodes(anchor, 'pos')[0], ext = nodes(anchor, 'ext')[0], from = nodes(anchor, 'from')[0], to = nodes(anchor, 'to')[0], px = (v) => Math.round(v / 9525), x = p ? px(int(attr(p, 'x'))) : from ? int(nodes(from, 'col')[0]?.textContent ?? '0') * 112 : 100, y = p ? px(int(attr(p, 'y'))) : from ? int(nodes(from, 'row')[0]?.textContent ?? '0') * 26 : 100, width = ext ? px(int(attr(ext, 'cx'))) : to && from ? Math.max(300, (int(nodes(to, 'col')[0]?.textContent ?? '0') - int(nodes(from, 'col')[0]?.textContent ?? '0')) * 112) : 510, height = ext ? px(int(attr(ext, 'cy'))) : to && from ? Math.max(210, (int(nodes(to, 'row')[0]?.textContent ?? '0') - int(nodes(from, 'row')[0]?.textContent ?? '0')) * 26) : 320;
+                    const chartTitle = nodes(chartDoc, 'title')[0], titleText = chartTitle ? nodes(chartTitle, 't').map(node => node.textContent ?? '').join('') : 'Chart', binCount = binCountNode ? Number((binCountNode.textContent ?? '').trim()) : undefined, binWidth = binSizeNode ? Number((binSizeNode.textContent ?? '').trim()) : undefined, underflowText = binning?.hasAttribute('underflow') ? attr(binning, 'underflow') : undefined, overflowText = binning?.hasAttribute('overflow') ? attr(binning, 'overflow') : undefined, underflow = underflowText !== undefined && underflowText.trim() !== '' ? Number(underflowText) : underflowText !== undefined ? NaN : undefined, overflow = overflowText !== undefined && overflowText.trim() !== '' ? Number(overflowText) : overflowText !== undefined ? NaN : undefined, dataLabelsNode = nodes(chartExSeries ?? chartDoc.documentElement, 'dataLabels')[0], visibilityNode = dataLabelsNode ? nodes(dataLabelsNode, 'visibility')[0] : undefined, dataLabelVisibility = visibilityNode ? attr(visibilityNode, 'value', '0') : dataLabelsNode ? attr(dataLabelsNode, 'value', '0') : '0', dataLabelCategoryVisibility = visibilityNode ? attr(visibilityNode, 'categoryName', '0') : '0', dataLabelSeriesVisibility = visibilityNode ? attr(visibilityNode, 'seriesName', '0') : '0', dataLabels = !!dataLabelsNode && ['1', 'true'].includes(dataLabelVisibility.toLocaleLowerCase()), dataLabelCategoryName = !!dataLabelsNode && ['1', 'true'].includes(dataLabelCategoryVisibility.toLocaleLowerCase()), dataLabelSeriesName = !!dataLabelsNode && ['1', 'true'].includes(dataLabelSeriesVisibility.toLocaleLowerCase()), seriesShape = chartExSeries ? direct(chartExSeries, 'spPr') : undefined, seriesSolidFill = seriesShape ? direct(seriesShape, 'solidFill') : undefined, seriesRgb = seriesSolidFill ? direct(seriesSolidFill, 'srgbClr') : undefined, seriesRgbValue = seriesRgb ? attr(seriesRgb, 'val') : '';
+                    const seriesColor = /^[0-9a-f]{6}$/i.test(seriesRgbValue) ? `#${seriesRgbValue.toLowerCase()}` : undefined;
+                    if (kind === 'histogram' && ((underflowText !== undefined && (!Number.isFinite(underflow) || Math.abs(underflow) > 1e15)) || (overflowText !== undefined && (!Number.isFinite(overflow) || Math.abs(overflow) > 1e15)) || (underflow !== undefined && overflow !== undefined && underflow >= overflow))) {
+                        warnings.push(`${sheetName}: ChartEx Histogram has invalid underflow or overflow thresholds.`);
+                        continue;
+                    }
+                    let showFinalTotal, waterfallTotalPoints;
+                    if (kind === 'waterfall' && waterfallSubtotals) {
+                        const indexNodes = nodes(waterfallSubtotals, 'idx'), pointCounts = new Set(formulaRanges.map(range => range.r2 - range.r1 + 1));
+                        if (pointCounts.size !== 1)
+                            warnings.push(`${sheetName}: Waterfall subtotal indexes could not be mapped to one consistent data-point count and were ignored.`);
+                        else {
+                            const pointCount = pointCounts.values().next().value, indexes = [];
+                            if (!indexNodes.length)
+                                warnings.push(`${sheetName}: Waterfall subtotal metadata contains no point indexes.`);
+                            for (const node of indexNodes) {
+                                const value = attr(node, 'val'), index = /^\d+$/.test(value) ? Number(value) : NaN;
+                                if (!Number.isInteger(index) || index < 0 || index >= pointCount) {
+                                    warnings.push(`${sheetName}: An invalid Waterfall subtotal index was ignored.`);
+                                    continue;
+                                }
+                                if (!indexes.includes(index))
+                                    indexes.push(index);
+                            }
+                            if (indexes.length) {
+                                waterfallTotalPoints = indexes.sort((a, b) => a - b);
+                                if (waterfallTotalPoints.includes(pointCount - 1))
+                                    showFinalTotal = true;
+                            }
+                        }
+                    }
+                    const chart = validateChart({ id: `chart-import-${result.length + 1}`, kind, title: titleText || 'Chart', range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: legendPosition ?? 'none', dataLabels, dataLabelCategoryName, dataLabelSeriesName, ...(seriesColor ? { seriesOptions: [{ color: seriesColor }] } : {}), ...(showFinalTotal !== undefined ? { showFinalTotal } : {}), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(kind === 'histogram' && binCount !== undefined ? { histogramBins: binCount } : {}), ...(kind === 'histogram' && binWidth !== undefined ? { histogramBinWidth: binWidth } : {}), ...(kind === 'histogram' && underflow !== undefined ? { histogramUnderflow: underflow } : {}), ...(kind === 'histogram' && overflow !== undefined ? { histogramOverflow: overflow } : {}) }, book.rows, book.cols);
+                    result.push(chart);
+                    if (pivotSourceName)
+                        pivotSourceNames?.set(chart.id, pivotSourceName);
+                    continue;
+                }
+                if (!plot) {
+                    warnings.push(`${sheetName}: unsupported Excel chart type ignored.`);
+                    continue;
+                }
+                const typeNode = Array.from(plot.children).find(n => ['barChart', 'lineChart', 'areaChart', 'pieChart', 'doughnutChart', 'scatterChart', 'radarChart', 'stockChart'].includes(n.localName));
+                if (!typeNode) {
+                    warnings.push(`${sheetName}: unsupported Excel chart type ignored.`);
+                    continue;
+                }
+                let kind = typeNode.localName === 'barChart' ? 'column' : typeNode.localName.replace('Chart', '');
+                if (typeNode.localName === 'barChart')
+                    kind = (attr(nodes(typeNode, 'barDir')[0] ?? typeNode, 'val') === 'bar' ? 'bar' : 'column');
+                if (typeNode.localName === 'radarChart')
+                    kind = 'radar';
+                if (typeNode.localName === 'stockChart')
+                    kind = 'stock';
+                if (typeNode.localName === 'barChart' && attr(nodes(typeNode, 'grouping')[0] ?? typeNode, 'val') === 'stacked')
+                    kind = kind === 'bar' ? 'stacked-bar' : 'stacked-column';
+                if (typeNode.localName === 'barChart' && attr(nodes(typeNode, 'grouping')[0] ?? typeNode, 'val') === 'percentStacked')
+                    kind = kind === 'bar' ? 'percent-bar' : 'percent-column';
+                const hasColumnGroup = Array.from(plot.children).some(n => n.localName === 'barChart'), hasLineGroup = Array.from(plot.children).some(n => n.localName === 'lineChart');
+                if (hasColumnGroup && hasLineGroup)
+                    kind = 'combo';
+                const ranges = [];
+                for (const source of (kind === 'combo' ? nodes(plot, 'f') : nodes(typeNode, 'f'))) {
+                    const match = /!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)$/i.exec(source.textContent ?? '');
+                    if (!match)
+                        continue;
+                    const a = parseRef(`${match[1]}${match[2]}`), b = parseRef(`${match[3]}${match[4]}`);
+                    if (a && b && a.row <= b.row && a.col <= b.col)
+                        ranges.push({ r1: a.row, r2: b.row, c1: a.col, c2: b.col });
+                }
+                if (!ranges.length) {
+                    warnings.push(`${sheetName}: chart with unsupported/disconnected series omitted.`);
+                    continue;
+                }
+                let r1 = Math.min(...ranges.map(r => r.r1)), r2 = Math.max(...ranges.map(r => r.r2)), c1 = Math.min(...ranges.map(r => r.c1)), c2 = Math.max(...ranges.map(r => r.c2));
+                const firstSeries = nodes(typeNode, 'ser')[0], categoryFormula = firstSeries ? nodes(nodes(firstSeries, 'cat')[0] ?? firstSeries, 'f')[0]?.textContent ?? '' : '';
+                const categoryRange = /!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)$/i.exec(categoryFormula);
+                const switchRowsColumns = !!categoryRange && categoryRange[2] === categoryRange[4];
+                const seriesNames = nodes(typeNode, 'ser').map(ser => { const tx = nodes(ser, 'tx')[0]; return tx ? nodes(tx, 'v')[0]?.textContent ?? '' : ''; }).filter(Boolean);
+                if (kind === 'stock' && r1 > 0)
+                    r1--;
+                else if (!switchRowsColumns && r1 > 0 && seriesNames.some((v, i) => v === String(book.getValue(`${colToName(Math.min(c2, c1 + i + 1))}${r1}`).value ?? '')))
+                    r1--;
+                const range = `${colToName(c1)}${r1 + 1}:${colToName(c2)}${r2 + 1}`;
+                chartRange(range, book.rows, book.cols);
+                const title = nodes(chartDoc, 'title')[0];
+                const titleText = title ? nodes(title, 't').map(n => n.textContent ?? '').join('') : 'Chart';
+                const leg = nodes(chartDoc, 'legend')[0], lp = leg ? attr(nodes(leg, 'legendPos')[0] ?? leg, 'val') : 'none';
+                const p = nodes(anchor, 'pos')[0], ext = nodes(anchor, 'ext')[0], from = nodes(anchor, 'from')[0], to = nodes(anchor, 'to')[0];
+                const px = (v) => Math.round(v / 9525);
+                const x = p ? px(int(attr(p, 'x'))) : from ? int(nodes(from, 'col')[0]?.textContent ?? '0') * 112 : 100;
+                const y = p ? px(int(attr(p, 'y'))) : from ? int(nodes(from, 'row')[0]?.textContent ?? '0') * 26 : 100;
+                const width = ext ? px(int(attr(ext, 'cx'))) : to && from ? Math.max(300, (int(nodes(to, 'col')[0]?.textContent ?? '0') - int(nodes(from, 'col')[0]?.textContent ?? '0')) * 112) : 510;
+                const height = ext ? px(int(attr(ext, 'cy'))) : to && from ? Math.max(210, (int(nodes(to, 'row')[0]?.textContent ?? '0') - int(nodes(from, 'row')[0]?.textContent ?? '0')) * 26) : 320;
+                const axes = Array.from(plot.children), catAxis = kind === 'scatter' ? axes.find(n => n.localName === 'valAx' && attr(nodes(n, 'axPos')[0] ?? n, 'val') === 'b') : axes.find(n => n.localName === 'catAx'), valAxis = axes.find(n => n.localName === 'valAx' && attr(nodes(n, 'axPos')[0] ?? n, 'val') === 'l') ?? axes.filter(n => n.localName === 'valAx').at(-1), secondaryAxis = axes.find(n => n.localName === 'valAx' && attr(nodes(n, 'axPos')[0] ?? n, 'val') === 'r');
+                const categoryAngleNode = catAxis ? nodes(nodes(catAxis, 'txPr')[0] ?? catAxis, 'bodyPr')[0] : undefined, categoryAngleRaw = categoryAngleNode ? Number(attr(categoryAngleNode, 'rot')) / 60000 : NaN, categoryAngle = Number.isInteger(categoryAngleRaw) && Math.abs(categoryAngleRaw) <= 90 ? categoryAngleRaw : undefined;
+                const categoryIntervalNode = catAxis ? nodes(catAxis, 'tickLblSkip')[0] : undefined, categoryIntervalRaw = categoryIntervalNode ? Number(attr(categoryIntervalNode, 'val')) : NaN, categoryInterval = Number.isInteger(categoryIntervalRaw) && categoryIntervalRaw >= 1 && categoryIntervalRaw <= 250 ? categoryIntervalRaw : undefined;
+                const axTitle = (node) => node ? nodes(nodes(node, 'title')[0] ?? node, 't').map(n => n.textContent ?? '').join('').slice(0, 70) : '';
+                const chartSeriesNodes = nodes(plot, 'ser').map((ser, index) => ({ ser, index, order: Number(attr(nodes(ser, 'idx')[0] ?? ser, 'val', String(index))) })).sort((a, b) => (Number.isFinite(a.order) ? a.order : a.index) - (Number.isFinite(b.order) ? b.order : b.index));
+                const seriesOptions = chartSeriesNodes.map(({ ser }) => { const group = ser.parentElement, axisIds = group ? nodes(group, 'axId').map(n => attr(n, 'val')) : [], trend = nodes(ser, 'trendline')[0], error = nodes(ser, 'errBars')[0], marker = nodes(ser, 'marker')[0], colorNode = nodes(nodes(ser, 'spPr')[0] ?? ser, 'srgbClr')[0]; let trendline; if (trend) {
+                    const type = attr(nodes(trend, 'trendlineType')[0] ?? trend, 'val'), tt = type === 'movingAvg' ? 'movingAverage' : type;
+                    if (['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].includes(tt)) {
+                        const numeric = (name) => { const n = Number(attr(nodes(trend, name)[0] ?? trend, 'val')); return Number.isInteger(n) && n > 0 ? n : undefined; };
+                        trendline = { type: tt, ...(numeric('order') ? { order: numeric('order') } : {}), ...(numeric('period') ? { period: numeric('period') } : {}), ...(numeric('forward') ? { forward: numeric('forward') } : {}), ...(numeric('backward') ? { backward: numeric('backward') } : {}), ...(attr(nodes(trend, 'dispEq')[0] ?? trend, 'val') === '1' ? { showEquation: true } : {}), ...(attr(nodes(trend, 'dispRSqr')[0] ?? trend, 'val') === '1' ? { showR2: true } : {}) };
+                    }
+                } let errorBars; if (error) {
+                    const type = attr(nodes(error, 'errValType')[0] ?? error, 'val'), value = Number(attr(nodes(error, 'val')[0] ?? error, 'val'));
+                    if (['fixedVal', 'percentage', 'stdDev'].includes(type) && Number.isFinite(value))
+                        errorBars = { type: type === 'fixedVal' ? 'fixed' : type === 'percentage' ? 'percentage' : 'standardDeviation', value };
+                } return { ...(kind === 'combo' && group?.localName === 'lineChart' ? { kind: 'line' } : kind === 'combo' && group?.localName === 'barChart' ? { kind: 'column' } : {}), ...(axisIds.includes('404') ? { axis: 'secondary' } : {}), ...(colorNode && /^([0-9a-f]{6})$/i.test(attr(colorNode, 'val')) ? { color: `#${attr(colorNode, 'val').toLowerCase()}` } : {}), ...(marker ? { marker: attr(nodes(marker, 'symbol')[0] ?? marker, 'val') !== 'none' } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline: trendline } : {}) }; });
+                const firstColor = seriesOptions[0]?.color?.slice(1) ?? (nodes(typeNode, 'srgbClr')[0] ? attr(nodes(typeNode, 'srgbClr')[0], 'val').toLowerCase() : '');
+                const theme = Object.keys(CHART_PALETTES).find(name => seriesOptions.length > 0 && seriesOptions.every((option, index) => !option.color || option.color.toLowerCase() === CHART_PALETTES[name][index % CHART_PALETTES[name].length].toLowerCase())) ?? Object.keys(CHART_PALETTES).find(name => CHART_PALETTES[name][0].slice(1).toLowerCase() === firstColor);
+                const piePointColors = new Map();
+                if (kind === 'pie' || kind === 'doughnut') {
+                    const firstSer = chartSeriesNodes[0]?.ser;
+                    for (const point of firstSer ? nodes(firstSer, 'dPt') : []) {
+                        const indexNode = nodes(point, 'idx')[0], index = indexNode ? Number(attr(indexNode, 'val')) : NaN, colorNode = nodes(nodes(point, 'spPr')[0] ?? point, 'srgbClr')[0], value = colorNode ? attr(colorNode, 'val').toLowerCase() : '';
+                        if (Number.isInteger(index) && index >= 0 && index < 250 && /^[0-9a-f]{6}$/.test(value))
+                            piePointColors.set(index, `#${value}`);
+                    }
+                }
+                const dataPointColors = piePointColors.size ? Array.from({ length: Math.max(...piePointColors.keys()) + 1 }, (_, index) => piePointColors.get(index) ?? CHART_PALETTES[theme ?? 'office'][index % CHART_PALETTES[theme ?? 'office'].length]) : undefined;
+                const bound = (node, name) => { if (!node)
+                    return undefined; const scaling = nodes(node, 'scaling')[0], boundNode = scaling ? nodes(scaling, name)[0] : undefined; if (!boundNode)
+                    return undefined; const value = Number(attr(boundNode, 'val')); return Number.isFinite(value) ? value : undefined; };
+                const majorUnitNode = valAxis ? nodes(valAxis, 'majorUnit')[0] : undefined, majorUnit = majorUnitNode ? Number(attr(majorUnitNode, 'val')) : undefined, secondaryMajorUnitNode = secondaryAxis ? nodes(secondaryAxis, 'majorUnit')[0] : undefined, secondaryMajorUnit = secondaryMajorUnitNode ? Number(attr(secondaryMajorUnitNode, 'val')) : undefined;
+                const xMajorUnitNode = kind === 'scatter' && catAxis ? nodes(catAxis, 'majorUnit')[0] : undefined, xMajorUnit = xMajorUnitNode ? Number(attr(xMajorUnitNode, 'val')) : undefined, xNumFmt = kind === 'scatter' && catAxis ? attr(nodes(catAxis, 'numFmt')[0] ?? catAxis, 'formatCode') : '', xAxisFormat = xNumFmt === '$#,##0.00' ? 'currency' : xNumFmt === '0%' ? 'percent' : xNumFmt === '0.00' ? 'number' : 'general', xAxisFormatCode = xNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(xNumFmt) ? xNumFmt : undefined;
+                const yNumFmt = valAxis ? attr(nodes(valAxis, 'numFmt')[0] ?? valAxis, 'formatCode') : '', axisFormat = yNumFmt === '$#,##0.00' ? 'currency' : yNumFmt === '0%' ? 'percent' : yNumFmt === '0.00' ? 'number' : 'general', yAxisFormatCode = yNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(yNumFmt) ? yNumFmt : undefined, secondaryNumFmt = secondaryAxis ? attr(nodes(secondaryAxis, 'numFmt')[0] ?? secondaryAxis, 'formatCode') : '', secondaryAxisFormat = secondaryNumFmt === '$#,##0.00' ? 'currency' : secondaryNumFmt === '0%' ? 'percent' : secondaryNumFmt === '0.00' ? 'number' : 'general', secondaryYAxisFormatCode = secondaryNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(secondaryNumFmt) ? secondaryNumFmt : undefined;
+                const rawDataLabelPosition = attr(nodes(typeNode, 'dLblPos')[0] ?? typeNode, 'val'), dataLabelPosition = { ctr: 'center', inEnd: 'insideEnd', outEnd: 'outsideEnd', bestFit: 'bestFit' }[rawDataLabelPosition], dataLabelsNode = nodes(typeNode, 'dLbls')[0], showLabel = (name) => attr(nodes(dataLabelsNode ?? typeNode, name)[0] ?? typeNode, 'val', '0') === '1', sliceAngleNode = nodes(typeNode, 'firstSliceAng')[0], sliceAngle = sliceAngleNode ? Number(attr(sliceAngleNode, 'val')) : undefined, holeSizeNode = nodes(typeNode, 'holeSize')[0], holeSize = holeSizeNode ? Number(attr(holeSizeNode, 'val')) : undefined, dataLabelSeparatorNode = dataLabelsNode ? nodes(dataLabelsNode, 'separator')[0] : undefined, dataLabelSeparator = dataLabelSeparatorNode?.textContent ?? undefined;
+                const c = { ...(theme ? { theme } : {}), id: `chart-import-${result.length + 1}`, kind, title: titleText.slice(0, 100), range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: leg ? (lp === 'r' ? 'right' : lp === 't' ? 'top' : 'bottom') : 'none', dataLabels: dataLabelsNode ? showLabel('showVal') : false, dataLabelCategoryName: showLabel('showCatName'), dataLabelSeriesName: showLabel('showSerName'), dataLabelPercent: showLabel('showPercent'), ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator ? { dataLabelSeparator } : {}), ...(dataPointColors ? { dataPointColors } : {}), ...(switchRowsColumns ? { switchRowsColumns: true } : {}), xAxisTitle: axTitle(catAxis), ...(categoryAngle !== undefined ? { xAxisLabelAngle: categoryAngle } : {}), ...(categoryInterval !== undefined ? { xAxisLabelInterval: categoryInterval } : {}), ...(kind === 'scatter' && bound(catAxis, 'min') !== undefined ? { xAxisMin: bound(catAxis, 'min') } : {}), ...(kind === 'scatter' && bound(catAxis, 'max') !== undefined ? { xAxisMax: bound(catAxis, 'max') } : {}), ...(kind === 'scatter' && xMajorUnit !== undefined && Number.isFinite(xMajorUnit) && xMajorUnit > 0 ? { xAxisMajorUnit: xMajorUnit } : {}), ...(kind === 'scatter' && xAxisFormat !== 'general' ? { xAxisNumberFormat: xAxisFormat } : {}), ...(kind === 'scatter' && xAxisFormatCode ? { xAxisFormatCode } : {}), yAxisTitle: axTitle(valAxis), ...(secondaryAxis ? { secondaryYAxisTitle: axTitle(secondaryAxis) } : {}), ...(bound(valAxis, 'min') !== undefined ? { yAxisMin: bound(valAxis, 'min') } : {}), ...(bound(valAxis, 'max') !== undefined ? { yAxisMax: bound(valAxis, 'max') } : {}), ...(majorUnit !== undefined && Number.isFinite(majorUnit) && majorUnit > 0 ? { yAxisMajorUnit: majorUnit } : {}), ...(secondaryAxis && bound(secondaryAxis, 'min') !== undefined ? { secondaryYAxisMin: bound(secondaryAxis, 'min') } : {}), ...(secondaryAxis && bound(secondaryAxis, 'max') !== undefined ? { secondaryYAxisMax: bound(secondaryAxis, 'max') } : {}), ...(secondaryMajorUnit !== undefined && Number.isFinite(secondaryMajorUnit) && secondaryMajorUnit > 0 ? { secondaryYAxisMajorUnit: secondaryMajorUnit } : {}), ...(axisFormat !== 'general' ? { yAxisNumberFormat: axisFormat } : {}), ...(secondaryAxisFormat !== 'general' ? { secondaryYAxisNumberFormat: secondaryAxisFormat } : {}), ...(yAxisFormatCode ? { yAxisFormatCode } : {}), ...(secondaryYAxisFormatCode ? { secondaryYAxisFormatCode } : {}), ...(holeSize !== undefined && Number.isInteger(holeSize) ? { doughnutHoleSize: holeSize } : {}), ...(sliceAngle !== undefined && Number.isInteger(sliceAngle) ? { firstSliceAngle: sliceAngle } : {}), ...(valAxis ? { majorGridlines: nodes(valAxis, 'majorGridlines').length > 0, minorGridlines: nodes(valAxis, 'minorGridlines').length > 0 } : {}), ...(kind === 'combo' || seriesOptions.some(o => o.axis === 'secondary' || o.trendline || o.errorBars || o.color || o.marker !== undefined) ? { seriesOptions } : {}) };
+                const chart = validateChart(c, book.rows, book.cols);
+                result.push(chart);
+                if (pivotSourceName)
+                    pivotSourceNames?.set(chart.id, pivotSourceName);
+            }
+            catch (e) {
+                warnings.push(`${sheetName}: chart import skipped (${e instanceof Error ? e.message : 'invalid chart'}).`);
+            }
+        }
+    }
+    return result;
+}
+function pivotSourceTableName(value) { const tail = value.slice(value.lastIndexOf('!') + 1).trim(); return tail.replace(/^['"]|['"]$/g, ''); }
 export async function importXlsx(bytes) {
     if (bytes.length > 25 * 1024 * 1024)
         throw Error('XLSX exceeds the 25 MB import limit.');
@@ -248,16 +1154,20 @@ export async function importXlsx(bytes) {
     const workbookData = parts.get('xl/workbook.xml');
     if (!workbookData)
         throw Error('Not an XLSX workbook: missing xl/workbook.xml');
-    const workbook = parseXml(workbookData), rels = parseXml(parts.get('xl/_rels/workbook.xml.rels') ?? '<Relationships/>');
+    const workbook = parseXml(workbookData), workbookProperties = nodes(workbook, 'workbookPr')[0], date1904 = ['1', 'true'].includes(attr(workbookProperties ?? workbook.documentElement, 'date1904').toLowerCase()), rels = parseXml(parts.get('xl/_rels/workbook.xml.rels') ?? '<Relationships/>');
     const relation = new Map(nodes(rels, 'Relationship').map(n => [attr(n, 'Id'), attr(n, 'Target')]));
     const sheets = nodes(workbook, 'sheet');
     if (!sheets.length || sheets.length > 12)
         throw Error('XLSX must contain between 1 and 12 worksheets.');
     const shared = parts.get('xl/sharedStrings.xml') ? nodes(parseXml(parts.get('xl/sharedStrings.xml')), 'si').map(si => nodes(si, 't').map(t => t.textContent ?? '').join('')) : [];
-    const catalog = styleFromXlsx(parts);
+    const catalog = styleFromXlsx(parts), dateFormatStyleIds = dateFormatStyleIdsFromXlsx(parts);
     const dxfXml = parts.get('xl/styles.xml'), dxfs = dxfXml ? nodes(direct(parseXml(dxfXml).documentElement, 'dxfs') ?? parseXml(dxfXml).documentElement, 'dxf').map(node => color(nodes(node, 'fgColor')[0]) ?? '#ffe0a2') : [];
     const result = new SpreadsheetDocument(); // Replace the default sheet with the first imported sheet below.
-    let first = true;
+    for (const definedName of nodes(workbook, 'definedName'))
+        if (attr(definedName, 'name').toLowerCase() === '_xlnm.print_titles' && !definedName.hasAttribute('localSheetId'))
+            warnings.push('_xlnm.Print_Titles: workbook-scoped print titles are unsupported and were ignored.');
+    let first = true, sheetIndex = 0;
+    const importedSheetPaths = [], importedSheetDocuments = [], pivotChartSourcesBySheet = new Map();
     for (const item of sheets) {
         const name = attr(item, 'name'), relId = item.getAttributeNS(relns, 'id') ?? attr(item, 'r:id');
         const target = relation.get(relId);
@@ -272,6 +1182,8 @@ export async function importXlsx(bytes) {
         if (!content)
             throw Error(`Missing worksheet ${path}`);
         const sheet = parseXml(content), cells = nodes(sheet, 'c'), edits = [], styleEdits = [];
+        importedSheetPaths.push(path);
+        importedSheetDocuments.push(sheet);
         let maxR = 400, maxC = 52;
         const sharedMasters = new Map();
         for (const source of cells) {
@@ -334,13 +1246,88 @@ export async function importXlsx(bytes) {
             }
             else
                 raw = value;
+            const styleIndex = int(attr(c, 's'));
+            if (date1904 && dateFormatStyleIds.has(styleIndex) && !raw.startsWith('=') && (type === '' || type === 'n') && raw !== '') {
+                const serial = Number(raw), normalized = serial + 1462;
+                if (Number.isFinite(serial) && normalized >= 0 && normalized <= 2_958_465)
+                    raw = String(normalized);
+                else
+                    warnings.push(`${name}!${ref}: 1904-system date-formatted value is outside GridForge's supported date range and was kept as a numeric value.`);
+            }
             if (raw)
                 edits.push({ ref, raw });
-            const st = catalog[int(attr(c, 's'))] ?? {};
+            const st = catalog[styleIndex] ?? {};
             if (Object.keys(st).length)
                 styleEdits.push({ ref, style: st });
         }
+        const preImportHyperlinkContainer = direct(sheet.documentElement, 'hyperlinks');
+        for (const node of preImportHyperlinkContainer ? nodes(preImportHyperlinkContainer, 'hyperlink') : []) {
+            const ref = attr(node, 'ref'), point = parseRef(ref);
+            if (point && point.row < 1000 && point.col < 104) {
+                maxR = Math.max(maxR, point.row + 1);
+                maxC = Math.max(maxC, point.col + 1);
+            }
+        }
         const book = new Workbook(maxR, maxC);
+        const pageAreaName = nodes(workbook, 'definedName').find(node => attr(node, 'localSheetId') === String(sheetIndex) && attr(node, 'name').toLowerCase() === '_xlnm.print_area'), printAreaRaw = (pageAreaName?.textContent ?? '').trim().replace(/^'(?:[^']|'')+'!|^[^!]+!/, '').replace(/\$/g, '').toUpperCase(), printTitlesName = nodes(workbook, 'definedName').find(node => attr(node, 'localSheetId') === String(sheetIndex) && attr(node, 'name').toLowerCase() === '_xlnm.print_titles');
+        let repeatRows, repeatColumns;
+        if (printTitlesName) {
+            const expression = (printTitlesName.textContent ?? '').trim().replace(/^=/, '').trim(), parts = splitPrintTitleUnion(expression);
+            if (!parts)
+                warnings.push(`${name}: _xlnm.Print_Titles has malformed quoting and was ignored.`);
+            else
+                for (const part of parts) {
+                    const qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!\s*(.+)$/.exec(part), sourceSheet = qualified ? (qualified[1] ?? qualified[2] ?? '').replace(/''/g, "'").trim() : '';
+                    if (!qualified || sourceSheet.toLocaleLowerCase() !== name.toLocaleLowerCase()) {
+                        warnings.push(`${name}: unsupported _xlnm.Print_Titles reference was ignored.`);
+                        continue;
+                    }
+                    const reference = qualified[3].trim(), rowsMatch = /^\$?([1-9]\d*):\$?([1-9]\d*)$/.exec(reference), columnsMatch = /^\$?([A-Z]{1,3}):\$?([A-Z]{1,3})$/i.exec(reference);
+                    if (rowsMatch) {
+                        const firstRow = Number(rowsMatch[1]), lastRow = Number(rowsMatch[2]);
+                        if (lastRow > 1_048_576 || firstRow > lastRow || repeatRows) {
+                            warnings.push(`${name}: invalid or duplicate print-title row range was ignored.`);
+                            continue;
+                        }
+                        repeatRows = `${firstRow}:${lastRow}`;
+                        continue;
+                    }
+                    if (columnsMatch) {
+                        const firstColumn = nameToCol(columnsMatch[1]), lastColumn = nameToCol(columnsMatch[2]);
+                        if (firstColumn < 0 || lastColumn > 16_383 || firstColumn > lastColumn || repeatColumns) {
+                            warnings.push(`${name}: invalid or duplicate print-title column range was ignored.`);
+                            continue;
+                        }
+                        repeatColumns = `${colToName(firstColumn)}:${colToName(lastColumn)}`;
+                        continue;
+                    }
+                    warnings.push(`${name}: unsupported _xlnm.Print_Titles reference was ignored.`);
+                }
+        }
+        const importedNames = nodes(workbook, 'definedName').filter(node => attr(node, 'localSheetId') === String(sheetIndex) && !['_xlnm.print_area', '_xlnm.print_titles'].includes(attr(node, 'name').toLowerCase())).flatMap(node => {
+            const definedName = attr(node, 'name'), expression = (node.textContent ?? '').trim();
+            const qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!(.+)$/.exec(expression);
+            if (qualified) {
+                const scope = (qualified[1] ?? qualified[2] ?? '').replace(/''/g, "'");
+                if (scope.toLowerCase() !== name.toLowerCase()) {
+                    warnings.push(`${definedName}: defined name points to another worksheet and was skipped.`);
+                    return [];
+                }
+            }
+            const ref = (qualified?.[3] ?? expression).replace(/\$/g, '').toUpperCase();
+            if (!/^([A-Z]{1,3}[1-9]\d*)(:[A-Z]{1,3}[1-9]\d*)?$/.test(ref)) {
+                warnings.push(`${definedName}: unsupported defined-name reference was skipped.`);
+                return [];
+            }
+            return [{ name: definedName, ref, ...(attr(node, 'comment') ? { comment: attr(node, 'comment') } : {}) }];
+        });
+        try {
+            if (importedNames.length)
+                book.setDefinedNames(importedNames, false);
+        }
+        catch (e) {
+            warnings.push(`${name}: defined names skipped (${e instanceof Error ? e.message : 'invalid names'}).`);
+        }
         book.applyEdits(edits, false);
         book.applyStyles(styleEdits, false);
         let unsupported = 0;
@@ -365,11 +1352,111 @@ export async function importXlsx(bytes) {
         }
         else
             added = result.addSheet(name, book);
+        added.hidden = attr(item, 'state') === 'hidden' || attr(item, 'state') === 'veryHidden';
+        const sheetProperties = nodes(sheet, 'sheetPr')[0], tabColor = sheetProperties ? color(direct(sheetProperties, 'tabColor')) : undefined;
+        if (tabColor)
+            added.tabColor = tabColor;
+        const sheetView = nodes(sheet, 'sheetView')[0], viewOptions = {};
+        if (sheetView) {
+            const gridLines = attr(sheetView, 'showGridLines');
+            if (gridLines === '0' || gridLines === 'false')
+                viewOptions.showGridLines = false;
+            else if (gridLines === '1' || gridLines === 'true')
+                viewOptions.showGridLines = true;
+            for (const key of ['zoomScale', 'zoomScaleNormal']) {
+                if (!sheetView.hasAttribute(key))
+                    continue;
+                const scale = Number(attr(sheetView, key));
+                if (Number.isInteger(scale) && scale >= 10 && scale <= 400)
+                    viewOptions[key] = scale;
+                else
+                    warnings.push(`${name}: invalid worksheet ${key} value was ignored.`);
+            }
+        }
+        if (Object.keys(viewOptions).length)
+            added.viewOptions = viewOptions;
         const tool = freshTools(), pane = nodes(sheet, 'pane')[0];
         if (pane) {
             tool.freezeRows = Math.min(maxR - 1, Math.max(0, int(attr(pane, 'ySplit'))));
             tool.freezeCols = Math.min(maxC - 1, Math.max(0, int(attr(pane, 'xSplit'))));
         }
+        const hyperlinkRelationships = new Map();
+        try {
+            const relationPath = path.replace(/\/[^/]+$/, '/_rels/') + path.split('/').at(-1) + '.rels', relationText = parts.get(relationPath);
+            if (relationText)
+                for (const rel of nodes(parseXml(relationText), 'Relationship'))
+                    hyperlinkRelationships.set(attr(rel, 'Id'), rel);
+        }
+        catch {
+            warnings.push(`${name}: malformed worksheet relationships; hyperlinks were skipped.`);
+        }
+        const hyperlinkContainer = direct(sheet.documentElement, 'hyperlinks'), hyperlinkNodes = hyperlinkContainer ? nodes(hyperlinkContainer, 'hyperlink') : [];
+        let rejectedLinks = 0;
+        for (const node of hyperlinkNodes) {
+            if (tool.hyperlinks.length >= 10_000) {
+                warnings.push(`${name}: hyperlinks beyond the 10,000-link limit were skipped.`);
+                break;
+            }
+            const ref = attr(node, 'ref'), point = parseRef(ref);
+            if (!point || point.row >= maxR || point.col >= maxC) {
+                rejectedLinks++;
+                continue;
+            }
+            const normalizedRef = `${colToName(point.col)}${point.row + 1}`;
+            if (tool.hyperlinks.some(link => link.ref === normalizedRef)) {
+                rejectedLinks++;
+                continue;
+            }
+            const rid = node.getAttributeNS(relns, 'id') ?? attr(node, 'r:id'), relation = rid ? hyperlinkRelationships.get(rid) : undefined;
+            let target;
+            if (rid) {
+                if (!relation || !attr(relation, 'Type').endsWith('/hyperlink') || attr(relation, 'TargetMode') !== 'External' || !supportedHyperlinkTarget(attr(relation, 'Target'))) {
+                    rejectedLinks++;
+                    continue;
+                }
+                target = attr(relation, 'Target');
+            }
+            const location = attr(node, 'location') || undefined;
+            if (!target && !location || location && (location.length > 2048 || /[\u0000-\u001f]/.test(location))) {
+                rejectedLinks++;
+                continue;
+            }
+            const link = { ref: `${colToName(point.col)}${point.row + 1}`, ...(target ? { target } : {}), ...(location ? { location } : {}), ...(attr(node, 'tooltip') ? { tooltip: attr(node, 'tooltip') } : {}), ...(attr(node, 'display') ? { display: attr(node, 'display') } : {}) };
+            if ([link.tooltip, link.display].some(value => value !== undefined && (value.length > 255 || /[\u0000-\u001f]/.test(value)))) {
+                rejectedLinks++;
+                continue;
+            }
+            tool.hyperlinks.push(link);
+        }
+        if (rejectedLinks)
+            warnings.push(`${name}: ${rejectedLinks} malformed, unsupported, or out-of-range hyperlinks were ignored.`);
+        const setup = nodes(sheet, 'pageSetup')[0], margins = nodes(sheet, 'pageMargins')[0], printOptions = nodes(sheet, 'printOptions')[0], paper = { 1: 'letter', 3: 'tabloid', 5: 'legal', 8: 'a3', 9: 'a4' }[attr(setup ?? sheet.documentElement, 'paperSize')], orient = attr(setup ?? sheet.documentElement, 'orientation');
+        const parsedPrintParts = printAreaRaw.split(':'), pa = parseRef(parsedPrintParts[0] ?? ''), pb = parseRef(parsedPrintParts[1] ?? parsedPrintParts[0] ?? ''), printArea = parsedPrintParts.length <= 2 && pa && pb && pa.row <= pb.row && pa.col <= pb.col && pb.row < maxR && pb.col < maxC ? printAreaRaw : undefined;
+        if (printAreaRaw && !printArea)
+            warnings.push(`${name}: print area exceeded the imported worksheet range and was ignored.`);
+        const margin = (key, fallback) => { const value = Number(attr(margins ?? sheet.documentElement, key, String(fallback))); return Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : fallback; };
+        tool.pageSetup = { ...tool.pageSetup, ...(orient === 'portrait' || orient === 'landscape' ? { orientation: orient } : {}), ...(paper ? { paper } : {}), ...(setup ? { fitWidth: Math.max(0, Math.min(4, int(attr(setup, 'fitToWidth'), tool.pageSetup.fitWidth))), fitHeight: Math.max(0, Math.min(4, int(attr(setup, 'fitToHeight'), tool.pageSetup.fitHeight))) } : {}), ...(printArea ? { printArea } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}), ...(printOptions ? { printGridlines: attr(printOptions, 'gridLines') === '1', printHeadings: attr(printOptions, 'headings') === '1' } : {}), ...(margins ? { marginTop: margin('top', tool.pageSetup.marginTop), marginBottom: margin('bottom', tool.pageSetup.marginBottom), marginLeft: margin('left', tool.pageSetup.marginLeft), marginRight: margin('right', tool.pageSetup.marginRight) } : {}) };
+        for (const col of nodes(sheet, 'col')) {
+            const from = int(attr(col, 'min')) - 1, to = int(attr(col, 'max')) - 1, width = Number(attr(col, 'width'));
+            if (Number.isFinite(width) && width > 0 && from >= 0 && to < maxC)
+                for (let c = from; c <= to; c++)
+                    tool.columnWidths[c] = Math.max(8, Math.min(600, Math.round(width * 7 + 5)));
+        }
+        for (const row of nodes(sheet, 'row')) {
+            const index = int(attr(row, 'r')) - 1, height = Number(attr(row, 'ht'));
+            if (index >= 0 && index < maxR && attr(row, 'hidden') === '1')
+                tool.hiddenRows.push(index);
+            if (Number.isFinite(height) && height > 0 && index >= 0 && index < maxR)
+                tool.rowHeights[index] = Math.max(12, Math.min(400, Math.round(height * 4 / 3)));
+        }
+        for (const col of nodes(sheet, 'col'))
+            if (attr(col, 'hidden') === '1') {
+                const from = int(attr(col, 'min')) - 1, to = int(attr(col, 'max')) - 1;
+                if (from >= 0 && to < maxC)
+                    for (let c = from; c <= to; c++)
+                        tool.hiddenColumns.push(c);
+            }
+        tool.hiddenColumns = [...new Set(tool.hiddenColumns)];
         const auto = nodes(sheet, 'autoFilter')[0];
         if (auto) {
             const m = /^(\$?[A-Z]+\$?\d+):(\$?[A-Z]+\$?\d+)$/i.exec(attr(auto, 'ref'));
@@ -377,25 +1464,131 @@ export async function importXlsx(bytes) {
                 const a = parseRef(m[1]), b = parseRef(m[2]);
                 if (a && b && b.row > a.row) {
                     const column = nodes(auto, 'filterColumn')[0], custom = column ? nodes(column, 'customFilter')[0] : undefined;
-                    tool.filter = { startRow: a.row, endRow: Math.min(b.row, maxR - 1), startCol: a.col, endCol: Math.min(b.col, maxC - 1), column: Math.min(maxC - 1, a.col + int(column ? attr(column, 'colId') : '0')), query: custom ? attr(custom, 'val').replace(/^\*|\*$/g, '') : '' };
+                    const criteria = nodes(auto, 'filterColumn').map(item => ({ column: a.col + int(attr(item, 'colId')), values: nodes(item, 'filter').map(f => attr(f, 'val')) })).filter(item => item.values.length);
+                    tool.filter = { startRow: a.row, endRow: Math.min(b.row, maxR - 1), startCol: a.col, endCol: Math.min(b.col, maxC - 1), column: Math.min(maxC - 1, a.col + int(column ? attr(column, 'colId') : '0')), query: custom ? attr(custom, 'val').replace(/^\*|\*$/g, '') : '', ...(criteria.length ? { criteria } : {}) };
                 }
             }
         }
         for (const node of nodes(sheet, 'conditionalFormatting')) {
-            const range = attr(node, 'sqref').split(/\s+/)[0] ?? '', m = /^([A-Z]+\d+):([A-Z]+\d+)$/.exec(range), rule = nodes(node, 'cfRule')[0];
-            if (!m || !rule || attr(rule, 'type') !== 'cellIs')
+            const ranges = attr(node, 'sqref').split(/\s+/).filter(Boolean), rule = nodes(node, 'cfRule')[0];
+            if (!rule)
                 continue;
-            const op = { greaterThan: 'gt', lessThan: 'lt', equal: 'eq' }[attr(rule, 'operator')], threshold = Number(nodes(rule, 'formula')[0]?.textContent ?? 'NaN');
-            if (!op || !Number.isFinite(threshold))
-                continue;
-            tool.conditional.push({ start: m[1], end: m[2], operator: op, threshold, color: dxfs[int(attr(rule, 'dxfId'))] ?? '#ffe0a2' });
+            for (const range of ranges) {
+                const m = /^([A-Z]+\d+):([A-Z]+\d+)$/i.exec(range);
+                if (!m)
+                    continue;
+                if (attr(rule, 'type') === 'colorScale') {
+                    const colors = nodes(rule, 'color').map(x => attr(x, 'rgb')).filter(x => /^[a-f0-9]{8}$/i.test(x));
+                    if (colors.length === 2 || colors.length === 3)
+                        tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'scale', threshold: 0, startColor: '#' + colors[0].slice(2), ...(colors.length === 3 ? { midColor: '#' + colors[1].slice(2) } : {}), color: '#' + colors.at(-1).slice(2) });
+                    continue;
+                }
+                if (attr(rule, 'type') === 'dataBar') {
+                    const bar = nodes(rule, 'dataBar')[0], colorNode = bar ? nodes(bar, 'color')[0] : undefined, color = colorNode ? attr(colorNode, 'rgb') : '';
+                    if (bar && /^[a-f0-9]{8}$/i.test(color)) {
+                        const limits = nodes(bar, 'cfvo'), min = limits[0], max = limits[1], minValue = attr(min ?? bar, 'type') === 'num' ? Number(attr(min, 'val')) : undefined, maxValue = attr(max ?? bar, 'type') === 'num' ? Number(attr(max, 'val')) : undefined, negativeNode = nodes(bar, 'negativeFillColor')[0], negativeRgb = negativeNode ? attr(negativeNode, 'rgb') : '';
+                        tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'dataBar', threshold: 0, color: '#' + color.slice(2), showValue: attr(bar, 'showValue', '1') !== '0', barStyle: attr(bar, 'gradient', '1') === '0' ? 'solid' : 'gradient', ...(negativeRgb && /^[a-f0-9]{8}$/i.test(negativeRgb) ? { negativeColor: '#' + negativeRgb.slice(2) } : {}), ...(Number.isFinite(minValue) ? { minValue } : {}), ...(Number.isFinite(maxValue) ? { maxValue } : {}) });
+                    }
+                    continue;
+                }
+                if (attr(rule, 'type') !== 'cellIs')
+                    continue;
+                const op = { greaterThan: 'gt', greaterThanOrEqual: 'gte', lessThan: 'lt', lessThanOrEqual: 'lte', equal: 'eq', notEqual: 'ne', between: 'between', notBetween: 'notBetween' }[attr(rule, 'operator')], formulas = nodes(rule, 'formula'), threshold = Number(formulas[0]?.textContent ?? 'NaN'), threshold2 = Number(formulas[1]?.textContent ?? 'NaN');
+                if (!op || !Number.isFinite(threshold) || (op === 'between' || op === 'notBetween') && !Number.isFinite(threshold2))
+                    continue;
+                tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: op, threshold, ...(op === 'between' || op === 'notBetween' ? { threshold2 } : {}), color: dxfs[int(attr(rule, 'dxfId'))] ?? '#ffe0a2' });
+            }
         }
+        const resolveValidationNamedRange = (expression) => { const token = expression.trim().replace(/^=/, '').trim(); if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(token))
+            return undefined; const matching = nodes(workbook, 'definedName').filter(item => attr(item, 'name').toLocaleLowerCase() === token.toLocaleLowerCase()), local = matching.filter(item => attr(item, 'localSheetId') === String(sheetIndex)), candidates = local.length ? local : matching.filter(item => !item.hasAttribute('localSheetId')); if (candidates.length !== 1)
+            return undefined; const target = candidates[0], reference = (target.textContent ?? '').trim().replace(/^=/, '').trim(), qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!\s*(\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?)$/i.exec(reference); let range; if (qualified) {
+            const targetSheet = (qualified[1] ?? qualified[2] ?? '').replace(/''/g, "'");
+            if (targetSheet.toLocaleLowerCase() !== name.toLocaleLowerCase())
+                return undefined;
+            range = qualified[3];
+        }
+        else {
+            if (!local.length || !/^\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?$/i.test(reference))
+                return undefined;
+            range = reference;
+        } return range.replace(/\$/g, '').toUpperCase(); };
+        for (const node of nodes(sheet, 'dataValidation')) {
+            const sqrefs = attr(node, 'sqref').split(/\s+/).filter(Boolean), type = attr(node, 'type'), formula = direct(node, 'formula1')?.textContent?.trim() ?? '', rawErrorStyle = attr(node, 'errorStyle', 'stop'), errorStyle = rawErrorStyle === 'warning' || rawErrorStyle === 'information' ? rawErrorStyle : 'stop', messages = { ...(node.hasAttribute('showErrorMessage') ? { showErrorMessage: attr(node, 'showErrorMessage') === '1' } : {}), ...(node.hasAttribute('showInputMessage') ? { showInputMessage: attr(node, 'showInputMessage') === '1' } : {}), errorStyle, ...(attr(node, 'promptTitle') ? { promptTitle: attr(node, 'promptTitle') } : {}), ...(attr(node, 'prompt') ? { promptMessage: attr(node, 'prompt') } : {}), ...(attr(node, 'errorTitle') ? { errorTitle: attr(node, 'errorTitle') } : {}), ...(attr(node, 'error') ? { errorMessage: attr(node, 'error') } : {}) };
+            for (const sqref of sqrefs) {
+                const match = /^([A-Z]+\d+)(?::([A-Z]+\d+))?$/i.exec(sqref);
+                if (!match)
+                    continue;
+                const start = match[1].toUpperCase(), end = (match[2] ?? match[1]).toUpperCase(), allowBlank = attr(node, 'allowBlank', '0') === '1';
+                if (type === 'list' && formula.startsWith('"') && formula.endsWith('"')) {
+                    const values = formula.slice(1, -1).replace(/""/g, '"').split(',').filter(Boolean);
+                    if (values.length)
+                        tool.dataValidations.push({ start, end, type: 'list', values, allowBlank, ...messages });
+                    continue;
+                }
+                if (type === 'list') {
+                    const directRange = /^\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?$/i.test(formula) ? formula.replace(/\$/g, '').toUpperCase() : resolveValidationNamedRange(formula);
+                    if (directRange) {
+                        tool.dataValidations.push({ start, end, type: 'list', sourceRange: directRange, allowBlank, ...messages });
+                        continue;
+                    }
+                }
+                if (type === 'whole' || type === 'decimal' || type === 'date' || type === 'textLength') {
+                    const excelOperator = attr(node, 'operator', 'between'), operator = { equal: 'equalTo', notEqual: 'notEqualTo' }[excelOperator] ?? excelOperator, first = Number(formula), second = Number(direct(node, 'formula2')?.textContent?.trim() ?? 'NaN');
+                    if ((operator === 'between' || operator === 'notBetween') && Number.isFinite(first) && Number.isFinite(second))
+                        tool.dataValidations.push({ start, end, type, min: first, max: second, operator, allowBlank, ...messages });
+                    else if (operator && operator !== 'between' && operator !== 'notBetween' && Number.isFinite(first))
+                        tool.dataValidations.push({ start, end, type, min: first, operator, allowBlank, ...messages });
+                }
+            }
+        }
+        const pivotChartSources = new Map();
+        tool.charts = importNativeCharts(parts, path, sheet, book, name, warnings, pivotChartSources);
+        pivotChartSourcesBySheet.set(added.id, pivotChartSources);
+        const nativeTables = importNativeTables(parts, path, sheet, book, warnings);
+        tool.tables = nativeTables.tables;
+        if (nativeTables.filter && !tool.filter)
+            tool.filter = nativeTables.filter;
         added.tools = validateTools(tool, maxR, maxC);
+        if (added.tools.tables.length)
+            book.setTableContext(added.tools.tables);
+        sheetIndex++;
     }
+    for (let index = 0; index < result.sheets.length; index++) {
+        const imported = result.sheets[index], nativePivotNames = new Map(), pivotTables = importNativePivots(parts, importedSheetPaths[index], importedSheetDocuments[index], imported.book, imported.name, warnings, result, nativePivotNames);
+        imported.tools = validateTools({ ...imported.tools, pivotTables }, imported.book.rows, imported.book.cols);
+        const pivotSlicers = importNativeSlicers(parts, importedSheetPaths[index], importedSheetDocuments[index], imported, result, nativePivotNames, warnings);
+        imported.tools = validateTools({ ...imported.tools, pivotSlicers }, imported.book.rows, imported.book.cols);
+        for (const chart of imported.tools.charts) {
+            const nativeSource = pivotChartSourcesBySheet.get(imported.id)?.get(chart.id), nativeKey = nativeSource ? pivotSourceTableName(nativeSource).toLocaleLowerCase() : '', nativeMatch = nativeKey ? imported.tools.pivotTables.find(candidate => pivotSourceTableName(nativePivotNames.get(candidate.id) ?? '').toLocaleLowerCase() === nativeKey) : undefined, rangeMatch = nativeKey ? undefined : imported.tools.pivotTables.find(candidate => { try {
+                return pivotChartRange(candidate) === chart.range;
+            }
+            catch {
+                return false;
+            } }), pivot = nativeMatch ?? rangeMatch;
+            if (pivot) {
+                chart.pivotId = pivot.id;
+                if (nativeMatch)
+                    try {
+                        chart.range = pivotChartRange(pivot);
+                    }
+                    catch {
+                        warnings.push(`${imported.name}: PivotChart range could not be linked to its PivotTable.`);
+                    }
+            }
+            else if (nativeKey)
+                warnings.push(`${imported.name}: PivotChart references an unavailable PivotTable (“${nativeSource}”).`);
+        }
+    }
+    for (const imported of result.sheets)
+        imported.book.recalculateAggregatesForRowVisibilityChange();
+    if (result.sheets.every(sheet => sheet.hidden))
+        throw Error('The workbook must contain at least one visible worksheet.');
     const activeTab = int(attr(nodes(workbook, 'workbookView')[0] ?? workbook.documentElement, 'activeTab'));
-    if (result.sheets[activeTab])
+    if (result.sheets[activeTab] && !result.sheets[activeTab].hidden)
         result.selectSheet(result.sheets[activeTab].id);
-    warnings.push('GridForge previews only a supported subset of Excel. Rebuilt XLSX exports omit VBA and some unsupported objects; when an XLSM is imported, Save XLSM can preserve unrelated original OOXML parts while merging supported cell edits. VBA never runs during import.');
+    else
+        result.selectSheet(result.sheets.find(sheet => !sheet.hidden).id);
+    warnings.push('GridForge imports and exports the supported native Excel table, chart, PivotTable and PivotChart subsets. Complex chart layouts and PivotChart features outside that subset may simplify during conversion. VBA never runs during import.');
     return { document: result, warnings };
 }
 export function xlsxFileName(title) { return `${fileName(title)}.xlsx`; }

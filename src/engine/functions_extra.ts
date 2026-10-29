@@ -15,6 +15,7 @@ const nums=(a:Datum[]):number[]=>flatten(a).filter((x):x is number=>typeof x==='
 const finite=(v:number):number=>Number.isFinite(v)?v:fail('#NUM!','The result is not a finite number.');
 const sum=(xs:number[]):number=>xs.reduce((x,y)=>x+y,0);
 const numericRange=(v:Datum):number[]=>nums([v]);
+const holidaySet=(v:Datum):Set<number>=>{const dates=numericRange(v);for(const date of dates)if(date<0||date>2_958_465)fail('#NUM!','Holiday date is outside Excel’s supported range.');return new Set(dates.map(Math.trunc));};
 const nonBlank=(v:Value)=>v!==null&&v!=='';
 const matrix=(v:Datum):Value[][]=>Array.isArray(v)?v.map(row=>row.map(c=>Array.isArray(c)?fail('#VALUE!','Nested array not supported.'):c)):[[v]];
 const vector=(v:Datum):Value[]=>flatten([v]);
@@ -56,17 +57,20 @@ const gcd=(a:number,b:number):number=>{a=Math.abs(Math.trunc(a));b=Math.abs(Math
 const one=(name:string,example:string,fn:(v:number)=>number)=>def(name,example,a=>{req(a,1);return finite(fn(n(a,0)));});
 // Excel 1900 serial dates: serial 60 is Excel's fictitious 1900-02-29.
 const dayMs=86400000,epoch=Date.UTC(1899,11,31);
-const excelDate=(v:Date):number=>{const t=v.getTime();if(!Number.isFinite(t))fail('#VALUE!','Invalid date.');return (t-epoch)/dayMs+(t>=Date.UTC(1900,2,1)?1:0);};
+const excelDate=(v:Date):number=>{const t=v.getTime();if(!Number.isFinite(t))fail('#NUM!','Date is outside Excel’s supported range.');const result=(t-epoch)/dayMs+(t>=Date.UTC(1900,2,1)?1:0);if(result<0||result>2_958_465)fail('#NUM!','Date is outside Excel’s supported range.');return result;};
 const serialDate=(serial:number):Date=>{
- if(!Number.isFinite(serial)||serial<0)fail('#NUM!','Date serial must be nonnegative.');
+ if(!Number.isFinite(serial)||serial<0||serial>2_958_465)fail('#NUM!','Date serial must be within Excel’s supported range.');
  return new Date(epoch+(Math.floor(serial)-(Math.floor(serial)>=60?1:0))*dayMs);
 };
+const excelWeekday=(serial:number)=>Math.floor(serial)===60?3:serialDate(serial).getUTCDay();
 const dateSerial=(a:Datum[],i:number)=>n(a,i);
 const dayDate=(serial:number)=>serialDate(serial);
 const monthShift=(serial:number,offset:number,end=false):number=>{
- const d=dayDate(serial),origDay=d.getUTCDate();
+ const d=dayDate(serial),origDay=Math.floor(serial)===60?29:d.getUTCDate();
  const first=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+offset+(end?1:0),end?0:1));
- if(end)return excelDate(first);
+ if(end)return first.getUTCFullYear()===1900&&first.getUTCMonth()===1?60:excelDate(first);
+ if(Math.floor(serial)===60&&offset===0)return serial;
+ if(first.getUTCFullYear()===1900&&first.getUTCMonth()===1&&origDay>=29)return 60;
  const daysInTarget=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
  first.setUTCDate(Math.min(origDay,daysInTarget));return excelDate(first);
 };
@@ -82,6 +86,32 @@ const multipleCriteria=(a:Datum[],hasValues:boolean):{values:Value[],ranges:Valu
  return {values,ranges,criteria};
 };
 function lookupMatch(key:Value,lookup:Datum):number {return vector(lookup).findIndex(v=>equal(v,key));}
+const lookupOrder=(left:Value,right:Value):number=>{
+ const rank=(x:Value)=>x===null?0:typeof x==='number'?1:typeof x==='string'?2:3;
+ const lr=rank(left),rr=rank(right);if(lr!==rr)return lr-rr;
+ if(typeof left==='number'&&typeof right==='number')return left<right?-1:left>right?1:0;
+ if(typeof left==='boolean'&&typeof right==='boolean')return Number(left)-Number(right);
+ const a=text(left).toLowerCase(),b=text(right).toLowerCase();return a<b?-1:a>b?1:0;
+};
+const lookupEqual=(left:Value,right:Value):boolean=>typeof left==='number'&&typeof right==='number'?left===right:typeof left==='boolean'&&typeof right==='boolean'?left===right:text(left).toLowerCase()===text(right).toLowerCase();
+const lookupWildcard=(pattern:string):RegExp=>{
+ let source='^';
+ for(let i=0;i<pattern.length;i++){
+  let ch=pattern[i]!;
+  if(ch==='~'&&i+1<pattern.length){ch=pattern[++i]!;source+=ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+  else if(ch==='*')source+='.*';
+  else if(ch==='?')source+='.';
+  else source+=ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+ }
+ return new RegExp(source+'$','i');
+};
+const textDelimiterPositions=(value:string,delimiter:string,ignoreCase:boolean,matchEnd:boolean):number[]=>{
+ const positions:number[]=[];
+ if(ignoreCase){const needle=delimiter.toLocaleLowerCase();for(let index=0;index<=value.length-delimiter.length;){if(value.slice(index,index+delimiter.length).toLocaleLowerCase()===needle){positions.push(index);index+=delimiter.length;}else index++;}}
+ else for(let index=value.indexOf(delimiter);index>=0;index=value.indexOf(delimiter,index+delimiter.length))positions.push(index);
+ const ends=value.slice(-delimiter.length);if(matchEnd&&!(ignoreCase?ends.toLocaleLowerCase()===delimiter.toLocaleLowerCase():ends===delimiter))positions.push(value.length);
+ return positions;
+};
 const pmt=(rate:number,nper:number,pv:number,fv=0,type=0):number=>{
  if(nper<=0||!Number.isFinite(nper))fail('#NUM!','Number of periods must be positive.');
  if(rate===0)return -(pv+fv)/nper;
@@ -145,11 +175,40 @@ export const moreFunctions:Record<string,FunctionDefinition>={
  CHAR:def('Character from code 1 through 255.','=CHAR(65)',a=>{req(a,1);const code=integer(a,0);if(code<1||code>255)fail('#VALUE!','CHAR requires a code from 1 to 255.');return String.fromCharCode(code);}),
  UNICODE:def('Unicode code point of first character.','=UNICODE("é")',a=>{req(a,1);const s=text(val(a,0));if(!s)fail('#VALUE!','UNICODE needs text.');return s.codePointAt(0)!;}),
  UNICHAR:def('Character from Unicode code point.','=UNICHAR(9733)',a=>{req(a,1);const cp=integer(a,0);if(cp<1||cp>0x10ffff||(cp>=0xd800&&cp<=0xdfff))fail('#VALUE!','Invalid Unicode code point.');return String.fromCodePoint(cp);}),
- NUMBERVALUE:def('Parse a number with selectable decimal and group separators.','=NUMBERVALUE("1.234,5",",",".")',a=>{req(a,1,3);const input=text(val(a,0)).trim(),decimal=a.length>=2?text(val(a,1)):'.',group=a.length===3?text(val(a,2)):',';if(!decimal||decimal===group)fail('#VALUE!','Invalid decimal or grouping separator.');let cleaned=group?input.split(group).join(''):input;cleaned=cleaned.replace(decimal,'.');if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(cleaned))fail('#VALUE!','NUMBERVALUE could not parse the text.');return finite(Number(cleaned));}),
- TEXTBEFORE:def('Text before a delimiter (supports positive or negative instance).','=TEXTBEFORE("a-b-c","-")',a=>{req(a,2,3);const str=text(val(a,0)),sep=text(val(a,1)),count=a.length===3?integer(a,2):1;if(!sep||count===0)fail('#VALUE!','Delimiter and instance must be nonzero.');const segments=str.split(sep);const position=count>0?count:segments.length+count;if(position<1||position>=segments.length)fail('#N/A','Delimiter instance not found.');return segments.slice(0,position).join(sep);}),
- TEXTAFTER:def('Text after a delimiter (supports positive or negative instance).','=TEXTAFTER("a-b-c","-")',a=>{req(a,2,3);const str=text(val(a,0)),sep=text(val(a,1)),count=a.length===3?integer(a,2):1;if(!sep||count===0)fail('#VALUE!','Delimiter and instance must be nonzero.');const segments=str.split(sep);const position=count>0?count:segments.length+count;if(position<1||position>=segments.length)fail('#N/A','Delimiter instance not found.');return segments.slice(position).join(sep);}),
+ NUMBERVALUE:def('Parse a number with selectable decimal and group separators.','=NUMBERVALUE("1.234,5",",",".")',a=>{
+   req(a,1,3);
+   const raw=text(val(a,0)),decimalArg=a.length>=2?text(val(a,1)):'.',groupArg=a.length===3?text(val(a,2)):',';
+   // Excel uses only the first character of each separator argument.
+   const decimal=decimalArg[0]??'',group=groupArg[0]??'';
+   if(!decimal||(group&&decimal===group))fail('#VALUE!','Invalid decimal or grouping separator.');
+   // Excel ignores ordinary spaces throughout the number and applies each trailing %.
+   let input=raw.replace(/ /g,'');
+   if(input==='')return 0;
+   let percentCount=0;
+   while(input.endsWith('%')){percentCount++;input=input.slice(0,-1);}
+   if(input.includes('%'))fail('#VALUE!','Percent signs must be at the end of the text.');
+   const exponentParts=input.split(/[eE]/);
+   if(exponentParts.length>2)fail('#VALUE!','NUMBERVALUE could not parse the text.');
+   let mantissa=exponentParts[0]!;
+   const exponent=exponentParts.length===2?`e${exponentParts[1]}`:'';
+   const decimalIndex=mantissa.indexOf(decimal);
+   if(decimalIndex>=0&&mantissa.indexOf(decimal,decimalIndex+decimal.length)>=0)
+     fail('#VALUE!','NUMBERVALUE could not parse the text.');
+   // Group separators are ignored before the decimal point; after it Excel returns #VALUE!.
+   const integerPart=decimalIndex<0?mantissa:mantissa.slice(0,decimalIndex);
+   const fractionPart=decimalIndex<0?'':mantissa.slice(decimalIndex+decimal.length);
+   if(group&&fractionPart.includes(group))fail('#VALUE!','Grouping separator cannot follow the decimal separator.');
+   mantissa=integerPart.split(group).join('')+(decimalIndex<0?'':'.'+fractionPart);
+   const cleaned=mantissa+exponent;
+   if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(cleaned))fail('#VALUE!','NUMBERVALUE could not parse the text.');
+   let result=Number(cleaned);
+   for(let i=0;i<percentCount;i++)result/=100;
+   return finite(result);
+ }),
+ TEXTBEFORE:def('Text before a delimiter with positive/negative instance, case mode, end matching and fallback.','=TEXTBEFORE("a-b-c","-",-1)',a=>{req(a,2,6);const str=text(val(a,0)),sep=text(val(a,1)),instance=a.length>=3?integer(a,2):1,matchMode=a.length>=4?n(a,3):0,matchEnd=a.length>=5?n(a,4):0;if(str.length>32767||sep.length>32767)fail('#VALUE!','TEXTBEFORE text and delimiter are limited to 32,767 characters.');if(instance===0)fail('#VALUE!','Instance must be nonzero.');if(matchMode!==0&&matchMode!==1)fail('#VALUE!','match_mode must be 0 or 1.');if(matchEnd!==0&&matchEnd!==1)fail('#VALUE!','match_end must be 0 or 1.');if(!str)return '';if(!sep)return instance>0?'':str;const positions=textDelimiterPositions(str,sep,matchMode===1,matchEnd===1),index=instance>0?instance-1:positions.length+instance;if(index<0||index>=positions.length)return a.length>=6?val(a,5):fail('#N/A','TEXTBEFORE delimiter instance not found.');return str.slice(0,positions[index]!);}),
+ TEXTAFTER:def('Text after a delimiter with positive/negative instance, case mode, end matching and fallback.','=TEXTAFTER("a-b-c","-",-1)',a=>{req(a,2,6);const str=text(val(a,0)),sep=text(val(a,1)),instance=a.length>=3?integer(a,2):1,matchMode=a.length>=4?n(a,3):0,matchEnd=a.length>=5?n(a,4):0;if(str.length>32767||sep.length>32767)fail('#VALUE!','TEXTAFTER text and delimiter are limited to 32,767 characters.');if(instance===0)fail('#VALUE!','Instance must be nonzero.');if(matchMode!==0&&matchMode!==1)fail('#VALUE!','match_mode must be 0 or 1.');if(matchEnd!==0&&matchEnd!==1)fail('#VALUE!','match_end must be 0 or 1.');if(!str)return '';if(!sep)return instance>0?str:'';const positions=textDelimiterPositions(str,sep,matchMode===1,matchEnd===1),index=instance>0?instance-1:positions.length+instance;if(index<0||index>=positions.length)return a.length>=6?val(a,5):fail('#N/A','TEXTAFTER delimiter instance not found.');return str.slice(positions[index]!+sep.length);}),
  // 16 Excel 1900 date-system scalar functions (UTC, no locale-dependent parsing)
- DATE:def('Construct an Excel date serial from year, month and day.','=DATE(2026,10,20)',a=>{req(a,3);let year=integer(a,0);if(year>=0&&year<1900)year+=1900;const d=new Date(Date.UTC(year,integer(a,1)-1,integer(a,2)));if(d.getUTCFullYear()<1900||d.getUTCFullYear()>9999)fail('#NUM!','DATE year outside 1900–9999.');return excelDate(d);}),
+ DATE:def('Construct an Excel date serial from year, month and day.','=DATE(2026,10,20)',a=>{req(a,3);let year=integer(a,0);if(year>=0&&year<1900)year+=1900;const month=integer(a,1),day=integer(a,2);if(year===1900&&month===2&&day===29)return 60;const d=new Date(Date.UTC(year,month-1,day));if(d.getUTCFullYear()<1900||d.getUTCFullYear()>9999)fail('#NUM!','DATE year outside 1900–9999.');return excelDate(d);}),
  YEAR:def('Year of a date serial.','=YEAR(DATE(2026,10,20))',a=>{req(a,1);return Math.floor(dateSerial(a,0))===0?1900:dayDate(dateSerial(a,0)).getUTCFullYear();}),
  MONTH:def('Month of a date serial.','=MONTH(DATE(2026,10,20))',a=>{req(a,1);return Math.floor(dateSerial(a,0))===60?2:dayDate(dateSerial(a,0)).getUTCMonth()+1;}),
  DAY:def('Day of month for date serial.','=DAY(DATE(2026,10,20))',a=>{req(a,1);return Math.floor(dateSerial(a,0))===60?29:dayDate(dateSerial(a,0)).getUTCDate();}),
@@ -162,9 +221,9 @@ export const moreFunctions:Record<string,FunctionDefinition>={
  DAYS:def('Number of days between date serials.','=DAYS(B1,A1)',a=>{req(a,2);return Math.trunc(n(a,0))-Math.trunc(n(a,1));}),
  EDATE:def('Shift date by whole months, keeping day when possible.','=EDATE(A1,3)',a=>{req(a,2);return monthShift(n(a,0),integer(a,1));}),
  EOMONTH:def('Last day of month shifted by whole months.','=EOMONTH(A1,1)',a=>{req(a,2);return monthShift(n(a,0),integer(a,1),true);}),
- WEEKDAY:def('Day of week using Excel return type 1, 2 or 3.','=WEEKDAY(A1,2)',a=>{req(a,1,2);const w=dayDate(n(a,0)).getUTCDay(),type=a.length===2?integer(a,1):1;if(type===1)return w+1;if(type===2)return (w+6)%7+1;if(type===3)return (w+6)%7;return fail('#NUM!','WEEKDAY supports return types 1, 2 and 3.');}),
- NETWORKDAYS:def('Count weekdays inclusively, excluding optional holidays.','=NETWORKDAYS(A1,B1)',a=>{req(a,2,3);let start=integer(a,0),end=integer(a,1),sign=1;if(start>end){[start,end]=[end,start];sign=-1;}if(end-start>365250)fail('#NUM!','Date interval too large.');const holidays=new Set(a.length===3?numericRange(a[2]!).map(Math.trunc):[]);let total=0;for(let d=start;d<=end;d++){const day=serialDate(d).getUTCDay();if(day!==0&&day!==6&&!holidays.has(d))total++;}return total*sign;}),
- WORKDAY:def('Move a number of weekdays, skipping optional holidays.','=WORKDAY(A1,10)',a=>{req(a,2,3);const start=integer(a,0),steps=integer(a,1),holidays=new Set(a.length===3?numericRange(a[2]!).map(Math.trunc):[]);if(Math.abs(steps)>100000)fail('#NUM!','Offset too large.');let serial=start,left=Math.abs(steps),iterations=0;while(left>0){serial+=Math.sign(steps);const day=serialDate(serial).getUTCDay();if(day!==0&&day!==6&&!holidays.has(serial))left--;if(++iterations>200000)fail('#NUM!','WORKDAY too many iterations.');}return serial;}),
+ WEEKDAY:def('Day of week using Excel return type 1, 2 or 3.','=WEEKDAY(A1,2)',a=>{req(a,1,2);const serial=n(a,0),w=excelWeekday(serial),type=a.length===2?integer(a,1):1;if(type===1)return w+1;if(type===2)return (w+6)%7+1;if(type===3)return (w+6)%7;if(type>=11&&type<=17)return (w-(type-11+1)+7)%7+1;return fail('#NUM!','WEEKDAY supports return types 1–3 and 11–17.');}),
+ NETWORKDAYS:def('Count weekdays inclusively, excluding optional holidays.','=NETWORKDAYS(A1,B1)',a=>{req(a,2,3);let start=integer(a,0),end=integer(a,1),sign=1;if(start<0||end<0||start>2_958_465||end>2_958_465)fail('#NUM!','Date serial must be within Excel’s supported range.');if(start>end){[start,end]=[end,start];sign=-1;}if(end-start>365250)fail('#NUM!','Date interval too large.');const holidays=a.length===3?holidaySet(a[2]!):new Set<number>();let total=0;for(let d=start;d<=end;d++){const day=excelWeekday(d);if(day!==0&&day!==6&&!holidays.has(d))total++;}return total*sign;}),
+ WORKDAY:def('Move a number of weekdays, skipping optional holidays.','=WORKDAY(A1,10)',a=>{req(a,2,3);const start=integer(a,0),steps=integer(a,1),holidays=a.length===3?holidaySet(a[2]!):new Set<number>();if(start<0||start>2_958_465)fail('#NUM!','Date serial must be within Excel’s supported range.');if(Math.abs(steps)>100000)fail('#NUM!','Offset too large.');let serial=start,left=Math.abs(steps),iterations=0;while(left>0){serial+=Math.sign(steps);if(serial<0||serial>2_958_465)fail('#NUM!','Result date is outside Excel’s supported range.');const day=excelWeekday(serial);if(day!==0&&day!==6&&!holidays.has(serial))left--;if(++iterations>200000)fail('#NUM!','WORKDAY too many iterations.');}return serial;}),
  // 8 logical / conditional aggregations / lookup functions
  XOR:def('TRUE for an odd number of truthy arguments.','=XOR(TRUE,FALSE,TRUE)',a=>flatten(a).reduce<number>((acc,v)=>acc+(bool(v)?1:0),0)%2===1),
  IFS:def('First true condition and corresponding value, lazily evaluated.','=IFS(A1>90,"A",A1>80,"B",TRUE,"C")',()=>fail('#INTERNAL!','IFS must be evaluated lazily.')),
@@ -172,8 +231,63 @@ export const moreFunctions:Record<string,FunctionDefinition>={
  SUMIFS:def('Sum values matching multiple criteria ranges.','=SUMIFS(C1:C5,A1:A5,"North",B1:B5,">3")',a=>{const x=multipleCriteria(a,true);return finite(sum(x.values.filter((v,i)=>matchesAll(x.ranges,x.criteria,i)&&typeof v==='number') as number[]));}),
  COUNTIFS:def('Count rows satisfying all conditions.','=COUNTIFS(A1:A5,"North",B1:B5,">3")',a=>{const x=multipleCriteria(a,false);return x.values.filter((_,i)=>matchesAll(x.ranges,x.criteria,i)).length;}),
  AVERAGEIFS:def('Average numeric values matching all criteria ranges.','=AVERAGEIFS(C1:C5,A1:A5,"North")',a=>{const x=multipleCriteria(a,true);const values=x.values.filter((v,i)=>matchesAll(x.ranges,x.criteria,i)&&typeof v==='number') as number[];if(!values.length)fail('#DIV/0!','No matching numeric values.');return sum(values)/values.length;}),
- XLOOKUP:def('Exact lookup in a one-dimensional range and return corresponding value.','=XLOOKUP(E1,A1:A8,B1:B8,"missing")',a=>{req(a,3,4);const lookup=vector(a[1]!),output=vector(a[2]!);if(lookup.length!==output.length)fail('#VALUE!','XLOOKUP ranges must have the same size.');const index=lookupMatch(val(a,0),a[1]!);if(index<0)return a.length===4?val(a,3):fail('#N/A','XLOOKUP did not find the key.');return output[index]??null;}),
- HLOOKUP:def('Lookup in the top row of a table, return corresponding row.','=HLOOKUP("Q2",A1:D3,2,FALSE)',a=>{req(a,3,4);const rows=matrix(a[1]!);if(a.length===4&&bool(val(a,3)))fail('#ARG!','HLOOKUP currently supports exact lookup only.');const row=integer(a,2)-1;if(row<0||row>=rows.length)fail('#REF!','HLOOKUP result row is outside the range.');const col=rows[0]!.findIndex(v=>equal(v,val(a,0)));if(col<0)fail('#N/A','HLOOKUP did not find the key.');return rows[row]![col]??null;}),
+ XLOOKUP:def('Exact, wildcard or approximate one-dimensional lookup with row or column array returns.','=XLOOKUP(E1,A1:A8,B1:C8,"missing",0,1)',a=>{
+   req(a,3,6);
+   const lookupMatrix=matrix(a[1]!),returnMatrix=matrix(a[2]!),lookup=vector(a[1]!);
+   if(!lookupMatrix.length||!lookupMatrix[0]!.length||!returnMatrix.length||!returnMatrix[0]!.length)fail('#VALUE!','XLOOKUP arrays must not be empty.');
+   const vertical=lookupMatrix.length>1&&lookupMatrix[0]!.length===1,horizontal=lookupMatrix.length===1&&lookupMatrix[0]!.length>1;
+   if(lookupMatrix.some(row=>row.length!==lookupMatrix[0]!.length)||lookupMatrix.length>1&&lookupMatrix[0]!.length>1)fail('#VALUE!','XLOOKUP lookup_array must be a single row or column.');
+   if(vertical?returnMatrix.length!==lookup.length:horizontal?returnMatrix.some(row=>row.length!==lookup.length):returnMatrix.length!==1&&returnMatrix[0]!.length!==1)fail('#VALUE!','XLOOKUP return_array must align with lookup_array.');
+   if(returnMatrix.some(row=>row.length!==returnMatrix[0]!.length))fail('#VALUE!','XLOOKUP return_array must be rectangular.');
+   const key=val(a,0),matchMode=a.length>=5?n(a,4):0,searchMode=a.length===6?n(a,5):1;
+   if(![-1,0,1,2].includes(matchMode))fail('#VALUE!','XLOOKUP match_mode must be -1, 0, 1 or 2.');
+   if(![-2,-1,1,2].includes(searchMode))fail('#VALUE!','XLOOKUP search_mode must be 1, -1, 2 or -2.');
+   const descending=searchMode===-2,binary=searchMode===2||descending;
+   if(binary&&lookup.length>1_048_576)fail('#VALUE!','Binary XLOOKUP is limited to one Excel column of values.');
+   let index=-1;
+   const foundOrFallback=():Datum=>index<0?(a.length>=4?val(a,3):fail('#N/A','XLOOKUP did not find the key.')):vertical?[returnMatrix[index]!.map(value=>value??null)]:horizontal?returnMatrix.map(row=>[row[index]??null]):returnMatrix[0]![0]??null;
+   if(binary){
+     if(!lookup.length) return foundOrFallback();
+     for(let i=1;i<lookup.length;i++){
+       const order=lookupOrder(lookup[i-1]!,lookup[i]!);
+       if(descending?order<0:order>0)fail('#N/A',`XLOOKUP binary search requires ${descending?'descending':'ascending'} sorted data.`);
+     }
+     if(matchMode===2){
+       const rx=lookupWildcard(text(key));
+       if(descending){for(let i=lookup.length-1;i>=0;i--)if(rx.test(text(lookup[i]!))){index=i;break;}}
+       else for(let i=0;i<lookup.length;i++)if(rx.test(text(lookup[i]!))){index=i;break;}
+     }else{
+       // Find an exact match first so duplicate keys resolve to the first item
+       // in binary traversal order, including for approximate match modes.
+       let lo=0,hi=lookup.length;
+       while(lo<hi){
+         const mid=lo+Math.floor((hi-lo)/2),cmp=lookupOrder(lookup[mid]!,key);
+         if(descending?cmp>0:cmp<0)lo=mid+1;else hi=mid;
+       }
+       if(lo<lookup.length&&lookupOrder(lookup[lo]!,key)===0&&lookupEqual(lookup[lo]!,key))index=lo;
+       if(index<0&&matchMode!==0){
+         lo=0;hi=lookup.length;
+         if(!descending){
+           if(matchMode===-1){while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(lookupOrder(lookup[mid]!,key)<=0)lo=mid+1;else hi=mid;}index=lo-1;}
+           else{while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(lookupOrder(lookup[mid]!,key)<0)lo=mid+1;else hi=mid;}index=lo<lookup.length?lo:-1;}
+         }else{
+           if(matchMode===1){while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(lookupOrder(lookup[mid]!,key)>=0)lo=mid+1;else hi=mid;}index=lo-1;}
+           else{while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(lookupOrder(lookup[mid]!,key)>0)lo=mid+1;else hi=mid;}index=lo<lookup.length?lo:-1;}
+         }
+       }
+     }
+   }else{
+     const order=searchMode===-1?Array.from({length:lookup.length},(_,i)=>lookup.length-1-i):Array.from({length:lookup.length},(_,i)=>i);
+     const rx=matchMode===2?lookupWildcard(text(key)):null;
+     for(const i of order)if(rx?rx.test(text(lookup[i]!)):lookupEqual(lookup[i]!,key)){index=i;break;}
+     if(index<0&&matchMode!==0&&matchMode!==2){
+       let bestOrder=matchMode===1?Infinity:-Infinity;
+       for(const i of order){const cmp=lookupOrder(lookup[i]!,key);if(matchMode===1&&cmp>0&&cmp<bestOrder){bestOrder=cmp;index=i;}else if(matchMode===-1&&cmp<0&&cmp>bestOrder){bestOrder=cmp;index=i;}}
+     }
+   }
+   return foundOrFallback();
+ }),
+ HLOOKUP:def('Lookup in the top row; exact or next-smaller match from ascending data.','=HLOOKUP("Q2",A1:D3,2,FALSE)',a=>{req(a,3,4);const rows=matrix(a[1]!),headers=rows[0]??[],row=integer(a,2)-1;if(row<0||row>=rows.length)fail('#REF!','HLOOKUP result row is outside the range.');const key=val(a,0),approx=a.length<4||bool(val(a,3));let col=-1;if(!approx){const pattern=typeof key==='string'&&/[*?~]/.test(key)?lookupWildcard(key):null;col=headers.findIndex(value=>pattern?pattern.test(text(value)):lookupEqual(value,key));}else{for(let i=1;i<headers.length;i++)if(lookupOrder(headers[i-1]!,headers[i]!)>0)fail('#N/A','HLOOKUP approximate lookup requires ascending sorted data.');for(let i=0;i<headers.length;i++){const order=lookupOrder(headers[i]!,key);if(order===0&&lookupEqual(headers[i]!,key))col=i;else if(order<0)col=i;else break;}}if(col<0)fail('#N/A',`HLOOKUP could not find '${text(key)}'.`);return rows[row]![col]??null;}),
  // 4 finance functions: standard end-of-period payments, optional type 0/1
  PMT:def('Payment per period for a fixed-rate loan.','=PMT(0.05/12,60,10000)',a=>{req(a,3,5);return pmt(n(a,0),n(a,1),n(a,2),a.length>=4?n(a,3):0,a.length===5?n(a,4):0);}),
  FV:def('Future value of an annuity with constant payments.','=FV(0.05/12,60,-200)',a=>{req(a,3,5);const rate=n(a,0),periods=n(a,1),payment=n(a,2),pv=a.length>=4?n(a,3):0,type=a.length===5?n(a,4):0;if(periods<0)fail('#NUM!','Periods must be nonnegative.');if(rate===0)return -(pv+payment*periods);const growth=(1+rate)**periods;return finite(-pv*growth-payment*(1+rate*type)*(growth-1)/rate);}),

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {Workbook} from '../dist/engine/workbook.js';
+import {colToName} from '../dist/engine/parser.js';
 const suite=JSON.parse(fs.readFileSync(new URL('./excel_parity_cases.json',import.meta.url),'utf8'));
 function checkResult(g,expected){
  const actual=g.error?.code??g.value;
@@ -15,8 +16,10 @@ for(const c of suite.cases){
   edits.push({ref:suite.comparisonCell,raw:c.formula});
   w.applyEdits(edits,false);
   const got=w.getValue(suite.comparisonCell);
-  if(c.kind==='expected-gap')assert.equal(got.error?.code,'#VALUE!');
-  else checkResult(got,c.referenceExpected);
+  if(c.kind==='spill'){
+   assert.equal(got.error,undefined);assert.equal(got.value,c.referenceExpected);
+   for(let r=0;r<c.expectedSpill.length;r++)for(let col=0;col<c.expectedSpill[r].length;col++)assert.equal(w.getValue(`${colToName(10+col)}${5+r}`).value,c.expectedSpill[r][col],`${c.id} spill cell ${r},${col}`);
+  }else checkResult(got,c.referenceExpected);
  });
 }
 test('Excel reference suite is deterministic, bounded, and contains no external links',()=>{

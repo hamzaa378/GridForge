@@ -58,6 +58,7 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=None, help="Preferred local port (default: 4174)")
     parser.add_argument("--no-browser", action="store_true", help="Don't automatically open a browser")
     parser.add_argument("--check", action="store_true", help="Verify bundled web files without starting a server")
+    parser.add_argument("--macro-workbench", action="store_true", help="Start directly in the offline Macro Studio")
     args = parser.parse_args(argv)
     try:
         validate_prebuilt()
@@ -90,7 +91,7 @@ def main(argv=None):
         print(f"No free local port in {port_range}: {last_error}", file=sys.stderr)
         print("Try python run_gridforge.py --port 4190", file=sys.stderr)
         return 1
-    url = f"http://127.0.0.1:{server.server_port}"
+    url = f"http://127.0.0.1:{server.server_port}" + ("/?macro-workbench=1" if args.macro_workbench else "")
     print("\nGridForge spreadsheet — Python-only local launcher", flush=True)
     print(f"Open in your browser: {url}", flush=True)
     print("No pip or npm installation is required to run this packaged version.", flush=True)

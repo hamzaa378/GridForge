@@ -1,0 +1,14 @@
+{
+  "version": 4,
+  "name": "Apply tax rate and flag large sales",
+  "sheetName": "Sheet 1",
+  "parameters": [
+    {"name": "tax", "type": "number", "required": true, "defaultValue": "0.18"},
+    {"name": "minimum", "type": "number", "required": true, "defaultValue": "1000"}
+  ],
+  "steps": [
+    {"kind": "cells", "edits": [{"ref": "D1", "raw": "Including tax"}, {"ref": "D2", "raw": "=C2*(1+{{tax}})"}]},
+    {"kind": "fillDown", "source": "D2", "range": "D3:D10"},
+    {"kind": "formatIf", "range": "D2:D10", "operator": "greaterThan", "value": "{{minimum}}", "style": {"background": "#fff1b3", "bold": true}}
+  ]
+}

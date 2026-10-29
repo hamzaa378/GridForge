@@ -19,6 +19,9 @@ if(!coreOnly){
    python='python';pythonArgs=['scripts/regression_browser.py'];
  }
  commands.push(['Isolated Chromium UI regression',python,pythonArgs]);
+ commands.push(['v11.2 Excel-style ribbon, chart, data-bar, resizing, and XLSX browser workflows',python,process.platform==='win32'?(python==='py'?['-3','scripts/smoke_v111_browser.py']:['scripts/smoke_v111_browser.py']):['scripts/smoke_v111_browser.py']]);
+ commands.push(['v11.5 Formula ribbon, function insertion, formula audit and display workflows',python,process.platform==='win32'?(python==='py'?['-3','scripts/smoke_formula_ribbon_v115.py']:['scripts/smoke_formula_ribbon_v115.py']):['scripts/smoke_formula_ribbon_v115.py']]);
+ commands.push(['v11.6 worksheet names, Name Manager, create-from-selection and XLSX round-trip',python,process.platform==='win32'?(python==='py'?['-3','scripts/smoke_defined_names_v116.py']:['scripts/smoke_defined_names_v116.py']):['scripts/smoke_defined_names_v116.py']]);
  commands.push(['XLSM binary preservation and edit round-trip',python,process.platform==='win32'?(python==='py'?['-3','scripts/test_xlsm_browser.py']:['scripts/test_xlsm_browser.py']):['scripts/test_xlsm_browser.py']]);
  commands.push(['Local Excel VBA bridge protocol security',python,process.platform==='win32'?(python==='py'?['-3','scripts/test_vba_bridge_protocol.py']:['scripts/test_vba_bridge_protocol.py']):['scripts/test_vba_bridge_protocol.py']]);
 }

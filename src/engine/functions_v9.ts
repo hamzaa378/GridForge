@@ -1,6 +1,6 @@
 /** v9: 100 additional Excel-compatible functions.
  * Implemented here, independently of external spreadsheet calculation engines.
- * Array-returning results can be consumed by INDEX; GridForge does not spill arrays.
+ * Array-returning functions return rectangular results to the workbook spill engine.
  */
 import {SheetError,flatten,matchCriterion,number,text,type Datum,type FunctionDefinition} from './functions.js';
 import type {Value} from './parser.js';

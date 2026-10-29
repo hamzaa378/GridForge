@@ -1,0 +1,130 @@
+{
+  "format": "gridforge",
+  "version": 3,
+  "activeId": "s1",
+  "sheets": [
+    {
+      "id": "s1",
+      "name": "Sheet 1",
+      "workbook": {
+        "version": 2,
+        "rows": 400,
+        "cols": 52,
+        "cells": {
+          "A1": "Month",
+          "B1": "Revenue",
+          "C1": "Units",
+          "D1": "Total",
+          "A2": "Jan",
+          "B2": "100",
+          "C2": "4",
+          "A3": "Feb",
+          "B3": "120",
+          "C3": "3",
+          "A4": "Mar",
+          "B4": "95",
+          "C4": "5",
+          "A5": "Apr",
+          "B5": "150",
+          "C5": "6",
+          "A6": "May",
+          "B6": "175",
+          "C6": "2",
+          "D2": "=[@Revenue]*[@Units]",
+          "D3": "=[@Revenue]*[@Units]",
+          "D4": "=[@Revenue]*[@Units]",
+          "D5": "=[@Revenue]*[@Units]",
+          "D6": "=[@Revenue]*[@Units]",
+          "F1": "Total sales",
+          "F2": "=SUM(SalesMetrics[Total])",
+          "A7": "Jun",
+          "B7": "200",
+          "C7": "3",
+          "D7": "=[@Revenue]*[@Units]"
+        },
+        "styles": {}
+      },
+      "tools": {
+        "freezeRows": 0,
+        "freezeCols": 0,
+        "filter": {
+          "startRow": 0,
+          "endRow": 6,
+          "startCol": 0,
+          "endCol": 3,
+          "column": 0,
+          "query": "",
+          "criteria": [
+            {
+              "column": 0,
+              "values": [
+                "Mar",
+                "Jun"
+              ]
+            },
+            {
+              "column": 2,
+              "values": [
+                "3",
+                "5"
+              ]
+            }
+          ]
+        },
+        "conditional": [
+          {
+            "start": "B2",
+            "end": "B7",
+            "operator": "scale",
+            "threshold": 0,
+            "startColor": "#f4fbf6",
+            "color": "#2d936b"
+          }
+        ],
+        "charts": [
+          {
+            "id": "chart-monthly-line",
+            "kind": "line",
+            "theme": "forest",
+            "title": "Monthly revenue and totals",
+            "range": "A1:D7",
+            "x": 550,
+            "y": 90,
+            "width": 530,
+            "height": 300,
+            "legend": "bottom",
+            "xAxisTitle": "Month",
+            "yAxisTitle": "Sales",
+            "dataLabels": false
+          },
+          {
+            "id": "chart-monthly-bars",
+            "kind": "column",
+            "theme": "office",
+            "title": "Sales by month",
+            "range": "A1:D7",
+            "x": 550,
+            "y": 450,
+            "width": 530,
+            "height": 290,
+            "legend": "bottom",
+            "dataLabels": false
+          }
+        ],
+        "tables": [
+          {
+            "id": "table-monthly",
+            "name": "SalesMetrics",
+            "range": "A1:D7",
+            "style": "TableStyleMedium4",
+            "header": true,
+            "bandedRows": true,
+            "bandedColumns": false,
+            "firstColumn": true,
+            "lastColumn": false
+          }
+        ]
+      }
+    }
+  ]
+}

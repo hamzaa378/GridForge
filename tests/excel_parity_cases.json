@@ -1202,8 +1202,19 @@
         "B3": 1
       },
       "category": "dynamic-arrays",
-      "kind": "expected-gap",
-      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+      "kind": "spill",
+      "referenceExpected": 1,
+      "expectedSpill": [
+        [
+          1,
+          2
+        ],
+        [
+          3,
+          4
+        ]
+      ],
+      "note": "GridForge spills the result into adjacent cells; a Microsoft Excel comparison is still required for parity evidence."
     },
     {
       "id": "dynamic-filter-spill",
@@ -1217,8 +1228,17 @@
         "B3": 1
       },
       "category": "dynamic-arrays",
-      "kind": "expected-gap",
-      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+      "kind": "spill",
+      "referenceExpected": 1,
+      "expectedSpill": [
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ],
+      "note": "GridForge spills the result into adjacent cells; a Microsoft Excel comparison is still required for parity evidence."
     },
     {
       "id": "dynamic-unique-spill",
@@ -1232,8 +1252,17 @@
         "B3": 1
       },
       "category": "dynamic-arrays",
-      "kind": "expected-gap",
-      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+      "kind": "spill",
+      "referenceExpected": 1,
+      "expectedSpill": [
+        [
+          1
+        ],
+        [
+          2
+        ]
+      ],
+      "note": "GridForge spills the result into adjacent cells; a Microsoft Excel comparison is still required for parity evidence."
     },
     {
       "id": "dynamic-textsplit-spill",
@@ -1247,8 +1276,15 @@
         "B3": 1
       },
       "category": "dynamic-arrays",
-      "kind": "expected-gap",
-      "note": "Excel returns a spilled dynamic array, GridForge currently returns a single-cell error."
+      "kind": "spill",
+      "referenceExpected": "A",
+      "expectedSpill": [
+        [
+          "A",
+          "B"
+        ]
+      ],
+      "note": "GridForge spills the result into adjacent cells; a Microsoft Excel comparison is still required for parity evidence."
     }
   ]
 }

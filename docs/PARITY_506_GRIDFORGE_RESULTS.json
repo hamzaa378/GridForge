@@ -1,12 +1,12 @@
 {
   "schema": "gridforge-excel-full-result/1",
-  "engine": "GridForge v10.1",
+  "engine": "GridForge current source",
   "measuredExcel": false,
   "metrics": {
     "registered": 506,
     "executed": 506,
-    "successful": 505,
-    "errors": 1,
+    "successful": 500,
+    "errors": 6,
     "exceptions": 0,
     "scope": {
       "scalar": 445,
@@ -163,7 +163,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 68.4931506849315
+        "value": 68.33333333333333
       }
     },
     {
@@ -238,7 +238,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 41.0958904109589
+        "value": 40.833333333333336
       }
     },
     {
@@ -843,7 +843,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 120
+        "value": 259
       }
     },
     {
@@ -1321,7 +1321,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "Hello"
+        "value": "Ｈｅｌｌｏ"
       }
     },
     {
@@ -1952,8 +1952,9 @@
         "D5": "East"
       },
       "gridforge": {
-        "type": "number",
-        "value": 1
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "Literal text is not numeric."
       }
     },
     {
@@ -2570,7 +2571,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": -0.5686566270483545
+        "value": 0.08825696421127555
       }
     },
     {
@@ -4601,7 +4602,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.42759329552911984
+        "value": 0.4275932955291201
       }
     },
     {
@@ -4676,7 +4677,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.5724067044708802
+        "value": 0.5724067044708798
       }
     },
     {
@@ -4751,7 +4752,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 1561.0491907735764
+        "value": 2.3659738843753386
       }
     },
     {
@@ -4826,7 +4827,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 1561.0491907735764
+        "value": 2.3659738843753386
       }
     },
     {
@@ -6015,7 +6016,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.3919925606549345
+        "value": 0.3919927969080108
       }
     },
     {
@@ -6094,7 +6095,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.3919925606549345
+        "value": 0.3919927969080108
       }
     },
     {
@@ -10109,7 +10110,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.07200000000000001
+        "value": 0.07346938775510205
       }
     },
     {
@@ -10996,7 +10997,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 4.857877945287447
+        "value": 4.827322389731892
       }
     },
     {
@@ -11705,7 +11706,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.32862668272901174
+        "value": 0.32862675945912745
       }
     },
     {
@@ -11859,7 +11860,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.6713733172709883
+        "value": 0.6713732405408726
       }
     },
     {
@@ -15264,7 +15265,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.08030139707139405
+        "value": 0.08030139707139411
       }
     },
     {
@@ -15339,7 +15340,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 5.348120627447143
+        "value": 5.348120627447125
       }
     },
     {
@@ -17661,7 +17662,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "2.0327230070196656-3.0518977991518i"
+        "value": "2.03272300701967-3.0518977991518i"
       }
     },
     {
@@ -17819,7 +17820,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "1.4686939399158851+2.2873552871788423i"
+        "value": "1.46869393991589+2.28735528717884i"
       }
     },
     {
@@ -17898,7 +17899,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "0.3465735902799727+0.7853981633974483i"
+        "value": "0.346573590279973+0.785398163397448i"
       }
     },
     {
@@ -17977,7 +17978,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "0.1505149978319906+0.3410940884604603i"
+        "value": "0.150514997831991+0.34109408846046i"
       }
     },
     {
@@ -18056,7 +18057,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "0.5000000000000001+1.1330900354567985i"
+        "value": "0.5+1.1330900354568i"
       }
     },
     {
@@ -18135,7 +18136,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "2i"
+        "value": "1.22464679914735E-16+2i"
       }
     },
     {
@@ -18372,7 +18373,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "1.2984575814159773+0.6349639147847361i"
+        "value": "1.29845758141598+0.634963914784736i"
       }
     },
     {
@@ -19060,7 +19061,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.036500000000000005
+        "value": 0.036585365853658534
       }
     },
     {
@@ -19250,7 +19251,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.15322137877181555
+        "value": 0.15322137877181552
       }
     },
     {
@@ -21967,7 +21968,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 1
+        "value": 0.9999999999999999
       }
     },
     {
@@ -22125,7 +22126,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 1
+        "value": 0.9999999999999999
       }
     },
     {
@@ -22996,7 +22997,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 4.716386354648006
+        "value": 4.686720766729992
       }
     },
     {
@@ -23720,7 +23721,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.13048938949712285
+        "value": 0.13048938949712263
       }
     },
     {
@@ -25195,7 +25196,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": -8.885729236409477e-27
+        "value": -6.957291061424766e-17
       }
     },
     {
@@ -25353,7 +25354,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": -8.885729236409477e-27
+        "value": -6.957291061424766e-17
       }
     },
     {
@@ -25880,7 +25881,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 46316.34965856482
+        "value": 46322.66599822917
       }
     },
     {
@@ -26502,8 +26503,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 0.042105263157894764
+        "type": "error",
+        "value": "#NUM!",
+        "message": "Invalid odd-coupon security inputs."
       }
     },
     {
@@ -26577,8 +26579,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 0.05038461538461538
+        "type": "error",
+        "value": "#NUM!",
+        "message": "Invalid odd-coupon security inputs."
       }
     },
     {
@@ -26652,8 +26655,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 0.042105263157894764
+        "type": "error",
+        "value": "#NUM!",
+        "message": "Invalid odd-coupon security inputs."
       }
     },
     {
@@ -26727,8 +26731,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 0.05038461538461538
+        "type": "error",
+        "value": "#NUM!",
+        "message": "Invalid odd-coupon security inputs."
       }
     },
     {
@@ -28539,7 +28544,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 98.1414507985948
+        "value": 98.45612123392543
       }
     },
     {
@@ -28618,7 +28623,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 98.61111111111111
+        "value": 98.63888888888889
       }
     },
     {
@@ -28697,7 +28702,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 98.05821917808221
+        "value": 98.066260935717
       }
     },
     {
@@ -29448,7 +29453,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.11845037833026262
+        "value": 0.2974123997042267
       }
     },
     {
@@ -29523,7 +29528,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.6510988001729034
+        "value": 0.2919310922845496
       }
     },
     {
@@ -29602,7 +29607,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 2
+        "value": 6
       }
     },
     {
@@ -30006,7 +30011,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 101.3888888888889
+        "value": 101.37989298789074
       }
     },
     {
@@ -35168,7 +35173,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": -2.1073424255447014e-8
+        "value": 0
       }
     },
     {
@@ -36651,7 +36656,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 46316
+        "value": 46322
       }
     },
     {
@@ -39990,7 +39995,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.055350662625494484
+        "value": 0.05643959259888143
       }
     },
     {
@@ -40069,7 +40074,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.07448979591836744
+        "value": 0.07496876301541033
       }
     },
     {
@@ -40148,7 +40153,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.06001683501683502
+        "value": 0.04556527107645432
       }
     },
     {

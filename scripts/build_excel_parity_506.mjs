@@ -4,13 +4,14 @@
  * No Python, Excel or external formula engine is used here.
  */
 import fs from 'node:fs';
-import {functions,functionNames} from '../dist/engine/functions.js';
+import {functions,functionNames,connectedFunctionNames} from '../dist/engine/functions.js';
 import {functionCategory} from '../dist/engine/categories.js';
 import {Workbook} from '../dist/engine/workbook.js';
 const ROOT=new URL('../',import.meta.url);
 const sources=JSON.parse(fs.readFileSync(new URL('../tests/parity_506_recipe_sources.json',import.meta.url)));
 const sourceByName=new Map(sources.map(x=>[x.name,x]));
-if(functionNames.length!==506||new Set(functionNames).size!==506||sourceByName.size!==506)throw Error('Registry/fixture coverage is not exactly 506 unique names');
+const offlineFunctionNames=functionNames.filter(name=>!connectedFunctionNames.includes(name));
+if(offlineFunctionNames.length!==506||new Set(offlineFunctionNames).size!==506||sourceByName.size!==506||offlineFunctionNames.some(name=>!sourceByName.has(name)))throw Error('Offline registry/fixture coverage is not exactly 506 unique names');
 const volatile=new Set(['RAND','RANDBETWEEN','RANDARRAY','NOW','TODAY']);
 const nonExcelOrLimited=new Set(['BYROW','BYCOL','MAKEARRAY','MAP','REDUCE','SCAN','LET','LAMBDA','ISOMITTED','GROUPBY','PIVOTBY','FLATTEN','TRIMRANGE','PERCENTOF','DETECTLANGUAGE','TRANSLATE','IMAGE','FIELDVALUE','FILTERXML','FORECAST.ETS','FORECAST.ETS.CONFINT','FORECAST.ETS.SEASONALITY','FORECAST.ETS.STAT','CUBESETCOUNT','INFO','SHEET','SHEETS','BAHTTEXT','PHONETIC']);
 const arrays=new Set(['CHOOSECOLS','CHOOSEROWS','DROP','EXPAND','FILTER','FREQUENCY','GROWTH','HSTACK','LINEST','LOGEST','MAKEARRAY','MAP','MDETERM_____','MINVERSE','MMULT','MODE.MULT','MUNIT','RANDARRAY','SCAN','SEQUENCE','SORT','SORTBY','TAKE','TEXTSPLIT','TOCOL','TOROW','TRANSPOSE','TREND','TRIMRANGE','UNIQUE','VSTACK','WRAPCOLS','WRAPROWS','BYROW','BYCOL','GROUPBY','PIVOTBY','FLATTEN']);
@@ -73,7 +74,7 @@ function argFormula(arg, inputs, serial){
  throw Error('Unsupported fixture argument '+JSON.stringify(arg));
 }
 const records=[];
-for(const name of functionNames){
+for(const name of offlineFunctionNames){
  const recipe=sourceByName.get(name);
  const inputs=common(recipe.stage);
  let formula=overrides[name]||recipe.formula;
@@ -102,6 +103,6 @@ for(const c of records){
  }catch(e){results.push({...c,gridforge:{type:'exception',value:String(e)}});}
 }
 const metrics={registered:506,executed:results.length,successful:results.filter(x=>!['error','exception'].includes(x.gridforge.type)).length,errors:results.filter(x=>x.gridforge.type==='error').length,exceptions:results.filter(x=>x.gridforge.type==='exception').length,scope:Object.fromEntries([...new Set(records.map(x=>x.scope))].map(s=>[s,records.filter(x=>x.scope===s).length]))};
-fs.writeFileSync(new URL('../docs/PARITY_506_GRIDFORGE_RESULTS.json',import.meta.url),JSON.stringify({schema:'gridforge-excel-full-result/1',engine:'GridForge v10.1',measuredExcel:false,metrics,cases:results},null,2)+'\n');
+fs.writeFileSync(new URL('../docs/PARITY_506_GRIDFORGE_RESULTS.json',import.meta.url),JSON.stringify({schema:'gridforge-excel-full-result/1',engine:'GridForge current source',measuredExcel:false,metrics,cases:results},null,2)+'\n');
 console.log(JSON.stringify(metrics,null,2));
 for(const x of results.filter(x=>['error','exception'].includes(x.gridforge.type)))console.log(x.function,x.formula,'->',x.gridforge.type,x.gridforge.value);

@@ -140,10 +140,22 @@ def run() -> None:
                     page.locator('#formula').fill(raw)
                     page.locator('#formula').press('Enter')
 
+                def excel_like_blank_start():
+                    assert_eq(page.locator('#book-title').inner_text(),'Book1','new workbook title')
+                    assert_eq(page.locator('#formula').input_value(),'','initial formula bar')
+                    assert_eq(page.locator('[data-ref="A1"]').inner_text(),'','initial active cell')
+                    assert page.locator('.quick-access #btn-undo').count()==1
+                    assert page.locator('[data-ribbon="Help"]').count()==1
+                    page.locator('[data-ribbon="File"]').click()
+                    page.once('dialog',lambda dlg:dlg.accept())
+                    page.locator('#btn-sample').click()
+                    assert_eq(cell('D4').inner_text(),'4000','loaded example D4')
+                    page.locator('[data-ribbon="Home"]').click()
+                verify('Excel-style blank workbook start and Quick Access controls',excel_like_blank_start)
                 def baseline():
                     assert_eq(cell('D4').inner_text(), '4000', 'sample D4')
                     assert_eq(formula('D4'), '=B4*C4', 'D4 formula')
-                verify('Page loads demo with working formulas', baseline)
+                verify('Example workbook formulas calculate correctly', baseline)
                 def clean_excel_workspace():
                     assert_eq(page.evaluate('document.documentElement.dataset.theme'),'light')
                     assert_eq(page.evaluate('document.documentElement.dataset.inspector'),'closed')
@@ -207,10 +219,13 @@ def run() -> None:
                 page.locator('#close-welcome').click()
                 page.locator('[data-ribbon="All"]').click()
                 # Capture real rendered screenshot before the regression mutates storage.
+                page.locator('[data-ribbon="Data"]').click()
                 page.locator('#btn-data-studio').click()
                 page.screenshot(path=str(ROOT/'docs'/'preview_v8_data_studio.png'),full_page=False)
                 page.locator('#close-data-studio').click()
                 page.locator('[data-ribbon="Formulas"]').click()
+                if not page.locator('[data-mode="functions"]').is_visible():
+                    page.locator('#btn-insights').click()
                 page.locator('[data-mode="functions"]').click()
                 page.locator('#function-category').select_option('Financial')
                 page.screenshot(path=str(ROOT/'docs'/'preview_v6.png'),full_page=False)
@@ -339,6 +354,7 @@ def run() -> None:
                 verify('Add, duplicate, switch independent worksheets', sheets)
 
                 def json_and_reload():
+                    page.locator('[data-ribbon="File"]').click()
                     with page.expect_download(timeout=8000) as download_info:
                         page.locator('#btn-json').click()
                     export = json.loads(download_info.value.path().read_text(encoding='utf-8'))
@@ -357,6 +373,7 @@ def run() -> None:
                 verify('JSON export' + (' and storage persistence' if mode == 'HTTP server' else ' (storage not tested)'), json_and_reload)
 
                 def xlsx_roundtrip():
+                    page.locator('[data-ribbon="File"]').click()
                     with page.expect_download(timeout=15000) as download_info:
                         page.locator('#btn-xlsx').click()
                     path = download_info.value.path()
@@ -420,7 +437,7 @@ def run() -> None:
 
                 def v5_categories():
                     page.locator('[data-mode="functions"]').click()
-                    assert '506 built-ins' in page.locator('#sidebar-body').inner_text()
+                    assert '506 local · 10 connected' in page.locator('#sidebar-body').inner_text()
                     assert page.locator('[data-mode="functions"]').evaluate('(el)=>el.classList.contains("chosen")')
                     page.locator('#function-category').select_option('Financial')
                     assert page.locator('[data-function="RATE"]').count() == 1
@@ -430,7 +447,7 @@ def run() -> None:
                     page.locator('#function-category').select_option('Recently added')
                     assert_eq(page.locator('[data-function]').count(), 100)
                     page.locator('#function-category').select_option('All functions')
-                verify('v9 categorized formula browser shows 506 built-ins and 100 new', v5_categories)
+                verify('v10.4 categorized formula browser shows offline and connected names', v5_categories)
 
                 def v5_formulas():
                     examples=[('Z90','=BASE(255,16)','FF'),('Z91','=NETWORKDAYSINTL(DATE(2026,10,19),DATE(2026,10,23),1)','5'),
@@ -440,19 +457,24 @@ def run() -> None:
                 verify('v5 engineering, date, error, lazy and regex functions work in grid',v5_formulas)
 
                 def v5_action_macros():
+                    page.locator('[data-ribbon="Automate"]').click()
                     page.locator('#btn-automate').click()
                     page.locator('#macro-name').fill('Regression Macro')
                     page.locator('#macro-record').click()
                     edit('Z97','123')
                     select('Z97')
+                    page.locator('[data-ribbon="Home"]').click()
                     page.locator('#fmt-bold').click()
+                    page.locator('[data-ribbon="Automate"]').click()
                     page.locator('#btn-automate').click()
                     assert '2 action(s)' in page.locator('#macro-state').inner_text()
                     page.locator('#macro-stop').click()
                     page.locator('#close-macros').click()
                     edit('Z97','0')
                     select('Z97')
+                    page.locator('[data-ribbon="Home"]').click()
                     page.locator('#fmt-bold').click()
+                    page.locator('[data-ribbon="Automate"]').click()
                     page.locator('#btn-automate').click()
                     page.locator('#macro-run').click()
                     assert_eq(cell('Z97').inner_text(),'123')
@@ -501,6 +523,7 @@ def run() -> None:
                         with page.expect_download(timeout=10000) as original_dl:
                             page.locator('#btn-original-xlsm').click()
                         assert Path(original_dl.value.path()).read_bytes() == before, 'original bytes must remain unchanged'
+                        page.locator('[data-ribbon="File"]').click()
                         with page.expect_download(timeout=10000) as edited_dl:
                             page.locator('#btn-xlsx').click()
                         with zipfile.ZipFile(edited_dl.value.path()) as exported:
@@ -545,6 +568,7 @@ def run() -> None:
                                 {'kind':'fillDown','source':'Z110','range':'Z111:Z112'},
                                 {'kind':'styles','edits':[{'ref':'Z110','style':{'bold':True}}]},
                                 {'kind':'copy','sourceRange':'Z110:Z112','destination':'AA110'}]}))
+                        page.locator('[data-ribbon="Automate"]').click()
                         page.locator('#btn-automate').click()
                         page.locator('#macro-file').set_input_files(str(source))
                         page.locator('#macro-select option', has_text='v6 preview').wait_for(state='attached')
@@ -552,6 +576,7 @@ def run() -> None:
                         assert 'Preview:' in page.locator('#macro-state').inner_text()
                         page.locator('#close-macros').click()
                         select('Z110');assert cell('Z110').inner_text() != '250','dry-run mutated data'
+                        page.locator('[data-ribbon="Automate"]').click()
                         page.locator('#btn-automate').click()
                         page.locator('#macro-run').click()
                         page.locator('#close-macros').click()
@@ -563,6 +588,7 @@ def run() -> None:
                 def v8_studio_catalogue_and_edit():
                     edit('Z130', 'hELLO wORLD')
                     select('Z130')
+                    page.locator('[data-ribbon="Data"]').click()
                     page.locator('#btn-data-studio').click()
                     assert page.locator('#data-studio-dialog').is_visible()
                     assert '100 actions' in page.locator('#data-studio-dialog h2').inner_text()
@@ -575,6 +601,7 @@ def run() -> None:
                     assert_eq(cell('Z130').inner_text(),'hELLO wORLD','preview does not mutate')
                     page.locator('#studio-apply').click()
                     assert_eq(cell('Z130').inner_text(),'Hello World')
+                    page.locator('[data-ribbon="Home"]').click()
                     page.locator('#btn-undo').click()
                     assert_eq(cell('Z130').inner_text(),'hELLO wORLD')
                     page.locator('#btn-redo').click()
@@ -586,6 +613,7 @@ def run() -> None:
                     edit('Z132','4')
                     cell('Z131').click()
                     cell('Z132').click(modifiers=['Shift'])
+                    page.locator('[data-ribbon="Data"]').click()
                     page.locator('#btn-data-studio').click()
                     page.locator('#studio-category').select_option('Quick aggregates')
                     page.locator('#studio-action').select_option('insert-sum')
@@ -594,23 +622,26 @@ def run() -> None:
                     page.locator('#studio-apply').click()
                     assert_eq(formula('Z133'),'=SUM(Z131:Z132)')
                     assert_eq(cell('Z133').inner_text(),'6')
+                    page.locator('[data-ribbon="Home"]').click()
                     page.locator('#btn-undo').click()
                     assert_eq(formula('Z133'),'')
                     edit('Z137','=A1+$B$1')
                     cell('Z137').click()
                     cell('Z138').click(modifiers=['Shift'])
+                    page.locator('[data-ribbon="Data"]').click()
                     page.locator('#btn-data-studio').click()
                     page.locator('#studio-category').select_option('Fill & series')
                     page.locator('#studio-action').select_option('fill-down')
                     page.locator('#studio-preview-button').click()
                     page.locator('#studio-apply').click()
                     assert_eq(formula('Z138'),'=A2+$B$1')
+                    page.locator('[data-ribbon="Home"]').click()
                     page.locator('#btn-undo').click()
                     assert_eq(formula('Z138'),'')
                 verify('v8 Data Studio aggregation, relative fill, range and undo',v8_studio_formula_and_bounds)
 
                 def v9_excel_navigation():
-                    assert page.locator('[data-ribbon="All"]').get_attribute('aria-selected') == 'true'
+                    assert page.locator('.excel-tab[aria-selected="true"]').count() == 1
                     page.locator('[data-ribbon="Data"]').click()
                     assert page.locator('#btn-sort-custom').is_visible()
                     assert not page.locator('#btn-json').is_visible()
@@ -621,10 +652,10 @@ def run() -> None:
                     page.locator('#command-search').press('Enter')
                     assert page.locator('[data-ribbon="Data"]').get_attribute('aria-selected') == 'true'
                     page.locator('[data-ribbon="Formulas"]').click()
-                    assert '506 built-ins' in page.locator('#sidebar-body').inner_text()
+                    assert '506 local · 10 connected' in page.locator('#sidebar-body').inner_text()
                     assert page.locator('[data-mode="functions"]').evaluate('(el)=>el.classList.contains("chosen")')
                     page.locator('#function-category').select_option('Recently added')
-                    assert_eq(page.locator('[data-function]').count(),100)
+                    assert_eq(page.locator('#sidebar-body [data-function]').count(),100)
                     page.locator('#function-category').select_option('Database')
                     assert page.locator('[data-function="DSUM"]').count() == 1
                     page.locator('[data-ribbon="All"]').click()

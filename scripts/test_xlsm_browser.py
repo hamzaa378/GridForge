@@ -50,20 +50,23 @@ def main():
               zip.set('xl/vbaProject.bin',vba);zip.set('xl/media/test.png',illustration);
               const source=zipWriteBytes(Object.fromEntries(zip));
               const baseline=SpreadsheetDocument.fromJSON(doc.toJSON());
-              doc.active.book.applyEdits([{ref:'B2',raw:'120'},{ref:'D2',raw:'=B2+10'},{ref:'A2',raw:'Edited'}]);
+              doc.active.book.applyEdits([{ref:'B2',raw:'120'},{ref:'D2',raw:'=Amount+10'},{ref:'A2',raw:'Edited'}]);
+              doc.active.book.setDefinedNames([{name:'Amount',ref:'B2',comment:'Macro-preserving name test'}]);
               const result=await exportEditedXlsm(source,baseline,doc);
               const output=await zipReadBytes(result.bytes);
               const worksheet=dec.decode(output.get('xl/worksheets/sheet1.xml'));
               const assertion=(ok,message)=>{if(!ok)throw Error(message);};
-              assertion(result.editedCells===3,'Expected exactly 3 edits');
+              assertion(result.editedCells===3,'Expected exactly 3 cell edits');assertion(result.editedNames===1,'Expected one defined name update');
               const listInvalid=[];for(const [name,b] of output) if(name.endsWith('.xml')||name.endsWith('.rels')){const xm=new DOMParser().parseFromString(dec.decode(b),'application/xml');if(xm.getElementsByTagName('parsererror').length)listInvalid.push({name,start:dec.decode(b).slice(0,180),error:xm.getElementsByTagName('parsererror')[0].textContent.slice(0,200)});}
               if(listInvalid.length)throw Error(JSON.stringify(listInvalid));
               const reimport=(await (await import('gridforge/engine/xlsx.js')).importXlsx(result.bytes)).document;
               assertion(reimport.active.book.getRaw('B2')==='120','Edited numeric cell failed XLSM re-import');
               assertion(reimport.active.book.getRaw('A2')==='Edited','Edited text cell failed XLSM re-import');
-              assertion(reimport.active.book.getRaw('D2')==='=B2+10','Edited formula failed XLSM re-import');
+              assertion(reimport.active.book.getRaw('D2')==='=Amount+10','Edited formula failed XLSM re-import');
+              assertion(reimport.active.book.getValue('D2').value===130,'Edited named formula failed XLSM calculation');
+              assertion(reimport.active.book.getDefinedNames().some(n=>n.name==='Amount'&&n.ref==='B2'),'Defined name failed XLSM round-trip');
               assertion(worksheet.includes('<v>120</v>'),'Changed number missing');
-              assertion(worksheet.includes('B2+10'),'Changed formula missing');
+              assertion(worksheet.includes('Amount+10'),'Changed formula missing');
               assertion(worksheet.includes('Edited'),'Changed string missing');
               assertion([...vba].join(',')===[...output.get('xl/vbaProject.bin')].join(','),'VBA binary was changed');
               assertion([...illustration].join(',')===[...output.get('xl/media/test.png')].join(','),'Media binary was changed');
@@ -76,7 +79,7 @@ def main():
               const noChange=await exportEditedXlsm(source,baseline,baseline);
               const originalParts=await zipReadBytes(noChange.bytes);
               assertion([...originalParts.get('xl/vbaProject.bin')].join(',')===[...vba].join(','),'No-change preserved VBA mismatch');
-              return {changedCells:result.editedCells,preservedParts:result.preservedParts,outputSize:result.bytes.length,warningCount:result.warnings.length};
+              return {changedCells:result.editedCells,changedNames:result.editedNames,preservedParts:result.preservedParts,outputSize:result.bytes.length,warningCount:result.warnings.length};
             }''')
             print('PASS XLSM edited values, formulas, new cells, original VBA, binary parts, calc flags, structure safeguards:', json.dumps(result))
         finally:

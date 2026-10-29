@@ -1,0 +1,52 @@
+{
+  "format": "gridforge",
+  "version": 3,
+  "activeId": "s1",
+  "sheets": [
+    {
+      "id": "s1",
+      "name": "Sheet 1",
+      "workbook": {
+        "version": 2,
+        "rows": 400,
+        "cols": 52,
+        "cells": {
+          "A1": "Item",
+          "B1": "Quantity",
+          "C1": "Subtotal",
+          "A2": "Cable",
+          "B2": "5",
+          "C2": "100",
+          "A3": "Monitor",
+          "B3": "3",
+          "C3": "600",
+          "A4": "Chair",
+          "B4": "2",
+          "C4": "300",
+          "D1": "Including tax",
+          "D2": "=C2*(1+0.18)",
+          "D3": "=C3*(1+0.18)",
+          "D4": "=C4*(1+0.18)",
+          "D5": "=C5*(1+0.18)",
+          "D6": "=C6*(1+0.18)",
+          "D7": "=C7*(1+0.18)",
+          "D8": "=C8*(1+0.18)",
+          "D9": "=C9*(1+0.18)",
+          "D10": "=C10*(1+0.18)"
+        },
+        "styles": {
+          "D3": {
+            "bold": true,
+            "background": "#fff1b3"
+          }
+        }
+      },
+      "tools": {
+        "freezeRows": 0,
+        "freezeCols": 0,
+        "filter": null,
+        "conditional": []
+      }
+    }
+  ]
+}

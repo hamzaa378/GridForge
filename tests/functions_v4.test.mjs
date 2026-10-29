@@ -104,7 +104,7 @@ const cases=[
 test('v4 maintains exactly 80 new distinct functions in the expanded v5 registry',()=>{
   assert.equal(extraFunctionNames.length,80);
   assert.equal(new Set(extraFunctionNames).size,80);
-  assert.equal(functionNames.length,506);
+  assert.equal(functionNames.length,516);
   assert.deepEqual([...cases.map(([name])=>name)].sort(),extraFunctionNames);
 });
 

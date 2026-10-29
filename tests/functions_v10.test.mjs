@@ -74,9 +74,9 @@ const sample = name => {
 };
 test('v10: exactly 100 unique functions, 506 overall, categorized without duplicates',()=>{
  assert.equal(v10FunctionNames.length,100);assert.equal(new Set(v10FunctionNames).size,100);
- assert.equal(functionNames.length,506);
- assert.equal(Object.values(categorizedFunctions).flat().length,506);
- assert.equal(new Set(Object.values(categorizedFunctions).flat()).size,506);
+ assert.equal(functionNames.length,516);
+ assert.equal(Object.values(categorizedFunctions).flat().length,516);
+ assert.equal(new Set(Object.values(categorizedFunctions).flat()).size,516);
  for(const name of v10FunctionNames)assert.ok(functions[name] && functions[name].run);
 });
 for(const name of v10FunctionNames){

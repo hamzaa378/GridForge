@@ -1,12 +1,7 @@
 {
-  "appRegistered": 506,
-  "addedV10": 100,
-  "catalogCount": 475,
-  "covered": 465,
-  "missingCount": 10,
-  "legacyCount": 355,
-  "missingLegacy": 8,
-  "missing": [
+  "appRegistered": 516,
+  "localEvaluated": 506,
+  "connectedRecognized": [
     "CUBEKPIMEMBER",
     "CUBEMEMBER",
     "CUBEMEMBERPROPERTY",
@@ -17,5 +12,12 @@
     "RTD",
     "STOCKHISTORY",
     "WEBSERVICE"
-  ]
+  ],
+  "addedV10": 100,
+  "catalogCount": 475,
+  "covered": 475,
+  "missingCount": 0,
+  "legacyCount": 355,
+  "missingLegacy": 0,
+  "missing": []
 }

@@ -60,6 +60,15 @@
 .context-separator{border-top:1px solid #38435e;margin:5px 8px}
 .sort-dialog .field-label{margin-top:16px;margin-bottom:6px}
 .context-select{width:100%;background:#11192d;border:1px solid #475479;color:#eff2fd;padding:10px;border-radius:7px;font-size:12px}
+.pivot-field-sort{width:auto;min-width:106px;padding:5px 6px}
+.pivot-date-group{width:auto;min-width:106px;padding:5px 6px;max-width:100%}
+.pivot-number-group{width:96px;min-width:84px;max-width:100%;padding:5px 6px}
+#pivot-row-order,#pivot-column-order{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+#pivot-row-order>.tool-group,#pivot-column-order>.tool-group{min-width:0;flex-wrap:wrap}
+.pivot-manual-order{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;width:100%}
+.pivot-manual-order label{min-width:0}
+.pivot-manual-order select{min-height:108px;padding:4px}
+.pivot-manual-order-buttons{display:grid;gap:6px}
 .sort-checkbox{display:flex;align-items:center;gap:9px;font-size:12px;color:#c4cce4;margin-top:20px}
 .sort-preview{font:10px/1.7 var(--mono);color:#aebce5!important;margin-top:15px}
 
@@ -220,3 +229,370 @@ html[data-theme="light"] .fx-icon{color:#168052}
 html[data-theme="light"] .apply-formula{background:#198754}
 html[data-theme="light"] .apply-formula:hover{background:#167247}
 @media(max-width:1100px){.topbar-right .ghost-btn span{display:none}.excel-tab{padding-inline:11px}.format-toolbar{overflow-x:auto}.toolbar{overflow-x:auto}}
+
+/* v10.4: familiar Excel ribbon: one primary group at a time, compact and calm. */
+.excel-ribbon-tabs{gap:0;min-height:43px;align-items:end}
+.excel-tab{border-radius:6px 6px 0 0;padding:10px 14px;transition:background .15s}
+.excel-tab[aria-selected="true"]{box-shadow:inset 0 -2px 0 #198754}
+.ribbon-collapse-btn{padding:7px 11px;margin-left:5px;font-size:15px;line-height:1}
+.ribbon-content{flex-shrink:0;display:flex;flex-direction:column;min-height:0}
+.ribbon-content .toolbar{height:44px;min-height:44px}
+.ribbon-content .toolbar:has(.tool-group:not(.ribbon-hidden)){display:flex}
+.ribbon-content .toolbar:not(:has(.tool-group:not(.ribbon-hidden))){display:none}
+.format-toolbar .format-caption{display:none}
+.format-toolbar{height:44px;min-height:44px;flex-shrink:0}
+.format-toolbar label.ribbon-hidden,.format-toolbar button.ribbon-hidden{display:none!important}
+.format-toolbar .fmt-selector-label{padding:0 3px}
+.ribbon-hint{height:24px;min-height:24px;padding:4px 18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.78}
+html[data-ribbon-collapsed="true"] .ribbon-content,html[data-ribbon-collapsed="true"] .ribbon-hint{display:none!important}
+html[data-theme="light"] .ribbon-content .toolbar,html[data-theme="light"] .ribbon-content .format-toolbar{background:#fff;border-color:#e2e8ef}
+html[data-theme="light"] .excel-tab[aria-selected="true"]{background:#fff;color:#167245}
+html[data-theme="light"] .ribbon-collapse-btn{color:#284c68;background:#eef4fa;border-color:#d5e3eb}
+@media(max-width:850px){.excel-ribbon-tabs{gap:0}.excel-tab{padding:10px 9px;font-size:11px}.command-search-label{margin-left:auto}}
+
+/* v10.7 — Excel/Sheets-inspired professional workspace. Editing grid is the hero. */
+:root{--excel-green:#16814f;--excel-soft:#eaf6ee;--sheet-divider:#dee5eb}
+html[data-theme="light"]{--accent:#16814f}
+#app{font-family:Inter,'Segoe UI',Aptos,Arial,sans-serif}
+html[data-theme="light"] #app{background:#f6f8fb}
+.topbar{box-shadow:0 1px 2px rgba(15,45,73,.035);z-index:10}
+html[data-theme="light"] .topbar{background:#fff}
+.logo{letter-spacing:-.7px;font-weight:850}
+html[data-theme="light"] .logo{color:#167148}
+.title-line{font-weight:740;letter-spacing:-.25px}
+.excel-ribbon-tabs{background:#f7faf9;border-bottom:1px solid #d7e7dd;gap:1px}
+html[data-theme="light"] .excel-ribbon-tabs{background:#f7faf8;border-bottom-color:#dce7df}
+.excel-tab{font-weight:620;border-radius:5px 5px 0 0;color:#aebbd0}
+html[data-theme="light"] .excel-tab{color:#415b50}
+html[data-theme="light"] .excel-tab.active,html[data-theme="light"] .excel-tab[aria-selected="true"]{color:#176a42;background:#fff;box-shadow:inset 0 -3px #16814f;font-weight:760}
+.excel-ribbon-tabs .command-search-label{min-height:31px;border-radius:5px}
+html[data-theme="light"] .command-search-label{background:#fff;border:1px solid #dbe5df}
+.ribbon-hint{background:#f7faf8;color:#829388;font-size:10px;font-weight:550;height:23px;min-height:23px}
+html[data-theme="light"] .ribbon-hint{background:#f7faf8;color:#687e73}
+.ribbon-content{box-shadow:0 1px 3px #0000000c;z-index:2;background:#fff}
+.ribbon-content .toolbar{min-height:53px;height:53px;gap:10px}
+.ribbon-content .tool-group{gap:5px;padding:4px 10px 4px 0;border-right:1px solid #e5ebe8}
+html[data-theme="dark"] .ribbon-content .tool-group{border-right-color:#33475b}
+.ribbon-content .tool-btn{min-height:34px;border-radius:5px;padding:7px 10px;transition:background .13s ease}
+html[data-theme="light"] .ribbon-content .tool-btn{color:#2c4458}
+html[data-theme="light"] .ribbon-content .tool-btn:hover{background:#e9f3ed;color:#166a42}
+.format-toolbar{min-height:62px;height:62px;padding:7px 16px;gap:9px;border-top:1px solid #e4eae7;overflow-x:auto}
+.format-toolbar .fmt-selector-label{gap:6px;color:#607468;font-weight:630;font-size:10px}
+.format-toolbar .fmt-selector-label select{min-height:32px;max-width:none;border-radius:5px}
+.format-toolbar .fmt-selector-label input[type="text"]{height:32px;width:138px;max-width:20vw;padding:0 7px;border:1px solid #cbd7cf;border-radius:5px;background:#fff;color:#23352c;font-family:inherit;font-size:11px}
+.format-toolbar #fmt-font{min-width:104px}
+.format-toolbar #fmt-size{min-width:53px}
+.format-toolbar .format-btn{min-height:33px;height:33px;min-width:33px;font-size:12px;border-radius:5px}
+.format-toolbar .format-btn.format-on{background:#bfe7d0!important;border-color:#439b71!important;color:#155a35!important}
+.format-toolbar .color-field{color:#617469;font-size:10px}
+.format-toolbar .color-field input{height:30px;width:37px}
+html[data-theme="light"] .format-toolbar .format-btn{border-color:#d5e1d9;background:#fff;color:#29483b}
+html[data-theme="light"] .format-toolbar .format-btn:hover{background:#edf5ee}
+html[data-theme="light"] .format-toolbar select{border-color:#d7e1da;background:#fff;color:#2e4b3d}
+html[data-theme="light"] .sheet-tabs{background:#f6f8fa;border-top:1px solid #dae5dd;color:#52655a}
+html[data-theme="light"] .sheet-tab{border:1px solid #d8e2db;border-bottom:2px solid transparent;background:#edf4ef;color:#3d6250}
+html[data-theme="light"] .sheet-tab.active-tab{background:#fff;border-bottom:3px solid #198553;color:#135b39}
+html[data-theme="light"] .formula-row{background:#fff}
+html[data-theme="light"] .name-box,html[data-theme="light"] #formula{border-radius:4px;background:#fff;border-color:#cbd9cf}
+html[data-theme="light"] .fx-icon{color:#178250}
+html[data-theme="light"] .row-heading,html[data-theme="light"] .col-heading,html[data-theme="light"] .corner{background:#f3f6f5;color:#536b62;border-color:#d9e4df}
+html[data-theme="light"] .cell{font-family:Aptos,'Segoe UI',Arial,sans-serif;color:#263b34;border-color:#e0e9e4}
+html[data-theme="light"] .cell:nth-child(even){background:#fff}
+html[data-theme="light"] .cell.selected{background:#e3f3e9!important}
+html[data-theme="light"] .cell.primary{background:#def4e7!important;box-shadow:inset 0 0 0 2px #178453}
+.cell.cell-wrap{white-space:normal;overflow-wrap:anywhere;line-height:1.08;padding-block:3px}
+.cell.border-all{outline:1px solid #657f75;outline-offset:-1px}
+.cell.border-bottom{border-bottom:2px solid #657f75}
+.cell.border-top{border-top:2px solid #657f75}
+.cell.border-left{border-left:2px solid #657f75}
+.cell.border-right{border-right:2px solid #657f75}
+.grid-hide-lines .cell:not(.border-all):not(.border-bottom):not(.border-top):not(.border-left):not(.border-right){border-right-color:transparent!important;border-bottom-color:transparent!important}
+.cell.border-all.primary,.cell.border-all.selected{outline-color:#16814f}
+html:not([data-inspector="open"]) .metrics{display:none}
+html[data-ribbon-collapsed="true"] #insert-gallery{display:none!important}
+.cell.has-hyperlink{color:#0563c1;text-decoration:underline;cursor:pointer}
+html[data-theme="dark"] .cell.has-hyperlink{color:#8ab4f8}
+.cell.has-hyperlink:hover{filter:brightness(.86)}
+
+/* Dedicated chart gallery in the Insert tab, not buried in an inspector. */
+.insert-gallery{display:flex;align-items:center;gap:8px;min-height:102px;padding:12px 18px;background:#fff;border-top:1px solid #edf1f4;border-bottom:1px solid #dbe7df;flex-wrap:wrap}
+html[data-theme="dark"] .insert-gallery{background:#1d293b;border-color:#304458}
+.insert-intro{display:flex;flex-direction:column;gap:5px;min-width:145px;margin-right:12px}
+.insert-intro strong{font-size:14px;color:#176b42}
+html[data-theme="dark"] .insert-intro strong{color:#9fe6c5}
+.insert-intro small{font-size:10px;color:#789081;line-height:1.3;max-width:150px}
+.chart-pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-width:82px;min-height:76px;padding:7px 10px;color:#3f5a4c;background:#f8fbf9;border:1px solid #dce9df;border-radius:7px;cursor:pointer;font-size:11px;font-weight:650;transition:all .16s}
+.chart-pick:hover,.chart-pick:focus-visible{background:#e4f4e9;border-color:#389a64;box-shadow:0 2px 8px #2c75401f;transform:translateY(-1px)}
+.chart-glyph{font-size:27px;color:#268253;line-height:1.1;font-family:'Segoe UI Symbol',Aptos,Arial,sans-serif}
+.insert-divider{height:49px;border-left:1px solid #dfe6e1;margin:0 6px}
+.chart-manage-btn{background:transparent;border:1px solid #c9ded0;border-radius:6px;color:#257348;padding:10px 13px;font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer}
+.chart-manage-btn:hover{background:#edf7f0}
+#chart-count{display:inline-grid;place-items:center;background:#e4f1e7;color:#237348;border-radius:30px;min-width:20px;height:20px;margin-left:7px}
+html[data-theme="dark"] .chart-pick{background:#243749;border-color:#355569;color:#d5e8e0}
+html[data-theme="dark"] .chart-glyph{color:#7bcdaa}
+html[data-theme="dark"] .chart-manage-btn{color:#abf0cd}
+
+/* Worksheet-embedded SVG charts (drag to move; source-linked; persist in workbook JSON). */
+.worksheet-chart{position:absolute;display:flex;flex-direction:column;z-index:18;background:#fff;border:1px solid #d9e5dc;border-radius:9px;box-shadow:0 6px 26px rgba(36,64,46,.17);overflow:hidden;user-select:none;color:#1e3542}
+.worksheet-chart:hover{border-color:#55a977;box-shadow:0 8px 30px #33584435}
+.worksheet-chart.selected{border:2px solid #217346;box-shadow:0 0 0 2px #21734624,0 6px 26px rgba(36,64,46,.17)}
+.worksheet-chart:focus-visible{outline:2px solid #217346;outline-offset:2px}
+.excel-tab.chart-context-tab{color:#2865a7}
+.excel-tab.chart-context-tab[aria-selected="true"]{color:#174f88;border-bottom-color:#2f75bd}
+.chart-command-group{align-items:center;gap:5px;padding:0 4px}
+.chart-ribbon-label{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 5px;color:#607080;font-size:9px;white-space:nowrap}
+.chart-ribbon-label select,.chart-ribbon-label input{max-width:132px;height:25px;padding:3px 6px;border:1px solid #cdd7e0;border-radius:4px;background:#fff;color:#25364a;font-size:11px}
+#chart-format-title{width:130px}#chart-format-width,#chart-format-height{width:68px}
+html[data-theme="dark"] .chart-ribbon-label{color:#b9cad9}
+html[data-theme="dark"] .chart-ribbon-label select,html[data-theme="dark"] .chart-ribbon-label input{background:#1c2a3a;border-color:#41586f;color:#e4edf5}
+.worksheet-chart-head{height:37px;min-height:37px;padding:0 10px;background:#f6faf8;border-bottom:1px solid #e4ece7;display:flex;align-items:center;gap:8px;cursor:grab}
+.worksheet-chart-head:active{cursor:grabbing}
+.worksheet-chart-head strong{font-size:11px;font-weight:750;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chart-move{color:#8ca99a;letter-spacing:-3px}
+.chart-head-actions{display:flex;gap:3px}
+.chart-head-actions button{cursor:pointer;border:0;background:transparent;padding:5px 7px;border-radius:4px;color:#587163;font-size:13px}
+.chart-head-actions button:hover{background:#ddf0e4;color:#14673b}
+.worksheet-chart-svg{flex:1;overflow:hidden;display:flex;align-items:stretch;justify-content:center}
+.worksheet-chart-svg svg{width:100%;height:100%}
+.chart-dialog{width:min(930px,96vw);max-width:96vw}
+.chart-editor-grid{display:grid;grid-template-columns:minmax(225px,290px) minmax(320px,1fr);gap:22px;align-items:start}
+.chart-editor-form .field-label{margin:13px 0 6px}
+.chart-editor-form .context-select,.chart-editor-form .scenario-input{width:100%}
+.chart-hint{font-size:12px;line-height:1.5;color:#678071}
+.chart-preview{background:#fff;border:1px solid #dee9e1;border-radius:8px;min-height:280px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.chart-preview svg{width:100%;height:auto}
+.chart-preview-empty{color:#6b8277;padding:20px;text-align:center}
+.chart-list-item{display:flex;justify-content:space-between;gap:15px;align-items:center;padding:12px;border-bottom:1px solid #d7e2de}
+.chart-list-item span{display:flex;flex-direction:column;gap:5px}
+.chart-list-item small{opacity:.75}
+.chart-list-item button{padding:7px 12px;background:#e6f5ec;color:#166c43;border:1px solid #b2ddc0;border-radius:5px;cursor:pointer}
+html[data-theme="dark"] .chart-dialog .chart-hint{color:#abbfcb}
+@media(max-width:950px){.insert-intro{min-width:100px}.chart-pick{min-width:69px}.chart-editor-grid{grid-template-columns:1fr}.chart-preview{min-height:180px}}
+@media(max-width:700px){.insert-gallery{max-height:180px;overflow:auto}.format-toolbar{height:50px;min-height:50px}.chart-pick{min-height:61px}.chart-glyph{font-size:20px}}
+
+/* v10.7 cell-style gallery and explicit chart resize handle. */
+.format-toolbar #fmt-preset{min-width:122px}
+.chart-resize-grip{position:absolute;right:2px;bottom:1px;display:grid;place-items:center;z-index:3;height:20px;width:20px;color:#4d8f68;cursor:nwse-resize;font-size:13px;user-select:none}
+.chart-resize-grip:hover{color:#0b6f37;background:#e0f2e6;border-radius:5px}
+
+/* v10.8 — chart-editor details, compact Excel-style layout */
+.chart-editor-details{display:grid;grid-template-columns:1fr;gap:6px;margin:9px 0;padding:11px 12px;border:1px solid var(--border,#dce4ef);border-radius:10px;background:var(--surface-alt,rgba(108,133,166,.06));}
+.chart-editor-details .field-label{margin:3px 0 0;}
+.chart-editor-details .context-select,.chart-editor-details .scenario-input{min-width:0;width:100%;box-sizing:border-box;}
+.chart-option{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:12px;font-weight:600;}
+.chart-option input{width:16px;height:16px;accent-color:#217346;}
+.insert-gallery{flex-wrap:wrap;}
+@media(max-width:850px){.chart-editor-grid{grid-template-columns:1fr!important;}.chart-preview{max-width:100%;overflow:auto}}
+/* v10.9 — familiar table design and restrained Office-inspired galleries. */
+.quick-colors{display:flex;align-items:center;gap:5px;flex:0 0 auto;color:var(--muted);font-size:12px}
+.quick-colors button{width:17px;height:17px;border:1px solid #9eacc1;border-radius:4px;background:var(--swatch);box-shadow:inset 0 0 0 2px #ffffffa6;padding:0}
+.quick-colors button:hover,.quick-colors button:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
+html:not([data-current-ribbon="Home"]):not([data-current-ribbon="All"]) .quick-colors{display:none}
+.format-table-action{background:#e5f3eb!important;color:#126248!important;border-color:#9ecfb6!important;font-weight:800}
+.table-dialog{width:min(790px,calc(100vw - 32px));max-height:calc(100vh - 38px);overflow:auto}
+.table-editor-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:22px;margin:15px 0}
+.table-dialog .field-label{display:block;margin:12px 0 5px}
+.table-style-gallery{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-top:8px}
+.table-style-choice{background:var(--panel2);border:2px solid transparent;border-radius:8px;padding:5px;display:grid;gap:3px;text-align:left;color:var(--text);min-width:0}
+.table-style-choice span{height:11px;width:100%;border-radius:2px}
+.table-style-choice small{font-size:9px;line-height:1.25;min-height:20px}
+.table-style-choice[aria-checked="true"]{border-color:#2a8d70;box-shadow:0 0 0 1px #2a8d7040}
+.table-style-choice:hover{border-color:#6daa9e}
+.table-design-options{display:grid;gap:12px;padding:13px;background:var(--panel2);border:1px solid var(--border);border-radius:9px;margin-top:12px}
+.table-design-options label{font-size:12px;display:flex;align-items:center;gap:9px;color:var(--text)}
+.table-design-options input{accent-color:#198163}
+.table-style-preview{border:1px solid var(--border);border-radius:9px;margin-top:16px;padding:12px;background:#ffffff;color:#24374b}
+.table-preview-title{font-size:9px;letter-spacing:.8px;color:#6c7b8d;margin-bottom:9px;font-weight:750}
+.table-preview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#d2dbe5;border:1px solid #dae0e9}
+.table-preview-grid span{padding:8px 6px;min-width:0;font-size:10px;text-overflow:ellipsis;overflow:hidden}
+.excel-table-cell{transition:background-color .08s linear}
+[data-theme="light"] .table-dialog{color:#1d3349}
+[data-theme="light"] .table-style-choice{background:#f4f7fa;color:#24364b}
+[data-theme="light"] .table-design-options{background:#f7f9fc}
+@media(max-width:750px){.table-editor-grid{grid-template-columns:1fr}.table-style-gallery{grid-template-columns:repeat(5,1fr)}.quick-colors{display:none}}
+
+/* Excel familiar, keyboard accessible column filter affordance. */
+.table-header-filter{margin-left:auto;flex:0 0 auto;min-width:20px;height:19px;border:1px solid #b6d0c2;border-radius:3px;background:#f8fcfa;color:#245a42;font-size:12px;cursor:pointer;line-height:1;padding:0 2px}
+.table-header-filter:hover,.table-header-filter:focus-visible{outline:2px solid #398c68;background:#e2f3e8}
+.filter-values{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:3px;max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:7px;padding:7px;margin:9px 0}
+.filter-value{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px;border-radius:4px;overflow:hidden;color:var(--text)}
+.filter-value:hover{background:var(--panel2)}
+.filter-value span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filter-values-toolbar{display:flex;gap:6px;margin-top:9px}
+.filter-help{color:var(--muted);font-size:12px;line-height:1.5;margin:7px 0}
+.col-heading,.row-heading{cursor:default}.col-heading::after{content:"";position:absolute;right:0;top:0;width:6px;height:100%;cursor:col-resize}.row-heading::after{content:"";position:absolute;right:0;bottom:0;width:100%;height:6px;cursor:row-resize}
+.chart-series-options{display:grid;gap:6px;max-height:190px;overflow:auto;padding:8px;border:1px solid #dce4ee;border-radius:8px;background:#f8fafc}.chart-series-config{display:grid;grid-template-columns:minmax(80px,1.3fr) repeat(3,minmax(74px,1fr)) repeat(4,54px) auto auto;align-items:center;gap:5px}.chart-series-config b{font-size:11px;overflow:hidden;text-overflow:ellipsis}.chart-series-config select,.chart-series-config input[type=number]{min-width:0;width:100%;padding:4px;font-size:10px}.chart-series-config label{font-size:10px;white-space:nowrap}
+
+/* Excel 2019 ribbon grouping and contextual object tabs. */
+.ribbon-content .toolbar{height:67px!important;min-height:67px!important;align-items:stretch}
+.ribbon-content .toolbar .tool-group[aria-label]{position:relative;padding-bottom:12px}
+.ribbon-content .toolbar .tool-group[aria-label]::after{content:attr(aria-label);position:absolute;bottom:1px;left:0;right:10px;text-align:center;color:#687a6e;font-size:9px;line-height:11px;white-space:nowrap}
+.ribbon-content .toolbar .tool-group#chart-design-ribbon::after{content:'Chart Design'}
+.ribbon-content .toolbar .tool-group#chart-format-ribbon::after{content:'Format'}
+html[data-theme="light"] .excel-ribbon-tabs{background:#f3f5f7;border-color:#d9dee5}
+html[data-theme="light"] .excel-tab.active,html[data-theme="light"] .excel-tab[aria-selected="true"]{box-shadow:inset 0 -3px #217346;color:#217346}
+html[data-theme="light"] .ribbon-content{background:#f8f9fa;box-shadow:0 1px 2px #00000012}
+html[data-theme="light"] .ribbon-content .tool-group{border-right-color:#dfe3e8}
+html[data-theme="light"] .ribbon-content .tool-btn{border-color:transparent;color:#253746}
+html[data-theme="light"] .ribbon-content .tool-btn:hover{background:#e9eff5;color:#1d5f3a}
+.chart-series-options{overflow:auto}
+.chart-series-config{min-width:1050px}
+html[data-theme="light"] .chart-series-options{background:#f7f9fb;border-color:#d5dce4}
+.ribbon-content .tool-group[aria-label="Workbook"],.ribbon-content .tool-group[aria-label="Undo"],.ribbon-content .tool-group[aria-label="Open and save"],.ribbon-content .tool-group[aria-label="Editing"],.ribbon-content .tool-group[aria-label="Cell size"]{position:relative;padding-bottom:12px}
+.ribbon-content .tool-group[aria-label="Workbook"]::after,.ribbon-content .tool-group[aria-label="Undo"]::after,.ribbon-content .tool-group[aria-label="Open and save"]::after,.ribbon-content .tool-group[aria-label="Editing"]::after,.ribbon-content .tool-group[aria-label="Cell size"]::after{position:absolute;bottom:1px;left:0;right:10px;text-align:center;color:#687a6e;font-size:9px;line-height:11px;white-space:nowrap}
+.ribbon-content .tool-group[aria-label="Workbook"]::after{content:"Workbook"}.ribbon-content .tool-group[aria-label="Undo"]::after{content:"Undo"}.ribbon-content .tool-group[aria-label="Open and save"]::after{content:"Open and save"}.ribbon-content .tool-group[aria-label="Editing"]::after{content:"Editing"}.ribbon-content .tool-group[aria-label="Cell size"]::after{content:"Cell size"}
+
+/* GridForge v11.3 workspace: Excel 2019 proportions and command placement. */
+#app{background:#fff;color:#202124}
+.topbar{height:48px;min-height:48px;padding:0 18px;gap:9px;background:#f3f3f3;border-bottom:1px solid #d5d5d5;box-shadow:none}
+.logo{min-width:24px;width:24px;justify-content:center;color:#217346}
+.logo-mark{width:19px;height:19px;transform:none}
+.logo-mark span{width:8px;height:8px;border-radius:1px;background:#217346}
+.logo-mark span:nth-child(2){left:9px;background:#33945b}.logo-mark span:nth-child(3){top:9px;background:#177344}.logo-mark span:nth-child(4){left:9px;top:9px;background:#55a56d}
+.quick-access{display:flex;align-items:center;gap:2px;padding-right:8px;border-right:1px solid #d6d6d6}
+.quick-btn{height:29px;min-width:28px;padding:0 6px;border:0;border-radius:3px;background:transparent;color:#5c6670;font-size:18px;line-height:1}
+.quick-btn:hover{background:#e6e9ec}.quick-save{color:#217346}
+.title-group{border:0;padding:0 8px;min-width:150px}.title-line{font-size:13px;font-weight:500;color:#333;letter-spacing:0}.title-sub{font-size:9px;color:#778075;margin-top:1px;line-height:1}
+.title-search{position:absolute;left:50%;transform:translateX(-50%);width:min(27vw,360px);height:31px;margin:0;padding:2px 10px;background:#fff;border:1px solid #c9cdd1;border-radius:4px;box-shadow:0 1px 2px #00000012;color:#6c747a}
+#command-search{width:100%;min-width:0;color:#30363a;font-size:12px}#command-search::placeholder{color:#747b80}
+.topbar-right{gap:8px}.topbar-right .online{display:none}.ghost-btn{color:#4c5359;padding:6px 8px;font-size:11px}.ghost-btn:hover{background:#e7eaed}
+.avatar{width:25px;height:25px;border:0;background:#c65119;font-size:10px}
+.v10-preferences{border:0;padding:0;gap:5px}.v10-preferences label{display:none}.v10-preferences select,.v10-preferences button{height:27px;padding:4px 7px;border:1px solid #c8cdd1;border-radius:3px;background:#fff;color:#40474d;font-size:10px}.v10-preferences button{min-width:30px}
+.excel-ribbon-tabs{height:36px;min-height:36px;padding:0 13px;gap:1px;align-items:stretch;overflow-x:auto;background:#f2f2f2;border-bottom:1px solid #d5d5d5}
+.excel-tab{align-self:stretch;border:0;border-bottom:2px solid transparent;border-radius:0;padding:0 11px;color:#40464b;font-size:12px;font-weight:500}
+.excel-tab:hover{background:#e7e8e9;color:#222}.excel-tab.active,.excel-tab[aria-selected="true"]{background:transparent;color:#217346;border-bottom-color:#217346;box-shadow:none;font-weight:650}
+.excel-tab.file-tab{color:#fff;background:#217346;padding-inline:14px}.excel-tab.file-tab:hover{background:#185c37}
+.excel-tab.more-tab{margin-left:auto}.ribbon-collapse-btn{align-self:center;margin-left:7px;width:25px;height:25px;border:0;border-radius:3px;background:transparent;color:#5c6469;font-size:15px}
+.ribbon-collapse-btn:hover{background:#e5e8e9}.ribbon-hint{display:none!important}
+.ribbon-content{height:91px;min-height:91px;max-height:91px;display:flex;flex-direction:row;align-items:stretch;overflow:hidden;background:#f8f9fa;border-bottom:1px solid #d4d7db;box-shadow:none;z-index:2}
+.ribbon-content .toolbar{height:90px!important;min-height:90px!important;max-width:max-content;flex:0 0 auto;align-items:stretch;gap:6px;padding:3px 8px;background:transparent;border:0;overflow-x:auto;overflow-y:hidden}
+.ribbon-content .tool-group{align-items:stretch;gap:2px;padding:2px 7px 15px 2px;border-right:1px solid #dadde0}
+.ribbon-content .tool-group[aria-label="Clipboard"]{min-width:165px}
+.ribbon-content .tool-group[aria-label="Clipboard"] #btn-paste{min-width:62px;height:64px;align-self:center;font-size:22px}
+.ribbon-content .tool-group[aria-label="Clipboard"] #btn-cut,.ribbon-content .tool-group[aria-label="Clipboard"] #btn-copy{min-width:43px;align-self:center}
+.ribbon-content .tool-group[aria-label]::after{bottom:2px;right:6px;color:#60666b;font-size:9px}
+.ribbon-content .tool-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:42px;min-height:54px;height:58px;padding:5px 6px;border:0;border-radius:3px;color:#30373d;font-size:17px;font-weight:400;line-height:1}
+.ribbon-content .tool-btn span{margin:0;font-size:9px;font-weight:500;line-height:1.15;white-space:normal;text-align:center;max-width:70px}
+.ribbon-content .tool-btn:hover{background:#e5eaee;color:#17643e}
+.ribbon-content .separator{height:68px;align-self:center;background:#d9dcdf}
+.ribbon-content .toolbar-push,.ribbon-content .toolbar-tip,.ribbon-content .cell-counter{display:none}
+.format-toolbar{height:90px;min-height:90px;flex:1 1 auto;min-width:0;gap:5px;padding:5px 9px;background:transparent;border:0;overflow-x:auto;overflow-y:hidden}
+.format-command-group{position:relative;display:flex;align-items:center;gap:4px;flex:0 0 auto;height:100%;padding:2px 9px 15px 3px;border-right:1px solid #dadde0}
+.format-command-group::after{content:attr(data-label);position:absolute;left:0;right:8px;bottom:2px;text-align:center;color:#60666b;font-size:9px;line-height:11px;white-space:nowrap}
+.format-command-group:not(:has(button:not(.ribbon-hidden),select:not(.ribbon-hidden),input:not(.ribbon-hidden))){display:none}
+.format-command-group[aria-label="Font"]{min-width:270px}.format-command-group[aria-label="Alignment"]{min-width:122px}.format-command-group[aria-label="Number"]{min-width:135px}.format-command-group[aria-label="Styles"]{min-width:280px}.format-command-group[aria-label="Cells"]{min-width:150px}
+.format-toolbar .fmt-selector-label{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:55px;color:#50575d;font-size:9px;white-space:nowrap}
+.format-toolbar .fmt-selector-label select{height:28px;min-height:28px;padding:2px 20px 2px 6px;border:1px solid #bfc5cb;border-radius:2px;background:#fff;color:#343a40;font-size:11px}
+.format-toolbar #fmt-font{min-width:106px}.format-toolbar #fmt-size{min-width:48px}.format-toolbar .format-btn{height:30px;min-height:30px;min-width:29px;padding:4px 6px;border:1px solid transparent;border-radius:2px;background:transparent;color:#333;font-size:11px}
+.format-toolbar .format-btn:hover{background:#e7edf1}.format-toolbar .format-btn.format-on{background:#d8eadf!important;border-color:#65a681!important;color:#155a35!important}
+.format-toolbar .color-field{display:flex;flex-direction:column;align-items:center;gap:3px;color:#555;font-size:9px}.format-toolbar .color-field input{height:25px;width:32px;padding:1px}
+.quick-colors{gap:3px}.quick-colors button{width:13px;height:13px;border-radius:1px}
+.format-toolbar .format-table-action{background:#e3f0e6!important;color:#1d6840!important}
+#insert-gallery{min-height:91px;height:91px;max-height:91px;flex:1 1 auto;overflow:auto;flex-wrap:nowrap;padding:5px 12px;background:#f8f9fa;border:0}
+.insert-intro{min-width:90px;margin-right:2px}.insert-intro strong{font-size:12px}.insert-intro small{font-size:9px}
+.chart-pick{min-width:54px;min-height:70px;height:76px;padding:4px;background:transparent;border-color:transparent;border-radius:3px;font-size:9px}.chart-pick:hover{background:#e8f1eb;box-shadow:none;transform:none}
+.chart-glyph{font-size:23px;color:#527a61}.chart-manage-btn{white-space:nowrap}
+.workspace{background:#fff}.formula-row{height:34px;min-height:34px;gap:0;padding:3px 8px;background:#f6f6f6;border-bottom:1px solid #d3d6d8}
+.name-box{height:27px;width:105px;border:1px solid #c4c8cc;border-radius:3px;background:#fff}.name-box input{padding:5px 8px;color:#293742;font:12px 'Segoe UI',Arial,sans-serif}
+.formula-divider{margin:0 6px;color:#8b9094;font-size:15px}.formula-action,.apply-formula{width:25px;height:27px;border:0;border-radius:2px;background:transparent;color:#737b80;font-size:18px}.formula-action:hover{background:#e7e9ea}.apply-formula{background:transparent;color:#217346}.apply-formula:hover{background:#e4efe7}
+.fx-icon{width:33px;text-align:center;margin-left:5px;color:#555;font-size:19px}.fx-icon span{font-size:10px}#formula{height:27px;border:0;border-left:1px solid #d3d6d8;border-radius:0;background:#fff;padding:0 8px;color:#222;font:12px 'Segoe UI',Arial,sans-serif}
+.grid-scroll{background:#fff;scrollbar-color:#a4a8aa #f0f0f0;scrollbar-width:auto}.cell{font-size:12px;padding:0 4px;color:#222;background:#fff;border-color:#dedede}.cell:nth-child(even){background:#fff}.cell.primary{background:#fff!important;box-shadow:inset 0 0 0 2px #217346!important}.cell.selected{background:#edf5ef!important}.row-heading,.col-heading,.corner{background:#f3f3f3;color:#4f5559;border-color:#d2d5d7;font:11px 'Segoe UI',Arial,sans-serif}.row-heading{border-right-color:#b6babd}.col-heading{border-bottom-color:#b6babd}
+.sheet-tabs{height:36px;min-height:36px;gap:9px;padding:0 13px;background:#f3f3f3;border-top:1px solid #d0d3d5;color:#4f5559}.sheet-tab{height:32px;padding:0 13px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#4a5054;font-size:12px;font-weight:500}.sheet-tab.active-tab{background:#fff;color:#217346;border-bottom:2px solid #217346}.sheet-tabs #selection-status{font:10px 'Segoe UI',Arial,sans-serif;color:#62686c}.sheet-commands{gap:2px}.sheet-action{padding:4px 6px;border-radius:2px;font-size:9px;color:#697176}
+.sheet-tab{border-bottom:2px solid var(--sheet-tab-color,transparent)}.sheet-tab.active-tab{border-bottom:3px solid var(--sheet-tab-color,#217346)}.sheet-action:disabled{opacity:.4;cursor:default}.sheet-color-control{display:flex;align-items:center;gap:3px;font-size:9px;color:#697176;white-space:nowrap}.sheet-color-control select{max-width:58px;height:23px;padding:1px 3px;border:1px solid #c7cbce;border-radius:2px;background:#fff;color:#4a5054;font:9px 'Segoe UI',Arial,sans-serif}
+.statusbar{height:23px;min-height:23px;gap:18px;padding:0 10px;background:#f0f0f0;border-top:1px solid #cbd0d3;color:#50575c;font-size:10px}.status-left{gap:5px}.status-right{font-size:9px;color:#697076}
+html[data-theme="dark"] #app,html[data-theme="dark"] .workspace{background:#24272b;color:#f1f1f1}html[data-theme="dark"] .topbar,html[data-theme="dark"] .excel-ribbon-tabs,html[data-theme="dark"] .ribbon-content,html[data-theme="dark"] .ribbon-content .toolbar,html[data-theme="dark"] .format-toolbar,html[data-theme="dark"] #insert-gallery,html[data-theme="dark"] .formula-row,html[data-theme="dark"] .sheet-tabs,html[data-theme="dark"] .statusbar{background:#303438;color:#f1f1f1;border-color:#474b4e}html[data-theme="dark"] .excel-tab{color:#d1d4d7}html[data-theme="dark"] .excel-tab.active{color:#8bd0a2}html[data-theme="dark"] .title-line,html[data-theme="dark"] .tool-btn,html[data-theme="dark"] .format-toolbar .format-btn{color:#eceeef}html[data-theme="dark"] .name-box,html[data-theme="dark"] #formula,html[data-theme="dark"] .format-toolbar select{background:#25282b;color:#f1f1f1;border-color:#555a5e}html[data-theme="dark"] .grid-scroll{background:#25282b}html[data-theme="dark"] .cell{background:#25282b;color:#f1f1f1;border-color:#414548}html[data-theme="dark"] .cell:nth-child(even){background:#25282b}html[data-theme="dark"] .row-heading,html[data-theme="dark"] .col-heading,html[data-theme="dark"] .corner{background:#34383b;color:#d1d4d6;border-color:#505558}html[data-theme="dark"] .sheet-tab.active-tab{background:#25282b;color:#a5d7b3}html[data-theme="dark"] .title-search{background:#25282b;border-color:#555a5e}html[data-theme="dark"] #command-search{color:#f1f1f1}html[data-theme="dark"] .quick-btn,html[data-theme="dark"] .ghost-btn{color:#eceeef}
+@media(max-width:1150px){.title-search{width:22vw}.quick-access{gap:0}.topbar{padding-inline:8px;gap:5px}.title-group{min-width:100px}.excel-tab{padding-inline:7px}.ribbon-content .toolbar{max-width:42vw}.format-toolbar{gap:2px;padding-inline:4px}.format-toolbar .color-field,.quick-colors{display:none}.format-command-group[aria-label="Font"]{min-width:190px}.format-command-group[aria-label="Styles"]{min-width:180px}}
+@media(max-width:760px){.title-search{position:static;transform:none;width:auto;flex:1}.title-sub,.topbar-right .ghost-btn span,.v10-preferences select,.avatar{display:none}.ribbon-content{overflow-x:auto}.ribbon-content .toolbar{max-width:100%}.format-toolbar{flex:0 0 auto}.sheet-commands{display:none}.status-right{display:none}}
+/* v11.5 Formula ribbon: familiar Excel groups with native working commands. */
+.formula-ribbon{display:flex;align-items:stretch;gap:9px;min-width:max-content;height:100%;}
+.formula-ribbon-group{display:flex;align-items:center;gap:5px;padding:3px 9px 13px 0;border-right:1px solid #e2e9e5;position:relative;}
+html[data-theme="dark"] .formula-ribbon-group{border-right-color:#33475b}
+.formula-ribbon-group:last-child{border-right:0}
+.formula-ribbon-group:after{content:attr(aria-label);position:absolute;bottom:1px;left:0;right:7px;text-align:center;font-size:9px;line-height:10px;color:#839187;white-space:nowrap}
+.formula-ribbon .format-btn{min-height:32px;border-radius:4px;padding:5px 8px;white-space:nowrap;font-size:11px}
+.formula-ribbon .format-btn:hover,.formula-menu summary:hover{background:#eaf3ed;color:#176d43}
+.formula-ribbon-label{display:flex;align-items:center;gap:5px;color:#607468;font-size:10px;white-space:nowrap}
+.formula-ribbon-label select{height:31px;max-width:140px;border:1px solid #d5e0d9;border-radius:4px;background:#fff;color:#263f32;padding:3px 6px;font-size:11px}
+.formula-ribbon-group select#formula-aggregate{width:94px}
+.formula-menu{position:relative;align-self:center}
+.formula-menu summary{list-style:none;cursor:pointer;padding:8px 7px;border-radius:4px;font-size:11px;color:#34483d;white-space:nowrap}
+.formula-menu summary::-webkit-details-marker{display:none}
+.formula-menu-items{position:absolute;z-index:60;top:calc(100% + 4px);left:0;display:flex;flex-direction:column;min-width:150px;max-height:320px;overflow-y:auto;padding:5px;background:#fff;border:1px solid #cbd6cf;border-radius:4px;box-shadow:0 6px 18px #172b2426}
+.formula-menu-items button{border:0;background:transparent;text-align:left;padding:6px 10px;font:12px Calibri,Arial,sans-serif;color:#253b30;cursor:pointer}
+.formula-menu-items button:hover{background:#e5f1e9;color:#126a3a}
+.formula-menu-empty{padding:8px;font-size:11px;color:#718078}
+.function-insert-dialog{width:min(650px,94vw)}
+.function-dialog-results{display:grid;grid-template-columns:1fr 1fr;gap:5px;max-height:230px;overflow:auto;margin:8px 0;padding:2px}
+.function-result{display:flex;align-items:flex-start;gap:9px;text-align:left;border:1px solid #dce6df;border-radius:5px;background:#fff;color:#253b30;padding:8px;cursor:pointer}
+.function-result strong{min-width:82px;font:600 11px var(--mono);color:#187247}
+.function-result small{font-size:10px;line-height:1.4;color:#607468}
+.function-result:hover,.function-result.chosen{border-color:#22854d;background:#edf7f0}
+.function-dialog-description{min-height:74px;padding:12px;border:1px solid #dce6df;border-radius:5px;background:#f7faf8;color:#46594e;font-size:11px;line-height:1.7}
+.function-dialog-description b{font:700 12px var(--mono);color:#167042}
+.function-dialog-description code{display:block;margin-top:4px;font:10px var(--mono);color:#395f4b}
+.function-dialog-description small{display:block;color:#976b1e;margin-top:4px}
+.function-insert-dialog .find-actions{justify-content:flex-end;gap:8px}
+.function-insert-dialog .find-actions button{width:auto;min-width:130px}
+.cell.traced-precedent{box-shadow:inset 0 0 0 2px #2678c8!important;background-color:#e5f2ff!important;color:#183958!important;z-index:9}
+.cell.traced-dependent{box-shadow:inset 0 0 0 2px #c47a16!important;background-color:#fff1d8!important;color:#563b14!important;z-index:9}
+html[data-theme="dark"] .cell.traced-precedent{background-color:#223d59!important;color:#e4f1ff!important}
+html[data-theme="dark"] .cell.traced-dependent{background-color:#564123!important;color:#fff1d8!important}
+@media(max-width:850px){.formula-ribbon{gap:4px}.formula-ribbon-group{gap:3px;padding-right:5px}.formula-ribbon-label{font-size:9px}.formula-ribbon .format-btn{padding-inline:5px}.formula-menu summary{padding-inline:4px}}
+.formula-ribbon{gap:4px}
+.formula-ribbon-group{gap:3px;padding-right:5px}
+.formula-ribbon-label select#formula-category{max-width:112px}
+/* v11.6 worksheet-scoped defined-name tools. */
+.name-dialog{width:min(520px,94vw)}
+.name-dialog .find-actions{justify-content:flex-end;gap:8px}
+.name-dialog .find-actions button{width:auto;min-width:115px}
+.name-scope-note{display:block;margin:8px 0;color:#718078;font-size:11px}
+.name-manager-dialog{width:min(850px,96vw)}
+.name-manager-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.name-manager-toolbar .secondary-button{width:auto;min-width:100px;margin:0}
+.name-manager-head,.name-manager-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(120px,1fr) minmax(100px,1.2fr) minmax(130px,auto);gap:10px;align-items:center}
+.name-manager-head{margin-top:12px;padding:8px 9px;background:#eff5f1;color:#50665a;font-size:10px}
+.name-manager-row{padding:8px 9px;border-bottom:1px solid #e4ebe6}
+.name-manager-row strong{font:600 11px var(--mono);color:#176d43;overflow-wrap:anywhere}
+.name-manager-row code,.name-use-item code{font:10px var(--mono);color:#50665a;overflow-wrap:anywhere}
+.name-manager-row small{font-size:10px;color:#718078;overflow-wrap:anywhere}
+.name-manager-row button{margin-left:5px;padding:5px 7px;border:1px solid #d5e0d9;border-radius:4px;background:white;color:#315741;cursor:pointer}
+.name-manager-list{display:grid;gap:6px;margin-top:12px;max-height:340px;overflow:auto}
+.name-use-item{display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:left;padding:10px;border:1px solid #dce6df;border-radius:5px;background:white;cursor:pointer}
+.name-use-item:hover{background:#edf7f0;border-color:#22854d}
+.name-use-item strong{font:600 11px var(--mono);color:#187247}
+.name-checkbox{display:flex;align-items:center;gap:8px;margin:14px 0;font-size:12px}
+.name-checkbox input{accent-color:#178348}
+html[data-theme="dark"] .name-manager-head{background:#202d2a;color:#d0e0d5}
+html[data-theme="dark"] .name-manager-row{border-bottom-color:#33475b}
+html[data-theme="dark"] .name-manager-row button,html[data-theme="dark"] .name-use-item{background:#1b253d;color:#eaf0ed;border-color:#3c4c57}
+html[data-theme="dark"] .name-manager-row strong,html[data-theme="dark"] .name-use-item strong{color:#8ed3a7}
+html[data-theme="dark"] .name-manager-row code,html[data-theme="dark"] .name-use-item code{color:#becdc3}
+.formula-menu summary{font-size:10px;padding:6px 4px}
+.formula-ribbon-label select#formula-category{max-width:106px}
+.validation-picker{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:8;width:18px;height:18px;padding:0;border:1px solid #8ba4bd;border-radius:2px;background:#f4f7fa;color:#40546a;font:10px 'Segoe UI',Arial,sans-serif;line-height:16px;cursor:pointer}
+.cell.has-list-validation.primary{padding-right:21px}
+html[data-theme="dark"] .validation-picker{background:#283545;color:#e4eee8;border-color:#657c90}
+.validation-advanced{margin:10px 0;padding:9px 11px;border:1px solid var(--border,#dce4ef);border-radius:8px}
+.validation-advanced summary{cursor:pointer;font-weight:650;margin-bottom:6px}
+.text-columns-dialog{width:min(620px,94vw)}
+.text-columns-preview{margin:10px 0;overflow:auto}
+.text-columns-table{display:grid;gap:1px;background:#d5dce2;border:1px solid #d5dce2;max-height:155px;overflow:auto}
+.text-columns-row{display:flex;gap:1px}
+.text-columns-row span{min-width:95px;max-width:180px;padding:5px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#fff;color:#263238;font-size:11px}
+html[data-theme="dark"] .text-columns-table{background:#45525b;border-color:#45525b}
+html[data-theme="dark"] .text-columns-row span{background:#262b2e;color:#f1f1f1}
+.page-setup-checks{display:flex;flex-wrap:wrap;gap:12px;margin:10px 0}.page-setup-checks label{display:flex;align-items:center;gap:6px}.page-margin-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.page-margin-grid .field-label{margin:0}.page-margin-grid input{width:100%}
+
+/* PivotTable slicers are persisted worksheet objects that drive saved item filters. */
+.worksheet-pivot-slicer{position:absolute;z-index:19;display:flex;flex-direction:column;gap:8px;padding:9px;background:#fff;border:1px solid #bdd8c4;border-radius:8px;box-shadow:0 5px 20px #23402c26;color:#1e3542;overflow:hidden;user-select:none}
+.pivot-slicer-head{display:flex;align-items:center;gap:5px;min-height:27px;cursor:grab}.pivot-slicer-head:active{cursor:grabbing}.pivot-slicer-head strong{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.pivot-slicer-head button{border:0;background:transparent;color:#547064;border-radius:4px;padding:4px 6px;cursor:pointer}.pivot-slicer-head button:hover{background:#e5f2e8;color:#14673b}
+.pivot-slicer-search{width:100%;height:27px;user-select:text;border:1px solid #ccd9d0;border-radius:4px;padding:4px 7px;background:#fff;color:#1e3542;font-size:11px}.pivot-slicer-items{display:grid;grid-template-columns:1fr 1fr;align-content:start;gap:5px;overflow:auto;min-height:0}.pivot-slicer-item{min-height:28px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 7px;border:1px solid #b8cabe;border-radius:4px;background:#f5f9f6;color:#294437;font-size:10px;cursor:pointer}.pivot-slicer-item:hover{border-color:#217346;background:#e6f3e9}.pivot-slicer-item.active{border-color:#217346;background:#217346;color:white}.pivot-slicer-hint{font-size:9px;color:#687d70}
+html[data-theme="dark"] .worksheet-pivot-slicer{background:#1d2c3b;border-color:#41604c;color:#e0ece5}html[data-theme="dark"] .pivot-slicer-search{background:#172431;border-color:#43576a;color:#e4edf5}html[data-theme="dark"] .pivot-slicer-item{background:#253849;border-color:#41586f;color:#d6e4dc}html[data-theme="dark"] .pivot-slicer-item.active{background:#217346;color:white}html[data-theme="dark"] .pivot-slicer-hint{color:#a6b8ac}
+
+.pivot-slicer-resize{position:absolute;right:2px;bottom:1px;color:#759482;font-size:11px;cursor:nwse-resize;line-height:12px}
+.pivot-group-controls{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:2;display:inline-flex;gap:2px}.pivot-group-toggle{width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid #a6b1be;border-radius:2px;background:#fff;color:#34475c;font:600 11px/1 'Segoe UI',Arial,sans-serif;cursor:pointer}.pivot-group-toggle:hover{border-color:#217346;background:#eaf4ed;color:#176a3a}html[data-theme="dark"] .pivot-group-toggle{background:#26394b;border-color:#617b91;color:#e1ebf4}html[data-theme="dark"] .pivot-group-toggle:hover{background:#214634;border-color:#4e9c69;color:#e5fff0}
+.feature-command-group{flex-wrap:wrap;max-width:720px}.missing-feature-button{position:relative}.missing-feature-button::after{content:'Unavailable';position:absolute;top:1px;right:1px;padding:1px 3px;border-radius:3px;background:#fff1d6;color:#855000;font-size:7px;line-height:1.1}.feature-availability-dialog{width:min(650px,94vw);max-height:min(82vh,760px);overflow:auto}.feature-availability-list{display:grid;gap:7px;max-height:44vh;overflow:auto;padding:3px}.feature-availability-item{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;padding:11px 13px;border:1px solid #3b4660;border-radius:7px;background:#202b43;color:var(--text);text-align:left;cursor:pointer}.feature-availability-item:hover,.feature-availability-item:focus-visible{border-color:#58a879;background:#263b3b;outline:none}.feature-item-name{font-size:13px;font-weight:650}.feature-status{flex:none;padding:4px 8px;border-radius:99px;background:#334155;color:#e6edf4;font-size:10px;font-weight:700}.feature-status-not-available{background:#502d32;color:#ffd5d5}.feature-status-partial{background:#4b4027;color:#ffe2a3}.feature-dialog-detail{padding:11px 13px;border-left:3px solid #4b9c6d;background:#1e2a36;line-height:1.5}.feature-dialog-detail:empty{display:none}html[data-theme="light"] .feature-availability-item{background:#f7f9fb;color:#203751;border-color:#d4dde7}html[data-theme="light"] .feature-availability-item:hover,html[data-theme="light"] .feature-availability-item:focus-visible{background:#edf7f0;border-color:#72ad86}html[data-theme="light"] .feature-dialog-detail{background:#f2f7f3;color:#294538}html[data-theme="light"] .feature-status-not-available{background:#fde8e8;color:#8c2929}html[data-theme="light"] .feature-status-partial{background:#fff2ce;color:#795400}
+.partial-feature-button::after{content:"Partial"}
+
+.pivot-value-filter-row{display:grid;grid-template-columns:minmax(95px,1fr) minmax(135px,1.4fr) 78px 78px auto;gap:6px;align-items:center;width:100%;}
+@media(max-width:640px){.pivot-value-filter-row{grid-template-columns:1fr 1fr;}}

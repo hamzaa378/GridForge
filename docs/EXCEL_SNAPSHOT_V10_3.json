@@ -4552,7 +4552,7 @@
       "formula": "=NOW()",
       "gridforge": {
         "type": "number",
-        "value": 46316.48529350694
+        "value": 46316.68749305556
       },
       "excel": {
         "type": "number",
@@ -5197,7 +5197,7 @@
       "formula": "=RAND()",
       "gridforge": {
         "type": "number",
-        "value": 0.12565185018729097
+        "value": 0.08973672586730719
       },
       "excel": {
         "type": "number",
@@ -5211,7 +5211,7 @@
       "formula": "=INDEX(RANDARRAY(2,3),1,1)",
       "gridforge": {
         "type": "number",
-        "value": 0.06807622850573725
+        "value": 0.9902642769610439
       },
       "excel": {
         "type": "number",
@@ -5225,13 +5225,13 @@
       "formula": "=RANDBETWEEN(1,6)",
       "gridforge": {
         "type": "number",
-        "value": 3
+        "value": 2
       },
       "excel": {
         "type": "number",
         "value": 3
       },
-      "match": true
+      "match": false
     },
     {
       "id": "F0373",

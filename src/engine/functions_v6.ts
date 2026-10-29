@@ -29,9 +29,12 @@ const comb=(m:number,k:number):number=>{if(!Number.isInteger(m)||!Number.isInteg
 const criterionPairs=(a:Datum[],offset:number):{rows:Value[][],criteria:Value[],length:number}=>{if(a.length<offset+2||(a.length-offset)%2!==0)err('#ARG!','Criteria require range, criterion pairs.');const rows:Value[][]=[],criteria:Value[]=[];for(let i=offset;i<a.length;i+=2){rows.push(v(a[i]!));criteria.push(sc(a[i+1]));}const length=rows[0]!.length;if(rows.some(row=>row.length!==length))err('#VALUE!','Criteria ranges differ in length.');return {rows,criteria,length};};
 const matchAll=(c:ReturnType<typeof criterionPairs>,i:number)=>c.rows.every((row,j)=>matchCriterion(row[i]??null,c.criteria[j]!));
 const toMatrix=(x:Datum):Value[][]=>Array.isArray(x)?x.map(row=>row.map(sc)):[[sc(x)]];
-const dateFrom=(days:number)=>new Date(Date.UTC(1899,11,30)+Math.trunc(days)*86400000);
-const serial=(d:Date)=>Math.floor((d.getTime()-Date.UTC(1899,11,30))/86400000);
-const workday=(start:number,days:number,weekend:string,holidays:Set<number>)=>{let current=Math.trunc(start),step=Math.sign(days),remaining=Math.abs(Math.trunc(days));if(remaining>366000)err('#NUM!','Workday interval too large.');while(remaining){current+=step;const dow=(dateFrom(current).getUTCDay()+6)%7;if(weekend[dow]==='0'&&!holidays.has(current))remaining--;}return current;};
+const maxExcelDate=2_958_465;
+const validateDateSerial=(days:number,label='Date')=>{if(!Number.isFinite(days)||days<0||days>maxExcelDate)err('#NUM!',`${label} is outside Excel’s supported date range.`);};
+const holidaySerials=(x:Datum):Set<number>=>{const values=ns(x);for(const value of values)validateDateSerial(value,'Holiday date');return new Set(values.map(Math.trunc));};
+const dateFrom=(days:number)=>{const whole=Math.trunc(days);return new Date(Date.UTC(1899,11,31)+(whole-(whole>=60?1:0))*86400000);};const excelWeekday=(days:number)=>Math.trunc(days)===60?3:dateFrom(days).getUTCDay();
+const serial=(d:Date)=>Math.floor((d.getTime()-Date.UTC(1899,11,31))/86400000)+(d.getTime()>=Date.UTC(1900,2,1)?1:0);
+const workday=(start:number,days:number,weekend:string,holidays:Set<number>)=>{validateDateSerial(start,'Start date');if(weekend==='1111111')err('#NUM!','The weekend definition must leave at least one working day.');let current=Math.trunc(start),step=Math.sign(days),remaining=Math.abs(Math.trunc(days));if(remaining>366000)err('#NUM!','Workday interval too large.');while(remaining){current+=step;validateDateSerial(current,'Result date');const dow=(excelWeekday(current)+6)%7;if(weekend[dow]==='0'&&!holidays.has(current))remaining--;}return current;};
 const weekendCode=(x:Value)=>{const codes:Record<string,string>={'1':'0000011','2':'1000001','3':'1100000','4':'0110000','5':'0011000','6':'0001100','7':'0000110','11':'0000001','12':'1000000','13':'0100000','14':'0010000','15':'0001000','16':'0000100','17':'0000010'};const mask=typeof x==='string'&&/^[01]{7}$/.test(x)?x:codes[String(x)];if(!mask)err('#VALUE!','Invalid weekend code/mask.');return mask!;};
 const usThirty360=(a:number,b:number):number=>{const one=dateFrom(a),two=dateFrom(b);let d1=one.getUTCDate(),d2=two.getUTCDate();const lastFeb=(d:Date)=>d.getUTCMonth()===1&&d.getUTCDate()===new Date(Date.UTC(d.getUTCFullYear(),2,0)).getUTCDate();if(d1===31||lastFeb(one))d1=30;if(d2===31&&d1===30)d2=30;if(lastFeb(one)&&lastFeb(two))d2=30;return 360*(two.getUTCFullYear()-one.getUTCFullYear())+30*(two.getUTCMonth()-one.getUTCMonth())+d2-d1;};
 const pm=(r:number,t:number,pv:number,fv=0,type=0):number=>{if(t<=0||r<=-1||![0,1].includes(type))err('#NUM!','Invalid loan arguments.');if(r===0)return -(pv+fv)/t;const growth=(1+r)**t;return finite(-(pv*growth+fv)*r/((1+r*type)*(growth-1)));};
@@ -113,7 +116,7 @@ export const v6Functions:Record<string,FunctionDefinition>={
  'ISFORMULA':def('TRUE when reference contains a formula.','=ISFORMULA(A1)',testFunction),
  'INDIRECT':def('Evaluate an A1 address held in text.','=INDIRECT("B7")',testFunction),
  'OFFSET':def('Return scalar value at offset from a referenced cell.','=OFFSET(A1,1,2)',testFunction),
- 'HYPERLINK':def('Return display text for a URL (no automatic navigation).','=HYPERLINK("https://example.com","Site")',a=>{arg(a,1,2);return a.length===2?s(a,1):s(a,0);}),
+ 'HYPERLINK':def('Return display text and activate safe direct HTTP/HTTPS/mailto or simple in-workbook cell targets.','=HYPERLINK("https://example.com","Site")',a=>{arg(a,1,2);return a.length===2?s(a,1):s(a,0);}),
  'AREAS':def('Count reference areas (single range supported).','=AREAS(A1:C4)',a=>{arg(a,1);return 1;}),
  'NA':def('Return #N/A intentionally.','=NA()',a=>{arg(a,0);return err('#N/A','Not available.');}),
  'ERROR.TYPE':def('Excel-style numeric code for a formula error.','=ERROR.TYPE(NA())',testFunction),
@@ -131,8 +134,8 @@ export const v6Functions:Record<string,FunctionDefinition>={
  'PRICEDISC':def('Price of discounted security per 100 par.','=PRICEDISC(45000,45100,0.05,100)',a=>{arg(a,3,4);const days=usThirty360(n(a,0),n(a,1)),redemption=a.length===4?n(a,3):100;if(days<=0||n(a,2)<=0)err('#NUM!','Invalid security dates or discount.');return redemption*(1-n(a,2)*days/360);}),
  'DISC':def('Discount rate for a short discounted security.','=DISC(45000,45100,98,100)',a=>{arg(a,4);const days=usThirty360(n(a,0),n(a,1));if(days<=0||n(a,2)<=0||n(a,3)<=0)err('#NUM!','Invalid discount-security parameters.');return (n(a,3)-n(a,2))/n(a,3)*360/days;}),
  // 2 modern dotted date-function names for existing date capabilities
- 'WORKDAY.INTL':def('Working-day offset with chosen weekend days.','=WORKDAY.INTL(DATE(2026,1,1),5,1)',a=>{arg(a,2,4);const mask=weekendCode(a.length>=3?sc(a[2]):1),holidays=new Set(a.length===4?ns(a[3]!).map(Math.trunc):[]);return workday(n(a,0),n(a,1),mask,holidays);}),
- 'NETWORKDAYS.INTL':def('Working days between dates with chosen weekend days.','=NETWORKDAYS.INTL(A1,B1,1)',a=>{arg(a,2,4);const mask=weekendCode(a.length>=3?sc(a[2]):1),holidays=new Set(a.length===4?ns(a[3]!).map(Math.trunc):[]);let start=Math.trunc(n(a,0)),end=Math.trunc(n(a,1)),sign=1;if(start>end){[start,end]=[end,start];sign=-1;}if(end-start>366000)err('#NUM!','Date span too large.');let z=0;for(let i=start;i<=end;i++){const dow=(dateFrom(i).getUTCDay()+6)%7;if(mask[dow]==='0'&&!holidays.has(i))z++;}return sign*z;})
+ 'WORKDAY.INTL':def('Working-day offset with chosen weekend days.','=WORKDAY.INTL(DATE(2026,1,1),5,1)',a=>{arg(a,2,4);const mask=weekendCode(a.length>=3?sc(a[2]):1),holidays=a.length===4?holidaySerials(a[3]!):new Set<number>();return workday(n(a,0),n(a,1),mask,holidays);}),
+ 'NETWORKDAYS.INTL':def('Working days between dates with chosen weekend days.','=NETWORKDAYS.INTL(A1,B1,1)',a=>{arg(a,2,4);const mask=weekendCode(a.length>=3?sc(a[2]):1),holidays=a.length===4?holidaySerials(a[3]!):new Set<number>();let start=Math.trunc(n(a,0)),end=Math.trunc(n(a,1)),sign=1;validateDateSerial(start,'Start date');validateDateSerial(end,'End date');if(start>end){[start,end]=[end,start];sign=-1;}if(end-start>366000)err('#NUM!','Date span too large.');let z=0;for(let i=start;i<=end;i++){const dow=(excelWeekday(i)+6)%7;if(mask[dow]==='0'&&!holidays.has(i))z++;}return sign*z;})
 };
 function vectors(a:Datum[]):Value[]{return flatten(a);}
 const nsList=(a:Datum[]):number[]=>flatten(a).filter((x):x is number=>typeof x==='number'&&Number.isFinite(x));
@@ -143,7 +146,66 @@ function precise(a:Datum[],up:boolean):number{arg(a,1,2);const step=a.length===2
 function ifStats(a:Datum[],kind:'min'|'max'):number{arg(a,3,255);const x=v(a[0]!),criteria=criterionPairs(a,1);if(x.length!==criteria.length)err('#VALUE!','Result and criteria ranges have different sizes.');const hits=x.filter((value,i)=>matchAll(criteria,i)&&typeof value==='number') as number[];return hits.length?(kind==='min'?Math.min(...hits):Math.max(...hits)):0;}
 function pRank(a:Datum[],exclusive:boolean):number{arg(a,2,3);const x=sorted(ns(a[0]!)),target=n(a,1);if(x.length<2||target<x[0]!||target>x[x.length-1]!)err('#N/A','Value lies outside data.');const i=x.findIndex(z=>z>=target);const step=x[i]===target?0:(target-x[i-1]!)/(x[i]!-x[i-1]!);const position=x[i]===target?i:i-1+step;const raw=exclusive?(position+1)/(x.length+1):position/(x.length-1);const precision=a.length===3?Math.trunc(n(a,2)):3;return Number(raw.toFixed(Math.max(1,Math.min(12,precision))));}
 function forecast(a:Datum[]):number{arg(a,3);const x=ns(a[2]!),y=ns(a[1]!);if(x.length!==y.length||x.length<2)err('#N/A','Forecast vectors must contain equal numbers of observations.');const xm=avg(x),ym=avg(y),ss=sum(x.map(z=>(z-xm)**2));if(ss===0)err('#DIV/0!','Predictors are constant.');return ym+sum(x.map((z,i)=>(z-xm)*(y[i]!-ym)))/ss*(n(a,0)-xm);}
-function xmatch(a:Datum[]):number{arg(a,2,4);const target=sc(a[0]),data=v(a[1]!),mode=a.length>=3?n(a,2):0,search=a.length===4?n(a,3):1;const entries=data.map((val,i)=>({val,i}));if(search===-1)entries.reverse();else if(search!==1)err('#ARG!','Binary search modes are not currently supported.');if(mode===0||mode===2){const t=text(target);const rx=mode===2?new RegExp('^'+t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\\\*/g,'.*').replace(/\\\?/g,'.')+'$','i'):null;const hit=entries.find(e=>rx?rx.test(text(e.val)):typeof target==='number'&&typeof e.val==='number'?target===e.val:text(target).toLowerCase()===text(e.val).toLowerCase());return hit?hit.i+1:err('#N/A','XMATCH found no exact match.');}if(mode!==1&&mode!==-1)err('#VALUE!','Invalid match mode.');const eligible=entries.filter(e=>{const c=typeof target==='number'&&typeof e.val==='number'?e.val-target:text(e.val).localeCompare(text(target));return mode===1?c>=0:c<=0;});eligible.sort((x,y)=>{const cmp=typeof x.val==='number'&&typeof y.val==='number'?x.val-y.val:text(x.val).localeCompare(text(y.val));return (mode===1?cmp:-cmp)||x.i-y.i;});return eligible.length?eligible[0]!.i+1:err('#N/A','XMATCH found no approximate match.');}
+const xmatchCompare=(left:Value,right:Value):number=>{
+  const rank=(x:Value)=>x===null?0:typeof x==='number'?1:typeof x==='string'?2:3;
+  const lr=rank(left),rr=rank(right);
+  if(lr!==rr)return lr-rr;
+  if(typeof left==='number'&&typeof right==='number')return left<right?-1:left>right?1:0;
+  if(typeof left==='boolean'&&typeof right==='boolean')return Number(left)-Number(right);
+  return text(left).toLowerCase().localeCompare(text(right).toLowerCase());
+};
+const xmatchWildcard=(pattern:string):RegExp=>{
+  let source='^';
+  for(let i=0;i<pattern.length;i++){
+    let ch=pattern[i]!;
+    if(ch==='~'&&i+1<pattern.length){ch=pattern[++i]!;source+=ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+    else if(ch==='*')source+='.*';
+    else if(ch==='?')source+='.';
+    else source+=ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  }
+  return new RegExp(source+'$','i');
+};
+function xmatch(a:Datum[]):number{
+  arg(a,2,4);
+  const target=sc(a[0]),data=v(a[1]!),mode=a.length>=3?n(a,2):0,search=a.length===4?n(a,3):1;
+  if(![-2,-1,1,2].includes(search))err('#VALUE!','XMATCH search_mode must be 1, -1, 2 or -2.');
+  if(mode!==0&&mode!==1&&mode!==-1&&mode!==2)err('#VALUE!','Invalid match mode.');
+  const binary=search===2||search===-2,descending=search===-2;
+  if(!data.length)return err('#N/A','XMATCH lookup array is empty.');
+  if(binary&&data.length>1_048_576)err('#VALUE!','Binary XMATCH is limited to one Excel column of values.');
+  if(binary){
+    for(let i=1;i<data.length;i++){
+      const order=xmatchCompare(data[i-1]!,data[i]!);
+      if(descending?order<0:order>0)err('#N/A',`XMATCH binary search requires ${descending?'descending':'ascending'} sorted data.`);
+    }
+    if(mode===2){
+      // Arbitrary wildcard patterns cannot generally be narrowed to a contiguous
+      // lexical interval, so scan once in the requested direction after validation.
+      const rx=xmatchWildcard(text(target));
+      if(descending){for(let i=data.length-1;i>=0;i--)if(rx.test(text(data[i]!)))return i+1;}
+      else for(let i=0;i<data.length;i++)if(rx.test(text(data[i]!)))return i+1;
+      return err('#N/A','XMATCH found no wildcard match.');
+    }
+    let lo=0,hi=data.length;
+    // Lower/upper bounds keep binary lookup logarithmic after the linear order check.
+    if(mode===0){
+      while(lo<hi){const mid=lo+Math.floor((hi-lo)/2),cmp=xmatchCompare(data[mid]!,target);if(descending?cmp>0:cmp<0)lo=mid+1;else hi=mid;}
+      return lo<data.length&&xmatchCompare(data[lo]!,target)===0?lo+1:err('#N/A','XMATCH found no exact match.');
+    }
+    if(!descending){
+      if(mode===1){while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(xmatchCompare(data[mid]!,target)<0)lo=mid+1;else hi=mid;}return lo<data.length?lo+1:err('#N/A','XMATCH found no approximate match.');}
+      while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(xmatchCompare(data[mid]!,target)<=0)lo=mid+1;else hi=mid;}return lo>0?lo:err('#N/A','XMATCH found no approximate match.');
+    }
+    if(mode===1){while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(xmatchCompare(data[mid]!,target)>=0)lo=mid+1;else hi=mid;}return lo>0?lo:err('#N/A','XMATCH found no approximate match.');}
+    while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(xmatchCompare(data[mid]!,target)>0)lo=mid+1;else hi=mid;}return lo<data.length?lo+1:err('#N/A','XMATCH found no approximate match.');
+  }
+  const entries=data.map((val,i)=>({val,i}));
+  if(search===-1)entries.reverse();
+  if(mode===0||mode===2){const rx=mode===2?xmatchWildcard(text(target)):null;const hit=entries.find(e=>rx?rx.test(text(e.val)):typeof target==='number'&&typeof e.val==='number'?target===e.val:text(target).toLowerCase()===text(e.val).toLowerCase());return hit?hit.i+1:err('#N/A','XMATCH found no exact match.');}
+  const eligible=entries.filter(e=>{const c=typeof target==='number'&&typeof e.val==='number'?e.val-target:text(e.val).localeCompare(text(target));return mode===1?c>=0:c<=0;});
+  eligible.sort((x,y)=>{const cmp=typeof x.val==='number'&&typeof y.val==='number'?x.val-y.val:text(x.val).localeCompare(text(y.val));return (mode===1?cmp:-cmp)||x.i-y.i;});
+  return eligible.length?eligible[0]!.i+1:err('#N/A','XMATCH found no approximate match.');
+}
 function cumulative(a:Datum[],interest:boolean):number{arg(a,6);const rate=n(a,0),periods=Math.trunc(n(a,1)),pv=n(a,2),start=Math.trunc(n(a,3)),end=Math.trunc(n(a,4)),type=n(a,5);if(rate<=0||periods<=0||pv<=0||start<1||end<start||end>periods||![0,1].includes(type))err('#NUM!','Invalid cumulative loan arguments.');const pay=pm(rate,periods,pv,0,type);let balance=pv,total=0;for(let k=1;k<=end;k++){const i=type===1&&k===1?0:-balance*rate;const principal=pay-i;if(k>=start)total+=interest?i:principal;balance+=pay-i;}return finite(total);}
 export const v6FunctionNames=Object.keys(v6Functions).sort();
 export const v6Categories:Record<string,string[]>={

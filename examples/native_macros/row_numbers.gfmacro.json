@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "name": "Offline row numbers",
+  "sheetName": "Sheet 1",
+  "steps": [
+    { "kind": "sequence", "range": "A2:A21", "start": 1, "increment": 1 }
+  ]
+}

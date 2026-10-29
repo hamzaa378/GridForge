@@ -1,5 +1,5 @@
 /** GridForge v10 Excel formula compatibility, independently implemented.
- * Matrix-returning functions require INDEX to extract a scalar; this release does not spill arrays.
+ * Matrix-returning functions are exposed to the workbook's dynamic-array spill engine.
  * Lambda-taking functions support explicit safe reducer names instead of executable lambda expressions.
  */
 import { SheetError, number, text, flatten } from './functions.js';
@@ -197,7 +197,7 @@ export function buildV10Functions(existing) {
         return 1 - tCDF(x, df); if (name === 'T.DIST.2T')
         return 2 * (1 - tCDF(Math.abs(x), df)); if (name === 'T.INV' && x === 0.5)
         return 0; return approximateCDF(z => tCDF(z, df), -1000, 1000, name === 'T.INV.2T' ? 1 - x / 2 : x); });
-    // Array transformations return rectangular matrices consumed via INDEX(...,r,c).
+    // Array transformations return rectangular matrices to the workbook's spill engine.
     add('Lookup & Reference', ['SEQUENCE', 'RANDARRAY', 'MUNIT'], 'Generate numeric arrays.', (name, a) => {
         req(a, 1, name === 'MUNIT' ? 1 : name === 'RANDARRAY' ? 5 : 4);
         const rows = positiveInt(n(a, 0), 200), cols = a.length > 1 ? positiveInt(n(a, 1), 200) : name === 'MUNIT' ? rows : 1;
@@ -215,33 +215,125 @@ export function buildV10Functions(existing) {
         }
         return Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => start + (i * cols + j) * step));
     }, '=INDEX(SEQUENCE(3,2),2,2)');
-    add('Lookup & Reference', ['TAKE', 'DROP'], 'Keep or remove rows and columns of an array.', (name, a) => { req(a, 2, 3); let m = matrix(a, 0), rs = n(a, 1), cs = a.length > 2 ? n(a, 2) : (name === 'DROP' ? 0 : m[0].length); if (!Number.isInteger(rs) || !Number.isInteger(cs) || rs === 0 || (name === 'TAKE' && cs === 0))
-        fail('#NUM!', 'Rows and columns must be nonzero integers.'); const take = (xs, k) => name === 'TAKE' ? (k > 0 ? xs.slice(0, k) : xs.slice(k)) : (k > 0 ? xs.slice(k) : xs.slice(0, k)); m = take(m, rs); return m.map(row => name === 'TAKE' ? (cs > 0 ? row.slice(0, cs) : row.slice(cs)) : cs === 0 ? row : (cs > 0 ? row.slice(cs) : row.slice(0, cs))); });
+    add('Lookup & Reference', ['TAKE', 'DROP'], 'Take or drop rows and columns of an array with Excel empty-array errors.', (name, a) => { req(a, 2, 3); const source = matrix(a, 0), height = source.length, width = Math.max(...source.map(row => row.length)), omittedRows = a[1] === null || a[1] === undefined, omittedColumns = a.length < 3 || a[2] === null || a[2] === undefined, rows = omittedRows ? (name === 'TAKE' ? height : 0) : n(a, 1), columns = omittedColumns ? (name === 'TAKE' ? width : 0) : n(a, 2); if (!Number.isInteger(rows) || !Number.isInteger(columns))
+        fail('#VALUE!', 'Rows and columns must be whole numbers.'); if (name === 'TAKE' && (rows === 0 || columns === 0) || name === 'DROP' && rows === 0 && columns === 0)
+        fail('#CALC!', 'An empty array cannot be returned.'); if (name === 'TAKE' && (Math.abs(rows) > height || Math.abs(columns) > width))
+        fail('#NUM!', 'Requested size is larger than the input array.'); const slice = (length, count, mode) => { if (mode === 'take')
+        return count > 0 ? Array.from({ length: count }, (_, i) => i) : Array.from({ length: -count }, (_, i) => length + count + i); if (count === 0)
+        return Array.from({ length }, (_, i) => i); return count > 0 ? Array.from({ length: Math.max(0, length - count) }, (_, i) => i + count) : Array.from({ length: Math.max(0, length + count) }, (_, i) => i); }, rowIndexes = slice(height, rows, name === 'TAKE' ? 'take' : 'drop'), columnIndexes = slice(width, columns, name === 'TAKE' ? 'take' : 'drop'); if (!rowIndexes.length || !columnIndexes.length)
+        fail('#CALC!', 'DROP removed the entire input array.'); return rowIndexes.map(row => columnIndexes.map(column => source[row]?.[column] ?? null)); });
     add('Lookup & Reference', ['CHOOSECOLS', 'CHOOSEROWS'], 'Select columns or rows by 1-based positions.', (name, a) => { req(a, 2, 50); const m = matrix(a, 0), size = name === 'CHOOSECOLS' ? m[0].length : m.length; const selected = a.slice(1).map((_, i) => { const x = n(a, i + 1); const idx = x > 0 ? x - 1 : size + x; if (!Number.isInteger(idx) || idx < 0 || idx >= size)
         fail('#VALUE!', 'Selected row or column is outside array.'); return idx; }); return name === 'CHOOSECOLS' ? m.map(row => selected.map(j => row[j] ?? null)) : selected.map(i => m[i]); });
     add('Lookup & Reference', ['HSTACK', 'VSTACK'], 'Join rectangular array ranges.', (name, a) => { req(a, 1, 25); const tables = a.map((_, i) => matrix(a, i)); const widths = tables.map(t => Math.max(...t.map(r => r.length))), heights = tables.map(t => t.length); let r = name === 'VSTACK' ? sum(heights) : Math.max(...heights), c = name === 'HSTACK' ? sum(widths) : Math.max(...widths); guard(r, c); if (name === 'VSTACK')
         return tables.flatMap(t => t.map(row => Array.from({ length: c }, (_, j) => row[j] ?? null))); return Array.from({ length: r }, (_, i) => tables.flatMap((t, index) => Array.from({ length: widths[index] }, (_, j) => t[i]?.[j] ?? null))); });
-    add('Lookup & Reference', ['TOCOL', 'TOROW'], 'Flatten array to one column or row.', (name, a) => { req(a, 1, 3); const ignore = a.length > 1 ? n(a, 1) : 0; const values = matrix(a, 0).flat(); const out = values.filter(v => ignore % 2 === 1 && !present(v) ? false : true); return name === 'TOCOL' ? out.map(v => [v]) : [out]; });
+    add('Lookup & Reference', ['TOCOL', 'TOROW'], 'Flatten an array with blank filtering and row- or column-major scan order.', (name, a) => { req(a, 1, 3); const source = matrix(a, 0), ignore = a.length > 1 ? n(a, 1) : 0, byColumn = a.length > 2 ? bool(one(a[2])) : false; if (!Number.isInteger(ignore) || ignore < 0 || ignore > 3)
+        fail('#VALUE!', 'Ignore must be 0, 1, 2, or 3.'); const values = byColumn ? source[0].map((_, column) => source.map(row => row[column] ?? null)).flat() : source.flat(), out = values.filter(value => !(ignore % 2 === 1 && !present(value))); return name === 'TOCOL' ? out.map(value => [value]) : [out]; });
     add('Lookup & Reference', ['WRAPCOLS', 'WRAPROWS'], 'Wrap one-dimensional array into rows or columns.', (name, a) => { req(a, 2, 3); const values = matrix(a, 0).flat(), width = positiveInt(n(a, 1), 20000), pad = a.length > 2 ? one(a[2]) : null; const count = Math.ceil(values.length / width); guard(width, count); if (name === 'WRAPROWS')
-        return Array.from({ length: count }, (_, i) => Array.from({ length: width }, (_, j) => values[i * width + j] ?? pad)); return Array.from({ length: width }, (_, i) => Array.from({ length: count }, (_, j) => values[j * width + i] ?? pad)); });
-    add('Lookup & Reference', ['EXPAND'], 'Extend a matrix to new dimensions.', (_, a) => { req(a, 2, 4); const m = matrix(a, 0), r = positiveInt(n(a, 1)), c = a.length > 2 ? positiveInt(n(a, 2)) : m[0].length, pad = a.length > 3 ? one(a[3]) : null; if (r < m.length || c < m[0].length)
-        fail('#VALUE!', 'EXPAND cannot shrink input.'); guard(r, c); return Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_, j) => m[i]?.[j] ?? pad)); });
-    add('Lookup & Reference', ['FILTER'], 'Filter rows using a Boolean include vector.', (_, a) => { req(a, 2, 3); const rows = matrix(a, 0), include = matrix(a, 1).flat(); if (include.length !== rows.length)
-        fail('#VALUE!', 'FILTER include must contain one value per row.'); const kept = rows.filter((_, i) => bool(include[i])); return kept.length ? kept : (a.length === 3 ? [[one(a[2])]] : fail('#CALC!', 'FILTER found no rows.')); });
-    add('Lookup & Reference', ['SORT', 'SORTBY'], 'Sort a matrix by a specified column or by an external sort range.', (name, a) => { req(a, name === 'SORTBY' ? 2 : 1, 4); const rows = matrix(a, 0).map(r => [...r]); const index = name === 'SORT' ? a.length > 1 ? n(a, 1) - 1 : 0 : 0; const sign = name === 'SORT' && a.length > 2 ? n(a, 2) : name === 'SORTBY' && a.length > 2 ? n(a, 2) : 1; if (![1, -1].includes(sign))
-        fail('#VALUE!', 'Sort order must be 1 or -1.'); if (index < 0 || index >= rows[0].length)
-        fail('#REF!', 'Invalid sort index.'); const keys = name === 'SORTBY' ? matrix(a, 1).flat() : rows.map(r => r[index]); if (keys.length !== rows.length)
-        fail('#VALUE!', 'Sort key length must match rows.'); return rows.map((r, i) => ({ r, i })).sort((x, y) => { const v = keys[x.i], w = keys[y.i]; return (typeof v === 'number' && typeof w === 'number' ? v - w : scalar(v).localeCompare(scalar(w))) * sign || x.i - y.i; }).map(x => x.r); });
-    add('Lookup & Reference', ['UNIQUE'], 'Return distinct rows (or columns).', (_, a) => { req(a, 1, 3); let m = matrix(a, 0), byColumn = a.length > 1 ? bool(one(a[1])) : false, once = a.length > 2 ? bool(one(a[2])) : false; if (byColumn)
-        m = m[0].map((_, i) => m.map(row => row[i] ?? null)); const counts = new Map(); m.forEach(r => { const k = JSON.stringify(r); counts.set(k, (counts.get(k) ?? 0) + 1); }); const seen = new Set(), unique = m.filter(r => { const k = JSON.stringify(r); if (seen.has(k) || once && counts.get(k) !== 1)
-        return false; seen.add(k); return true; }); return byColumn ? unique[0].map((_, j) => unique.map(row => row[j] ?? null)) : unique; });
+        return Array.from({ length: count }, (_, i) => Array.from({ length: width }, (_, j) => { const index = i * width + j; return index < values.length ? values[index] : pad; })); return Array.from({ length: width }, (_, i) => Array.from({ length: count }, (_, j) => { const index = j * width + i; return index < values.length ? values[index] : pad; })); });
+    add('Lookup & Reference', ['EXPAND'], 'Extend a matrix to new dimensions, applying pad only outside source bounds.', (_, a) => { req(a, 2, 4); const m = matrix(a, 0), sourceRows = m.length, sourceColumns = Math.max(...m.map(row => row.length)), r = positiveInt(n(a, 1)), c = a.length > 2 ? positiveInt(n(a, 2)) : sourceColumns, pad = a.length > 3 ? one(a[3]) : null; if (r < sourceRows || c < sourceColumns)
+        fail('#VALUE!', 'EXPAND cannot shrink input.'); guard(r, c); return Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_, j) => i < sourceRows && j < sourceColumns ? (m[i][j] ?? null) : pad)); });
+    add('Lookup & Reference', ['FILTER'], 'Filter rows or columns using a matching Boolean include vector.', (_, a) => { req(a, 2, 3); const rows = matrix(a, 0), includeMatrix = matrix(a, 1), ifEmpty = a.length === 3 ? arr(a[2]) : null, height = rows.length, width = Math.max(...rows.map(row => row.length)); if (includeMatrix.every(row => row.length === 1) && includeMatrix.length === height) {
+        const include = includeMatrix.map(row => row[0] ?? null), kept = rows.filter((_, i) => bool(include[i]));
+        if (kept.length)
+            return kept;
+        if (ifEmpty)
+            return ifEmpty;
+        return fail('#CALC!', 'FILTER found no rows.');
+    } if (includeMatrix.length === 1 && includeMatrix[0].length === width) {
+        const include = includeMatrix[0], selected = include.map((value, index) => bool(value) ? index : -1).filter(index => index >= 0);
+        if (selected.length)
+            return rows.map(row => selected.map(column => row[column] ?? null));
+        if (ifEmpty)
+            return ifEmpty;
+        return fail('#CALC!', 'FILTER found no columns.');
+    } return fail('#VALUE!', 'FILTER include must be a one-dimensional vector matching the array rows or columns.'); });
+    add('Lookup & Reference', ['SORT', 'SORTBY'], 'Sort rows or columns by a selected index or by multiple key arrays.', (name, a) => {
+        req(a, name === 'SORTBY' ? 2 : 1, name === 'SORTBY' ? 255 : 4);
+        const source = matrix(a, 0).map(row => [...row]), byColumns = name === 'SORT' && a.length > 3 ? bool(one(a[3])) : false;
+        const transposed = (rows) => rows[0].map((_, column) => rows.map(row => row[column] ?? null));
+        const restore = (items) => byColumns ? transposed(items) : items;
+        const items = byColumns ? transposed(source) : source, itemCount = items.length;
+        const compare = (left, right) => {
+            if (left === right)
+                return 0;
+            if (left === null)
+                return -1;
+            if (right === null)
+                return 1;
+            if (typeof left === 'number' && typeof right === 'number')
+                return left - right;
+            const rank = (value) => typeof value === 'number' ? 0 : typeof value === 'string' ? 1 : 2;
+            if (rank(left) !== rank(right))
+                return rank(left) - rank(right);
+            if (typeof left === 'boolean' && typeof right === 'boolean')
+                return Number(left) - Number(right);
+            return scalar(left).toLocaleLowerCase().localeCompare(scalar(right).toLocaleLowerCase(), undefined, { numeric: true, sensitivity: 'base' });
+        };
+        const sortKeys = [];
+        if (name === 'SORT') {
+            const rawIndex = a.length > 1 ? n(a, 1) : 1, index = rawIndex - 1, order = a.length > 2 ? n(a, 2) : 1;
+            if (!Number.isInteger(rawIndex) || rawIndex < 1 || rawIndex > (byColumns ? source.length : source[0].length))
+                fail('#VALUE!', 'SORT index must select a row or column in the array.');
+            if (order !== 1 && order !== -1)
+                fail('#VALUE!', 'SORT order must be 1 (ascending) or -1 (descending).');
+            sortKeys.push({ values: items.map(item => item[index] ?? null), order });
+        }
+        else {
+            for (let i = 1; i < a.length;) {
+                const keyMatrix = matrix(a, i), key = keyMatrix.flat(), isVector = keyMatrix.length === itemCount && keyMatrix.every(row => row.length === 1) || keyMatrix.length === 1 && keyMatrix[0].length === itemCount, orderArg = a[i + 1], order = orderArg === undefined ? 1 : number(one(orderArg));
+                if (!isVector)
+                    fail('#VALUE!', 'Each SORTBY key must be a one-dimensional array with one value for every sorted row.');
+                if (order !== 1 && order !== -1)
+                    fail('#VALUE!', 'SORTBY order must be 1 (ascending) or -1 (descending).');
+                sortKeys.push({ values: key, order });
+                i += orderArg === undefined ? 1 : 2;
+            }
+        }
+        const ordered = items.map((item, index) => ({ item, index })).sort((left, right) => {
+            for (const key of sortKeys) {
+                const compared = compare(key.values[left.index], key.values[right.index]) * key.order;
+                if (compared)
+                    return compared;
+            }
+            return left.index - right.index;
+        }).map(entry => entry.item);
+        return restore(ordered);
+    });
+    add('Lookup & Reference', ['UNIQUE'], 'Return distinct rows or columns using Excel case-insensitive text comparisons.', (_, a) => { req(a, 1, 3); let m = matrix(a, 0), byColumn = a.length > 1 ? bool(one(a[1])) : false, once = a.length > 2 ? bool(one(a[2])) : false; if (byColumn)
+        m = m[0].map((_, i) => m.map(row => row[i] ?? null)); const keyOf = (row) => JSON.stringify(row.map(value => typeof value === 'string' ? ['text', value.toLocaleLowerCase()] : value === null ? ['blank'] : typeof value === 'number' ? ['number', value] : ['boolean', value])), counts = new Map(); m.forEach(row => { const key = keyOf(row); counts.set(key, (counts.get(key) ?? 0) + 1); }); const seen = new Set(), unique = m.filter(row => { const key = keyOf(row); if (seen.has(key) || once && counts.get(key) !== 1)
+        return false; seen.add(key); return true; }); if (!unique.length)
+        fail('#CALC!', 'UNIQUE produced an empty array.'); return byColumn ? unique[0].map((_, j) => unique.map(row => row[j] ?? null)) : unique; });
     add('Lookup & Reference', ['TRIMRANGE'], 'Remove completely empty bounding rows and columns.', (_, a) => { req(a, 1); let m = matrix(a, 0); while (m.length && m[0].every(v => !present(v)))
         m = m.slice(1); while (m.length && m.at(-1).every(v => !present(v)))
         m = m.slice(0, -1); if (!m.length)
         return [[null]]; while (m[0].length && m.every(r => !present(r[0])))
         m = m.map(r => r.slice(1)); while (m[0].length && m.every(r => !present(r.at(-1))))
         m = m.map(r => r.slice(0, -1)); return m; });
-    add('Text', ['TEXTSPLIT'], 'Split a text string by column and optional row delimiters.', (_, a) => { req(a, 2, 6); const source = s(a, 0), col = s(a, 1), row = a.length > 2 ? s(a, 2) : '', ignoreEmpty = a.length > 3 ? bool(one(a[3])) : false, rows = row ? source.split(row) : [source]; const columns = rows.map(r => (ignoreEmpty ? r.split(col).filter(x => x.length > 0) : r.split(col))), width = Math.max(...columns.map(r => r.length)); guard(columns.length, width); return columns.map(r => Array.from({ length: width }, (_, i) => r[i] ?? null)); }, '=INDEX(TEXTSPLIT("a,b",","),1,2)');
+    add('Text', ['TEXTSPLIT'], 'Split text using one or more row/column delimiters, with Excel match-mode and padding options.', (_, a) => {
+        req(a, 2, 6);
+        const source = s(a, 0), delimiters = (index) => matrix(a, index).flat().map(value => scalar(value)), columnDelimiters = a[1] === null || a[1] === undefined ? [] : delimiters(1), rowDelimiters = a.length > 2 ? delimiters(2) : [], ignoreEmpty = a.length > 3 ? bool(one(a[3])) : false, matchMode = a.length > 4 ? n(a, 4) : 0, pad = a.length > 5 ? one(a[5]) : null;
+        if (matchMode !== 0 && matchMode !== 1)
+            fail('#VALUE!', 'TEXTSPLIT match_mode must be 0 (case-sensitive) or 1 (case-insensitive).');
+        const split = (value, separators) => {
+            if (!separators.length)
+                return [value];
+            if (separators.length === 1 && separators[0] === '')
+                return value.length ? Array.from(value) : [''];
+            const usable = separators.filter(separator => separator.length > 0).sort((left, right) => right.length - left.length);
+            if (!usable.length)
+                return [value];
+            const escaped = usable.map(separator => separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            return value.split(new RegExp(escaped.join('|'), matchMode === 1 ? 'gi' : 'g'));
+        };
+        let rows = rowDelimiters.some(delimiter => delimiter.length > 0) ? split(source, rowDelimiters) : [source];
+        if (ignoreEmpty)
+            rows = rows.filter(row => row.length > 0);
+        if (!rows.length)
+            rows = [''];
+        const columns = rows.map(value => { const parts = split(value, columnDelimiters); return ignoreEmpty ? parts.filter(part => part.length > 0) : parts; }), width = Math.max(1, ...columns.map(row => row.length));
+        guard(columns.length, width);
+        return columns.map(row => Array.from({ length: width }, (_, index) => index < row.length ? row[index] : pad));
+    }, '=INDEX(TEXTSPLIT("a,b",","),1,2)');
     // Financial securities: US/30 and actual-day coupon conventions are supported; no holiday calendars.
     add('Financial', ['COUPDAYBS', 'COUPDAYS', 'COUPDAYSNC', 'COUPNCD', 'COUPNUM', 'COUPPCD'], 'Coupon-date calculations for regular coupon schedules.', (name, a) => { req(a, 3, 4); const settlement = n(a, 0), maturity = n(a, 1), frequency = n(a, 2), basis = a.length > 3 ? n(a, 3) : 0; if (settlement >= maturity || ![0, 1, 2, 3, 4].includes(basis))
         fail('#NUM!', 'Invalid settlement/maturity or day-count basis.'); const cp = stock(settlement, maturity, frequency, settlement); const total = basis === 0 || basis === 4 ? 360 / frequency : cp.period; const passed = (settlement - cp.previous); return { COUPDAYBS: passed, COUPDAYS: total, COUPDAYSNC: total - passed, COUPNCD: cp.next, COUPNUM: cp.count, COUPPCD: cp.previous }[name]; }, '=COUPNUM(DATE(2026,1,1),DATE(2028,1,1),2)');
@@ -299,7 +391,7 @@ export function buildV10Functions(existing) {
         return 'web'; if (type === 'release')
         return 'GridForge 10'; if (type === 'numfile')
         return 1; return fail('#VALUE!', 'Unsupported INFO type.'); });
-    add('Information', ['SHEET', 'SHEETS'], 'Sheet index/count in the active sheet context (cross-sheet references not supported).', (name, a) => { req(a, 0, 1); return 1; });
+    add('Information', ['SHEET', 'SHEETS'], 'Return a worksheet position or the number of worksheets in the workbook; reference arguments support one worksheet at a time.', (name, a) => { req(a, 0, 1); return 1; });
     // Bessel series and numerical integration, bounded for browser responsiveness.
     const factorial = (k) => Math.exp(lgamma(k + 1));
     const besselJ = (order, x, modified) => { if (!Number.isInteger(order) || order < 0 || order > 30 || Math.abs(x) > 30)
@@ -342,17 +434,37 @@ export function buildV10Functions(existing) {
     });
     add('Math & Engineering', ['PERCENTOF'], 'Percentage of a subtotal of a numeric range.', (_, a) => { req(a, 2); const subset = sum(nums(a[0])), all = sum(nums(a[1])); if (all === 0)
         fail('#DIV/0!', 'Cannot divide by zero total.'); return subset / all; });
-    add('Other', ['AGGREGATE'], 'Excel-style aggregate codes 1–14, with common options.', (_, a) => { req(a, 3, 4); const code = n(a, 0), values = nums(a[2]), option = n(a, 1); if (!Number.isInteger(option) || option < 0 || option > 7 || !values.length)
-        fail('#VALUE!', 'Unsupported AGGREGATE option or empty input.'); if (code <= 11) {
-        const mapping = { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11 };
-        return call('SUBTOTAL', [mapping[code] ?? fail('#VALUE!', 'Unsupported aggregate code.'), a[2]]);
-    } if (code === 14 || code === 15) {
-        req(a, 4);
-        const k = positiveInt(n(a, 3)), sorted = [...values].sort((x, y) => code === 14 ? y - x : x - y);
-        if (k > sorted.length)
-            fail('#NUM!', 'Rank exceeds data size.');
-        return sorted[k - 1];
-    } return fail('#VALUE!', 'Aggregate code not implemented in this release.'); });
+    add('Other', ['AGGREGATE'], 'Aggregate codes 1–19 with reference-form options for hidden rows, errors, and nested SUBTOTAL/AGGREGATE formulas; computed array expressions remain limited.', (_, a) => {
+        req(a, 3, 4);
+        const code = n(a, 0), option = n(a, 1);
+        if (!Number.isInteger(code) || code < 1 || code > 19)
+            fail('#VALUE!', 'AGGREGATE function_num must be a supported integer from 1 to 19.');
+        if (!Number.isInteger(option) || option < 0 || option > 7)
+            fail('#VALUE!', 'AGGREGATE option must be an integer from 0 to 7.');
+        const takesRank = code >= 14;
+        req(a, takesRank ? 4 : 3, takesRank ? 4 : 3);
+        const values = nums(a[2]);
+        if (code <= 11) {
+            if (!values.length)
+                fail('#VALUE!', 'AGGREGATE input contains no numeric values.');
+            const mapping = { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11 };
+            return call('SUBTOTAL', [mapping[code], a[2]]);
+        }
+        if (code === 12)
+            return call('MEDIAN', [a[2]]);
+        if (code === 13)
+            return call('MODE.SNGL', [a[2]]);
+        if (code === 14 || code === 15) {
+            if (!values.length)
+                fail('#VALUE!', 'AGGREGATE input contains no numeric values.');
+            const k = positiveInt(n(a, 3)), sorted = [...values].sort((x, y) => code === 14 ? y - x : x - y);
+            if (k > sorted.length)
+                fail('#NUM!', 'Rank exceeds data size.');
+            return sorted[k - 1];
+        }
+        const percentileName = code === 16 ? 'PERCENTILE.INC' : code === 17 ? 'QUARTILE.INC' : code === 18 ? 'PERCENTILE.EXC' : 'QUARTILE.EXC';
+        return call(percentileName, [a[2], a[3]]);
+    });
     // Offline-safe data helpers. LAMBDA-dependent functions deliberately support named aggregators
     // rather than arbitrary Excel lambda programs (see the function compatibility guide).
     const aggregator = (name, data) => { const vals = data.filter((v) => typeof v === 'number' && Number.isFinite(v)); switch (name.toUpperCase()) {
@@ -384,11 +496,7 @@ export function buildV10Functions(existing) {
         state = Math.min(state, v);
     else
         fail('#NAME?', 'Supported reducers: SUM, PRODUCT, MAX, MIN.'); return state; }); return name === 'SCAN' ? accum.map(v => [v]) : state; });
-    add('Lookup & Reference', ['LET'], 'Limited LET expression: name/value bindings accepted as string names; last argument returned.', (_, a) => { if (a.length < 3 || a.length % 2 !== 1)
-        fail('#ARG!', 'LET requires name/value pairs and a final expression.'); for (let i = 0; i < a.length - 1; i += 2) {
-        if (!/^[A-Za-z_][\w]*$/.test(s(a, i)))
-            fail('#NAME?', 'Variable names must be quoted identifiers.');
-    } return one(a[a.length - 1]); });
+    add('Lookup & Reference', ['LET'], 'Evaluate local name/value bindings and a final calculation; bindings are resolved by the workbook formula evaluator.', () => fail('#INTERNAL!', 'LET is evaluated with local workbook formula bindings.'), '=LET(rate,0.08,amount,100,amount*rate)');
     add('Lookup & Reference', ['LAMBDA'], 'Limited formula descriptor: returns last scalar argument, without executing code.', (_, a) => { req(a, 1, 16); return one(a[a.length - 1]); });
     add('Information', ['ISOMITTED'], 'True for an omitted optional argument, represented as a blank.', (_, a) => { req(a, 1); return !present(one(a[0])); });
     add('Statistical', ['FORECAST.ETS', 'FORECAST.ETS.CONFINT', 'FORECAST.ETS.SEASONALITY', 'FORECAST.ETS.STAT'], 'Offline trend forecast with linear smoothing; not full ETS exponential smoothing.', (name, a) => { req(a, name === 'FORECAST.ETS.SEASONALITY' || name === 'FORECAST.ETS.STAT' ? 2 : 3, 6); const target = n(a, 0), ys = nums(a[1]), xs = nums(a[2] ?? a[1]); if (xs.length !== ys.length || xs.length < 2)

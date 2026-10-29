@@ -31,6 +31,14 @@ test('v6 macros: cross-sheet edit + source-relative copying + sort + formatting 
  assert.equal(d.sheets.find(x=>x.name==='Summary').book.getValue('B1').value,6);
  assert.equal(sheet.undo(),true);assert.equal(sheet.getRaw('A2'),'C');
 });
+test('v11.11 action macros preserve and replay multi-level sort keys',()=>{
+ const d=new SpreadsheetDocument();d.active.book.applyEdits([{ref:'A1',raw:'Group'},{ref:'B1',raw:'Score'},{ref:'A2',raw:'B'},{ref:'B2',raw:'1'},{ref:'A3',raw:'A'},{ref:'B3',raw:'2'},{ref:'A4',raw:'A'},{ref:'B4',raw:'1'}],false);
+ const macro=validateMacro({version:4,name:'Rank groups',sheetName:'Sheet 1',parameters:[],steps:[{kind:'sort',range:'A1:B4',byColumn:0,keys:[{column:0,descending:false},{column:1,descending:true}],hasHeader:true}]});
+ runActionMacro(d,macro);
+ assert.deepEqual(['A2','A3','A4'].map(ref=>d.active.book.getRaw(ref)),['A','A','B']);
+ assert.deepEqual(['B2','B3','B4'].map(ref=>d.active.book.getRaw(ref)),['2','1','1']);
+ assert.throws(()=>validateMacro({version:4,name:'Invalid sort',sheetName:'Sheet 1',parameters:[],steps:[{kind:'sort',range:'A1:B2',byColumn:0,keys:[{column:0,descending:false},{column:0,descending:true}]}]}),/multi-level sort keys/i);
+});
 test('v6 macros: invalid later step leaves both sheets unchanged',()=>{
  const d=doc(),before=JSON.stringify(d.toJSON());
  const macro={version:2,name:'Bad',sheetName:'Sheet 1',steps:[

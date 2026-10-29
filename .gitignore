@@ -13,3 +13,7 @@ test-results/
 docs/PARITY_EXCEL_RESULTS.json
 docs/PARITY_COMPARISON.json
 docs/PARITY_COMPARISON.md
+# Windows desktop builder output
+build/
+.desktop-build-venv/
+*.spec
