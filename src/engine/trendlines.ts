@@ -10,8 +10,8 @@ const solve=(a:number[][],b:number[]):number[]|null=>{
  return m.map(row=>row[n]!);
 };
 const linearFit=(xs:number[],ys:number[])=>{const n=xs.length,sx=xs.reduce((a,b)=>a+b,0),sy=ys.reduce((a,b)=>a+b,0),sxx=xs.reduce((a,x)=>a+x*x,0),sxy=xs.reduce((a,x,i)=>a+x*ys[i]!,0),d=n*sxx-sx*sx;if(Math.abs(d)<1e-12)return null;const slope=(n*sxy-sx*sy)/d,intercept=(sy-slope*sx)/n;return {slope,intercept,predict:(x:number)=>slope*x+intercept};};
-export function fitTrendline(values:(number|null)[],spec:TrendlineSpec,xValues?:number[]):TrendlineResult{
- const points=values.map((y,i)=>({x:xValues?.[i]??i+1,y})).filter((p):p is {x:number;y:number}=>typeof p.y==='number'&&Number.isFinite(p.y)&&Number.isFinite(p.x));
+export function fitTrendline(values:(number|null)[],spec:TrendlineSpec,xValues?:(number|null)[]):TrendlineResult{
+ const points=values.map((y,i)=>({x:xValues?xValues[i]:i+1,y})).filter((p):p is {x:number;y:number}=>typeof p.y==='number'&&Number.isFinite(p.y)&&typeof p.x==='number'&&Number.isFinite(p.x)).sort((a,b)=>a.x-b.x);
  const period=Math.max(2,Math.min(100,Math.trunc(spec.period??2))),order=Math.max(2,Math.min(6,Math.trunc(spec.order??2))),forward=Math.max(0,Math.min(50,Math.trunc(spec.forward??0))),backward=Math.max(0,Math.min(50,Math.trunc(spec.backward??0)));
  if(spec.type==='movingAverage'){
   if(points.length<period)return {points:[],equation:null,rSquared:null,error:'Moving-average period exceeds the available data.'};

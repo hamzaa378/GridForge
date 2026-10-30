@@ -11,6 +11,8 @@ const n = (a, i) => number(scalar(a[i]));
 const s = (a, i) => text(scalar(a[i]));
 const integer = (a, i) => Math.trunc(n(a, i));
 const nums = (a) => flatten(a).filter((v) => typeof v === 'number' && Number.isFinite(v));
+const holidaySet = (v) => { const dates = nums([v]); if (dates.some(date => date < 0 || date > 2_958_465))
+    bad('#NUM!', 'Holiday date is outside Excel’s supported range.'); return new Set(dates.map(Math.trunc)); };
 const sum = (x) => x.reduce((p, v) => p + v, 0);
 const safe = (v) => Number.isFinite(v) ? v : bad('#NUM!', 'Result is not finite.');
 const one = (label, ex, fn) => def(label, ex, a => { req(a, 1); return safe(fn(n(a, 0))); });
@@ -330,12 +332,13 @@ export const v5Functions = {
         bad('#VALUE!', 'TIMEVALUE requires a valid hour and minute, with optional seconds and AM/PM.'); let hour = Number(m[1]), minute = Number(m[2]), second = Number(m[3] ?? 0); const meridiem = m[4]?.toUpperCase(); if (minute > 59 || second > 59 || (meridiem ? hour < 1 || hour > 12 : hour > 23))
         bad('#VALUE!', 'TIMEVALUE received an invalid time.'); if (meridiem)
         hour = hour % 12 + (meridiem === 'PM' ? 12 : 0); return (hour * 3600 + minute * 60 + second) / 86400; }),
-    NETWORKDAYSINTL: def('Workdays excluding configurable weekends (code 1 or string of 7 bits).', '=NETWORKDAYSINTL(A1,B1,1)', a => { req(a, 2, 4); let start = integer(a, 0), end = integer(a, 1), sgn = 1; if (start > end) {
+    NETWORKDAYSINTL: def('Workdays excluding configurable weekends (code 1 or string of 7 bits).', '=NETWORKDAYSINTL(A1,B1,1)', a => { req(a, 2, 4); let start = integer(a, 0), end = integer(a, 1), sgn = 1; if (start < 0 || end < 0 || start > 2_958_465 || end > 2_958_465)
+        bad('#NUM!', 'Date serial is outside Excel’s supported range.'); if (start > end) {
         [start, end] = [end, start];
         sgn = -1;
     } if (end - start > 365250)
         bad('#NUM!', 'Date span too large.'); const wk = a.length >= 3 ? scalar(a[2]) : 1; const masks = { 1: '0000011', 2: '1000001', 3: '1100000', 4: '0110000', 5: '0011000', 6: '0001100', 7: '0000110', 11: '0000001', 12: '1000000', 13: '0100000', 14: '0010000', 15: '0001000', 16: '0000100', 17: '0000010' }; const mask = typeof wk === 'string' ? wk : masks[number(wk)]; if (!mask || !/^[01]{7}$/.test(mask))
-        bad('#VALUE!', 'Invalid weekend mask.'); const holidays = new Set(a.length === 4 ? nums([a[3]]).map(Math.trunc) : []); let total = 0; for (let i = start; i <= end; i++) {
+        bad('#VALUE!', 'Invalid weekend mask.'); const holidays = a.length === 4 ? holidaySet(a[3]) : new Set(); let total = 0; for (let i = start; i <= end; i++) {
         const weekday = (excelWeekday(i) + 6) % 7;
         if (mask[weekday] === '0' && !holidays.has(i))
             total++;

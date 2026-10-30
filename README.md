@@ -125,6 +125,10 @@ python run_gridforge.py
 
 Then open the local address printed in the terminal. On Windows, `START_HERE_WINDOWS.bat` starts the same precompiled app. The built native Windows installer is `build/release/GridForge-Setup-11.26.0-win64.exe` after the Windows build finishes; it contains the compiled desktop app and optional VBA bridge. End users need Windows 10/11 x64 and Microsoft Edge WebView2 Runtime. They do not need Node.js, npm, or Python when using the installer.
 
+### Install using the included Windows installer
+
+In the GitHub repository ZIP, open the `release/` folder and run `GridForge-Setup-11.26.0-win64.exe`. Follow the setup prompts and launch GridForge from the Start menu or its desktop shortcut. Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required. The installer includes the compiled application and optional Excel VBA bridge; Node.js, npm, and Python are not needed to install or run it. The installer does not install Microsoft Excel.
+
 ## Software dependencies
 
 | Task | Required software |
@@ -160,9 +164,9 @@ The `-SkipTests` option builds the frontend, portable desktop app, VBA bridge, a
 
 ### GitHub source and releases
 
-The repository is prepared for a GitHub push: it includes the source, compiled `dist/`, lockfile, license, build instructions, and GitHub Actions workflows under `.github/workflows/`. Create an empty GitHub repository, add these project files, and push the branch. The `Windows desktop release` workflow can build a Windows installer and portable ZIP from a `desktop-v*` tag or manual Actions run. The workflow performs its configured Windows checks; this local build command does not. Publish only the artifacts produced by the release workflow or a local installer build, and add the accompanying SHA-256 checksums. No GitHub repository URL is configured in this working copy.
+The GitHub repository ZIP is `build/release/GridForge-v11.26.0-GitHub-Repository.zip`. It contains the project source, compiled `dist/`, lockfile, license, build files, GitHub Actions workflows, this README, and the Windows installer under `release/`. Extract it to start from a complete repository snapshot, or copy its root contents into a GitHub repository. The `Windows desktop release` workflow can build a Windows installer and portable ZIP from a `desktop-v*` tag or manual Actions run. The workflow performs its configured Windows checks; the local build command below does not run tests. The installer and archive SHA-256 checksums are listed in `build/release/SHA256SUMS.txt` next to the download files. No GitHub repository URL is configured in this working copy.
 
-After the Windows desktop builder has created the installer and portable app folder, regenerate the portable ZIP, clean GitHub source archive, and checksums with:
+After the Windows desktop builder has created the installer and portable app folder, regenerate the portable ZIP, clean source archive, GitHub repository ZIP (including the installer), and checksums with:
 
 ```powershell
 python scripts/package_source_release.py

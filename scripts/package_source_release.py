@@ -14,9 +14,12 @@ VERSION = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["versi
 RELEASE = ROOT / "build" / "release"
 PREFIX = f"GridForge-v{VERSION}-source"
 ARCHIVE = RELEASE / f"{PREFIX}.zip"
+GITHUB_PREFIX = f"GridForge-v{VERSION}-GitHub-Repository"
+GITHUB_ARCHIVE = RELEASE / f"{GITHUB_PREFIX}.zip"
 PORTABLE = ROOT / "build" / "portable"
 PORTABLE_ARCHIVE = RELEASE / "GridForge-Portable-win64.zip"
-SKIP_DIRS = {".git", "node_modules", "build", ".desktop-build-venv", "__pycache__"}
+INSTALLER = RELEASE / f"GridForge-Setup-{VERSION}-win64.exe"
+SKIP_DIRS = {".git", "node_modules", "build", ".desktop-build-venv", "__pycache__", "work"}
 SKIP_FILES = {".env", "PARITY_EXCEL_RESULTS.json", "PARITY_COMPARISON.json", "PARITY_COMPARISON.md"}
 
 
@@ -33,6 +36,11 @@ def included_files():
             yield path
 
 
+def add_repository_files(archive: ZipFile, prefix: str) -> None:
+    for path in included_files():
+        archive.write(path, f"{prefix}/{path.relative_to(ROOT).as_posix()}")
+
+
 def main() -> None:
     RELEASE.mkdir(parents=True, exist_ok=True)
     portable_app = PORTABLE / "GridForge"
@@ -46,13 +54,25 @@ def main() -> None:
         archive.write(bridge, bridge.relative_to(PORTABLE).as_posix())
 
     with ZipFile(ARCHIVE, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
-        for path in included_files():
-            archive.write(path, f"{PREFIX}/{path.relative_to(ROOT).as_posix()}")
+        add_repository_files(archive, PREFIX)
+
+    if not INSTALLER.is_file():
+        raise SystemExit(f"Build the Windows installer first; missing {INSTALLER.name}.")
+    with ZipFile(GITHUB_ARCHIVE, "w", compression=ZIP_DEFLATED, compresslevel=6) as archive:
+        add_repository_files(archive, GITHUB_PREFIX)
+        installer_member = f"{GITHUB_PREFIX}/release/{INSTALLER.name}"
+        archive.write(INSTALLER, installer_member)
+        installer_digest = hashlib.sha256(INSTALLER.read_bytes()).hexdigest().upper()
+        archive.writestr(
+            f"{GITHUB_PREFIX}/release/SHA256SUMS.txt",
+            f"{installer_digest}  {INSTALLER.name}\n",
+        )
 
     artifacts = [
-        RELEASE / f"GridForge-Setup-{VERSION}-win64.exe",
+        INSTALLER,
         PORTABLE_ARCHIVE,
         ARCHIVE,
+        GITHUB_ARCHIVE,
     ]
     missing = [path.name for path in artifacts if not path.is_file()]
     if missing:
@@ -63,6 +83,7 @@ def main() -> None:
         lines.append(f"{digest}  {path.name}")
     (RELEASE / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
     print(f"Created {ARCHIVE}")
+    print(f"Created {GITHUB_ARCHIVE}")
     print(f"Updated {RELEASE / 'SHA256SUMS.txt'}")
 
 

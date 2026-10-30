@@ -33,15 +33,17 @@
     "Pie/doughnut charts support first-slice angle, hole sizing, per-slice colors, and label positions with XLSX round-trip.",
     "Supported custom chart axis number formats render in SVG and are preserved in XLSX.",
     "DAYS360 and YEARFRAC distinguish U.S. (NASD) and European 30/360 bases and use Excel serial-day lengths for Actual/Actual calculations.",
-    "Shared date helpers, NETWORKDAYS, WORKDAY, NETWORKDAYS.INTL, and WORKDAY.INTL validate serials and holidays through Excel serial 2,958,465 while retaining serial 60; WORKDAY.INTL rejects an all-weekend mask."
+    "Shared date helpers, NETWORKDAYS, WORKDAY, NETWORKDAYS.INTL, and WORKDAY.INTL validate serials and holidays through Excel serial 2,958,465 while retaining serial 60; WORKDAY.INTL rejects an all-weekend mask.",
+    "100% stacked column and bar previews normalize positive and negative series independently and show per-segment percentage labels.",
+    "Scatter trendlines use aligned numeric X/Y pairs and render against the chart numeric axes."
   ],
   "installer_build_status": "Installer compilation passed with Windows test phases skipped",
   "installer_build_artifact": "GridForge-Setup-11.26.0-win64.exe",
-  "installer_sha256": "DEC252E87565EF65525925610CBB07D8615878C574C9878F0116ABFF29C4E474",
-  "installer_size_bytes": 23389215,
+  "installer_sha256": "20802E9EE2F0A5CD9942F40611098B86FF94137FA20C65DC79F5CA66C8A98D47",
+  "installer_size_bytes": 23389079,
   "windows_tests_run": false,
   "source_archive_size_bytes": null,
   "source_archive_sha256": null,
-  "portable_archive_size_bytes": 24276449,
-  "portable_archive_sha256": "48D3539F7D7DF7535486E30240B15B361C9FFD2CEF60647079DE4E1DBAEC864F"
+  "portable_archive_size_bytes": 24277422,
+  "portable_archive_sha256": "CA20A0DFAC3AE395660FE859D948FBE841F95847365E1424D98800C6A91091E3"
 }

@@ -390,7 +390,7 @@ export function chartSvg(book, chart) {
     const percent = chart.kind === 'percent-column' || chart.kind === 'percent-bar';
     const stacked = percent || chart.kind === 'stacked-column' || chart.kind === 'stacked-bar';
     const dataSeries = percent ? d.series.map(series => ({ name: series.name, values: series.values.map((v, i) => { if (v === null)
-            return null; const total = d.series.reduce((sum, s) => sum + Math.max(0, s.values[i] ?? 0), 0); return total > 0 ? Math.max(0, v) / total * 100 : 0; }) })) : d.series;
+            return null; const positiveTotal = d.series.reduce((sum, s) => sum + Math.max(0, s.values[i] ?? 0), 0), negativeTotal = d.series.reduce((sum, s) => sum + Math.max(0, -(s.values[i] ?? 0)), 0); return v > 0 ? (positiveTotal > 0 ? v / positiveTotal * 100 : 0) : v < 0 ? (negativeTotal > 0 ? v / negativeTotal * 100 : 0) : 0; }) })) : d.series;
     const stackMinMax = stacked ? Array.from({ length: d.rows }, (_, i) => dataSeries.reduce((tot, s) => { const v = s.values[i] ?? 0; if (v >= 0)
         tot.pos += v;
     else
@@ -400,8 +400,9 @@ export function chartSvg(book, chart) {
     const primaryValues = dataSeries.flatMap((series, index) => secondaryIndices.has(index) ? [] : series.values.filter((v) => v !== null));
     const secondaryValues = dataSeries.flatMap((series, index) => secondaryIndices.has(index) ? series.values.filter((v) => v !== null) : []);
     const axisScales = calculateAxisScales(dataSeries, chart.seriesOptions);
-    const rawMin = percent ? 0 : stacked ? Math.min(0, ...stackMinMax.map(x => x.neg)) : hasSecondary ? axisScales.primary.min : isScatter && scatterValues.length ? Math.min(...scatterValues) : Math.min(0, ...values.filter((v) => v !== null)), rawMax = stacked ? Math.max(0, ...stackMinMax.map(x => x.pos)) : hasSecondary ? axisScales.primary.max : isScatter && scatterValues.length ? Math.max(...scatterValues) : Math.max(0, ...values.filter((v) => v !== null));
-    const primaryScale = resolveScale(isScatter ? scatterValues : primaryValues.length ? primaryValues : values.filter((v) => v !== null), chart.yAxisMin ?? rawMin, chart.yAxisMax ?? rawMax, !isScatter), secondaryScale = resolveScale(secondaryValues, chart.secondaryYAxisMin ?? axisScales.secondary.min, chart.secondaryYAxisMax ?? axisScales.secondary.max), min = primaryScale.min, max = primaryScale.max;
+    const hasNegativePercent = percent && dataSeries.some(series => series.values.some(value => value !== null && value < 0));
+    const rawMin = percent ? (hasNegativePercent ? -100 : 0) : stacked ? Math.min(0, ...stackMinMax.map(x => x.neg)) : hasSecondary ? axisScales.primary.min : isScatter && scatterValues.length ? Math.min(...scatterValues) : Math.min(0, ...values.filter((v) => v !== null)), rawMax = percent ? 100 : stacked ? Math.max(0, ...stackMinMax.map(x => x.pos)) : hasSecondary ? axisScales.primary.max : isScatter && scatterValues.length ? Math.max(...scatterValues) : Math.max(0, ...values.filter((v) => v !== null));
+    const primaryScale = resolveScale(isScatter ? scatterValues : primaryValues.length ? primaryValues : values.filter((v) => v !== null), chart.yAxisMin ?? rawMin, chart.yAxisMax ?? rawMax, !isScatter), secondaryScale = resolveScale(secondaryValues, chart.secondaryYAxisMin ?? axisScales.secondary.min, chart.secondaryYAxisMax ?? axisScales.secondary.max), min = primaryScale.min, max = primaryScale.max, scatterXScale = isScatter ? resolveScale(scatterXValues, chart.xAxisMin, chart.xAxisMax, false) : undefined;
     const yOf = (v) => py + ph - (v - min) / (max - min) * ph;
     const secMin = secondaryScale.min, secMax = secondaryScale.max;
     const yOfSeries = (i, v) => secondaryIndices.has(i) ? py + ph - (v - secMin) / (secMax - secMin) * ph : yOf(v);
@@ -414,7 +415,7 @@ export function chartSvg(book, chart) {
     }
     else
         axisTicks = Array.from({ length: 5 }, (_, i) => min + (max - min) * i / 4);
-    const horizontalBar = ['bar', 'stacked-bar', 'percent-bar'].includes(chart.kind);
+    const horizontalBar = ['bar', 'stacked-bar', 'percent-bar'].includes(chart.kind), formatValueAxis = (value) => percent && !chart.yAxisNumberFormat && !chart.yAxisFormatCode ? axisFmt(value / 100, undefined, '0%') : axisFmt(value, chart.yAxisNumberFormat, chart.yAxisFormatCode);
     let out = '';
     for (let t = 0; t < axisTicks.length; t++) {
         const value = axisTicks[t];
@@ -422,7 +423,7 @@ export function chartSvg(book, chart) {
             const x = px + (value - min) / (max - min) * pw;
             if (chart.majorGridlines !== false)
                 out += `<line x1="${x}" x2="${x}" y1="${py}" y2="${py + ph}" stroke="#e6edf5" stroke-width="1"/>`;
-            out += tag(x - 10, py + ph + 17, axisFmt(value, chart.yAxisNumberFormat, chart.yAxisFormatCode));
+            out += tag(x - 10, py + ph + 17, formatValueAxis(value));
             if (chart.minorGridlines && t < axisTicks.length - 1)
                 for (let m = 1; m < 4; m++) {
                     const mx = x + (px + (axisTicks[t + 1] - min) / (max - min) * pw - x) * m / 4;
@@ -433,7 +434,7 @@ export function chartSvg(book, chart) {
             const y = yOf(value);
             if (chart.majorGridlines !== false)
                 out += `<line x1="${px}" x2="${px + pw}" y1="${y}" y2="${y}" stroke="#e6edf5" stroke-width="1"/>`;
-            out += tag(3, y + 4, axisFmt(value, chart.yAxisNumberFormat, chart.yAxisFormatCode));
+            out += tag(3, y + 4, formatValueAxis(value));
             if (chart.minorGridlines && t < axisTicks.length - 1)
                 for (let m = 1; m < 4; m++) {
                     const my = y + (yOf(axisTicks[t + 1]) - y) * m / 4;
@@ -463,7 +464,7 @@ export function chartSvg(book, chart) {
         }));
     }
     else if (chart.kind === 'scatter') {
-        const xScale = resolveScale(scatterXValues, chart.xAxisMin, chart.xAxisMax, false), xMin = xScale.min, xMax = xScale.max, xUnit = chart.xAxisMajorUnit === undefined ? undefined : Math.max(chart.xAxisMajorUnit, (xMax - xMin) / 60), xTicks = xUnit === undefined ? Array.from({ length: 5 }, (_, index) => xMin + (xMax - xMin) * index / 4) : Array.from({ length: Math.max(1, Math.floor((xMax - xMin) / xUnit + 1e-12) + 1) }, (_, index) => xMin + index * xUnit).filter(value => value <= xMax + xUnit * 1e-10);
+        const xMin = scatterXScale.min, xMax = scatterXScale.max, xUnit = chart.xAxisMajorUnit === undefined ? undefined : Math.max(chart.xAxisMajorUnit, (xMax - xMin) / 60), xTicks = xUnit === undefined ? Array.from({ length: 5 }, (_, index) => xMin + (xMax - xMin) * index / 4) : Array.from({ length: Math.max(1, Math.floor((xMax - xMin) / xUnit + 1e-12) + 1) }, (_, index) => xMin + index * xUnit).filter(value => value <= xMax + xUnit * 1e-10);
         for (const value of xTicks) {
             const x = px + (value - xMin) / (xMax - xMin) * pw;
             if (chart.majorGridlines !== false)
@@ -540,9 +541,9 @@ export function chartSvg(book, chart) {
     }
     for (const [si, options] of (chart.seriesOptions ?? []).entries())
         if (options.trendline) {
-            const fit = fitTrendline(dataSeries[si]?.values ?? [], options.trendline);
+            const scatter = chart.kind === 'scatter', sourceIndex = scatter ? si + 1 : si, xValues = scatter ? d.series[0]?.values : undefined, fit = fitTrendline(dataSeries[sourceIndex]?.values ?? [], options.trendline, xValues);
             if (!fit.error) {
-                const pts = fit.points.filter(p => p.y !== null && p.x >= 1 - (options.trendline.backward ?? 0) && p.x <= n + (options.trendline.forward ?? 0)).map(p => `${px + (p.x - .5) * pw / n},${yOfSeries(si, p.y)}`).join(' ');
+                const pts = fit.points.filter(p => p.y !== null && (scatter ? p.x >= scatterXScale.min && p.x <= scatterXScale.max : p.x >= 1 - (options.trendline.backward ?? 0) && p.x <= n + (options.trendline.forward ?? 0))).map(p => `${scatter ? px + (p.x - scatterXScale.min) / (scatterXScale.max - scatterXScale.min || 1) * pw : px + (p.x - .5) * pw / n},${scatter ? yOf(p.y) : yOfSeries(si, p.y)}`).join(' ');
                 if (pts)
                     out += `<polyline fill="none" stroke="${options.color ?? palette[si % palette.length]}" stroke-width="2" stroke-dasharray="6 3" points="${pts}"/>`;
                 const note = options.trendline.showEquation ? fit.equation : options.trendline.showR2 && fit.rSquared !== null ? `R² = ${fit.rSquared.toFixed(4)}` : null;
@@ -556,7 +557,7 @@ export function chartSvg(book, chart) {
         out += `<text x="15" y="${H / 2}" transform="rotate(-90 15 ${H / 2})" font-size="11" fill="#53677f">${esc(chart.yAxisTitle)}</text>`;
     if ((chart.dataLabels || chart.dataLabelCategoryName || chart.dataLabelSeriesName) && d.rows <= 30 && chart.kind !== 'scatter') {
         const position = chart.dataLabelPosition ?? 'outsideEnd', labelY = (value, pointY, baseY) => position === 'center' ? (pointY + baseY) / 2 + 4 : position === 'insideEnd' ? (value >= 0 ? pointY + 13 : pointY - 3) : (value >= 0 ? pointY - 7 : pointY + 14);
-        const labelText = (value, si, i) => [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [series[si]?.name ?? ''] : []), ...(chart.dataLabels ? [fmt(value)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
+        const labelText = (value, si, i) => [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [series[si]?.name ?? ''] : []), ...(chart.dataLabels ? [percent ? `${fmt(value)}%` : fmt(value)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
         if (horizontalBar) {
             const block = ph / n, band = block * .78 / series.length, positive = Array(n).fill(0), negative = Array(n).fill(0);
             series.forEach((item, si) => item.values.slice(0, n).forEach((value, i) => { if (value === null)
@@ -567,14 +568,21 @@ export function chartSvg(book, chart) {
                     negative[i] += value;
             } const startX = px + pw * (base - min) / (max - min), endX = px + pw * (base + value - min) / (max - min), centerY = py + i * block + (block - band * series.length) / 2 + (stacked ? band * series.length / 2 : si * band + band / 2), labelX = position === 'center' ? (startX + endX) / 2 : position === 'insideEnd' ? (value >= 0 ? endX - 22 : endX + 3) : (value >= 0 ? endX + 3 : endX - 22); out += tag(labelX, centerY + 4, labelText(value, si, i)); }));
         }
-        else if (chart.kind === 'stacked-column' || chart.kind === 'percent-column')
-            for (let i = 0; i < n; i++) {
-                const total = series.reduce((sum, s) => sum + Math.max(0, s.values[i] ?? 0), 0);
-                if (total > 0) {
-                    const text = [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? series.map(item => item.name).join(', ') : []), ...(chart.dataLabels ? [fmt(total)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
-                    out += tag(xAt(i) - 12, labelY(total, yOf(total), yOf(0)), text);
-                }
-            }
+        else if (chart.kind === 'stacked-column' || chart.kind === 'percent-column') {
+            const positive = Array(n).fill(0), negative = Array(n).fill(0);
+            series.forEach((item, si) => item.values.slice(0, n).forEach((value, i) => {
+                if (value === null)
+                    return;
+                const base = value >= 0 ? positive[i] : negative[i], end = base + value;
+                if (value >= 0)
+                    positive[i] = end;
+                else
+                    negative[i] = end;
+                const renderedValue = percent ? `${fmt(value)}%` : fmt(value), label = [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [item.name] : []), ...(chart.dataLabels ? [renderedValue] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
+                if (label)
+                    out += tag(xAt(i) - 12, labelY(value, yOf(end), yOf(base)), label);
+            }));
+        }
         else
             series.forEach((s, si) => s.values.slice(0, n).forEach((v, i) => { if (v !== null) {
                 const x = (chart.kind === 'column' || chart.kind === 'combo') ? px + (i + .1) * pw / n + si * (pw / n * .7 / series.length) : xAt(i) - 12, isLine = chart.kind === 'combo' && chart.seriesOptions?.[si]?.kind === 'line', pointY = yOfSeries(si, v), baseY = isLine ? pointY : yOfSeries(si, 0);
