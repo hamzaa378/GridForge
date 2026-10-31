@@ -11,6 +11,16 @@ for (let n = 0; n < 256; n++) {
 }
 function crc(data) { let n = 0xffffffff; for (const b of data)
     n = crcTable[(n ^ b) & 255] ^ (n >>> 8); return (n ^ 0xffffffff) >>> 0; }
+async function crcAsync(data, onProgress) { let value = 0xffffffff; const chunkSize = 1_048_576; for (let offset = 0; offset < data.length; offset += chunkSize) {
+    const end = Math.min(data.length, offset + chunkSize);
+    for (let index = offset; index < end; index++) {
+        const byte = data[index];
+        value = crcTable[(value ^ byte) & 255] ^ (value >>> 8);
+    }
+    onProgress?.(end, data.length);
+    if (end < data.length)
+        await new Promise(resolve => setTimeout(resolve, 0));
+} return (value ^ 0xffffffff) >>> 0; }
 function u16(buf, offset) { return (buf[offset] ?? 0) | ((buf[offset + 1] ?? 0) << 8); }
 function u32(buf, offset) { return (u16(buf, offset) + (u16(buf, offset + 2) * 65536)) >>> 0; }
 function set16(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; }
@@ -68,8 +78,8 @@ export function zipWriteBytes(entries) {
     set32(end, 16, offset);
     return join([...chunks, ...directory, end]);
 }
-export async function zipRead(data) {
-    const entries = await zipReadBytes(data), out = new Map();
+export async function zipRead(data, onProgress) {
+    const entries = await zipReadBytes(data, (name, processed, total) => onProgress?.(`Verifying XLSX ${name}: ${Math.round(processed / total * 100)}%`)), out = new Map();
     for (const [name, bytes] of entries) {
         if (name.endsWith('.xml') || name.endsWith('.rels'))
             out.set(name, td.decode(bytes));
@@ -77,7 +87,7 @@ export async function zipRead(data) {
     return out;
 }
 /** Read and verify binary and XML entries without discarding VBA and unrelated features. */
-export async function zipReadBytes(data) {
+export async function zipReadBytes(data, onProgress) {
     let end = -1;
     for (let p = data.length - 22; p >= Math.max(0, data.length - 65557); p--)
         if (u32(data, p) === 0x06054b50) {
@@ -119,7 +129,7 @@ export async function zipReadBytes(data) {
         }
         else
             throw Error('Unsupported ZIP compression method ' + method);
-        if (bytes.length !== uncompressed || crc(bytes) !== expectedCrc)
+        if (bytes.length !== uncompressed || await crcAsync(bytes, (processed, total) => onProgress?.(name, processed, total)) !== expectedCrc)
             throw Error(`Invalid XLSX ZIP checksum in ${name}`);
         if (out.has(name))
             throw Error('Duplicate OOXML ZIP entry.');

@@ -1,5 +1,7 @@
 # GridForge 506-function comparison with desktop Excel
 
+> **Historical comparison note (v12.0.57):** The reported counts are from the earlier one-case-per-function run. Source updates since that run corrected the listed `FIELDVALUE` behavior, the `INFO("release")` / `INFO("numfile")` results, and the `FORECAST.ETS` argument handling. The Excel comparison was not rerun for those changes, so the 450/456 score remains historical rather than a v12.0.61 score.
+
 Excel 16.0 (build 20430.0); **456 comparable cases**, **450 matches**, **6 differences**.
 
 Comparable-case agreement: **98.68%**. This is one invocation per registered name, not proof of general Excel compatibility.

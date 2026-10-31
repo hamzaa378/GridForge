@@ -34,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File .\desktop\build_windows.ps1 -SkipTests
 Resulting files:
 
 ```text
-  build/release/GridForge-Setup-11.26.0-win64.exe
+  build/release/GridForge-Setup-12.0.79-win64.exe
 build/portable/GridForge/GridForge.exe
 build/portable/GridForgeExcelBridge.exe
 ```
@@ -50,7 +50,7 @@ If you don't have Inno Setup, use `powershell -ExecutionPolicy Bypass -File .\de
 5. The artifact contains the installer, portable ZIP, and `SHA256SUMS.txt`.
 6. Test installation, launch, Excel import/export, light/dark theme, reopen/persistence, uninstall, and optional Excel VBA bridge on a real Windows x64 computer. After signing and validation, manually create a GitHub **Release** and attach the installer, portable ZIP and checksums for distribution; Actions artifacts expire.
 
-The GitHub workflow performs an automated silent installer install/check/uninstall test and packages artifacts. This v11.26 build uses `-SkipTests`; no Windows runtime, installer launch, or live UI tests are run here. The workflow does **not** automatically publish to a public release, sign binaries, or claim interactive GUI tests passed. Distribution to third parties should follow your organization's signing/security process.
+The GitHub workflow performs an automated silent installer install/check/uninstall test and packages artifacts. This v12.0.120 build uses `-SkipTests`; no Windows runtime, installer launch, or live UI tests are run here. The workflow does **not** automatically publish to a public release, sign binaries, or claim interactive GUI tests passed. Distribution to third parties should follow your organization's signing/security process.
 
 ## Critical release acceptance checklist
 
@@ -85,3 +85,11 @@ The installer also adds a second Start menu shortcut: **GridForge Macro Studio**
 For the release checklist, verify: selecting the macro-specific shortcut, importing `examples/macros/parameterized_tax.json` after loading an appropriate workbook, previewing edits with `{"tax":"0.18","minimum":"500"}`, running, undoing, exporting the JSON macro, and closing/reopening the app.
 
 The `.exe` and installer must be compiled on Windows; this repository ZIP is a build kit, not an installer binary.
+
+
+
+
+
+
+
+

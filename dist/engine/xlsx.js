@@ -4,13 +4,14 @@
  */
 import { SpreadsheetDocument } from './document.js';
 import { Workbook, display } from './workbook.js';
-import { parseRef, colToName, nameToCol, shiftFormula, tokenize } from './parser.js';
+import { normalizeFormulaLocale, parseRef, colToName, nameToCol, shiftFormula, tokenize } from './parser.js';
 import { cleanStyle, isExcelDateNumberFormat } from './format.js';
 import { zipWrite, zipRead } from './zip.js';
 import { freshTools, validateTools } from './sheettools.js';
 import { nativeChartXml, nativeDrawingXml, nativeDrawingRelationships, drawingRelationshipType, isNativeChartEx } from './ooxml_charts.js';
 import { CHART_PALETTES, validateChart, chartRange } from './charts.js';
 import { tableRange, tableColumns, validateTable } from './tables.js';
+import { MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_ROWS, MAX_XLSX_CELLS_PER_SHEET } from './limits.js';
 import { buildPivotSummary, pivotChartRange, pivotSourceFieldHeaders, validatePivotSummary } from './pivot.js';
 import { nativePivotParts } from './ooxml_pivots.js';
 import { nativeSlicerCacheXml, nativeSlicerViewXml, nativeSlicerListExtension } from './ooxml_slicers.js';
@@ -18,16 +19,23 @@ import { buildCachedQueryRefresh, buildQueryRefresh } from './power_query.js';
 const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const relns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const pkgns = 'http://schemas.openxmlformats.org/package/2006/relationships';
+let importXmlOverride;
+export function configureXlsxXmlParser(parser) { importXmlOverride = parser; }
 // Modern Excel functions often use _xlfn. in Office Open XML. The evaluator
 // only sees native GridForge identifiers, while XLSX output keeps Excel's prefix.
-const futureExcelNames = new Set(['XLOOKUP', 'IFS', 'SWITCH', 'TEXTJOIN', 'TEXTBEFORE', 'TEXTAFTER', 'CONCAT', 'REGEXTEST', 'REGEXREPLACE', 'ISOWEEKNUM', 'FILTER', 'SORT', 'SORTBY', 'UNIQUE', 'SEQUENCE', 'RANDARRAY', 'TAKE', 'DROP', 'CHOOSECOLS', 'CHOOSEROWS', 'HSTACK', 'VSTACK', 'TEXTSPLIT', 'TOCOL', 'TOROW', 'WRAPROWS', 'WRAPCOLS', 'BYROW', 'BYCOL', 'MAP', 'REDUCE', 'SCAN', 'LAMBDA', 'LET', 'MAKEARRAY', 'EXPAND', 'TRIMRANGE']);
+const futureExcelNames = new Set(['XLOOKUP', 'IFS', 'SWITCH', 'TEXTJOIN', 'TEXTBEFORE', 'TEXTAFTER', 'CONCAT', 'REGEXTEST', 'REGEXREPLACE', 'REGEXEXTRACT', 'ISOWEEKNUM', 'FILTER', 'SORT', 'SORTBY', 'UNIQUE', 'SEQUENCE', 'RANDARRAY', 'TAKE', 'DROP', 'CHOOSECOLS', 'CHOOSEROWS', 'HSTACK', 'VSTACK', 'TEXTSPLIT', 'TOCOL', 'TOROW', 'WRAPROWS', 'WRAPCOLS', 'BYROW', 'BYCOL', 'MAP', 'REDUCE', 'SCAN', 'LAMBDA', 'LET', 'MAKEARRAY', 'EXPAND', 'TRIMRANGE', 'GROUPBY', 'PIVOTBY', 'TRANSLATE', 'IMAGE', 'FIELDVALUE', 'STOCKHISTORY', 'PERCENTOF', 'ISOMITTED', 'DETECTLANGUAGE']);
 const excelAliasNames = { NETWORKDAYSINTL: 'NETWORKDAYS.INTL', NORMDIST: 'NORM.DIST', NORMSDIST: 'NORM.S.DIST', NORMINV: 'NORM.INV', NORMSINV: 'NORM.S.INV', COVARIANCEP: 'COVARIANCE.P', COVARIANCES: 'COVARIANCE.S' };
+const excelErrorCodes = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!', '#DATA!', '#FIELD!', '#BLOCKED!', '#CONNECT!', '#UNKNOWN!', '#BUSY!', '#PYTHON!']);
+function xlsxErrorCode(code) { const normalized = code.toUpperCase(); return excelErrorCodes.has(normalized) ? normalized : '#VALUE!'; }
 function xlsxFormula(formula) {
     try {
+        formula = normalizeFormulaLocale(formula);
         const tokens = tokenize(formula), replacements = [];
         for (let i = 0; i < tokens.length - 1; i++) {
             const t = tokens[i];
-            if (t.kind === 'name' && tokens[i + 1].text === '(' && (futureExcelNames.has(t.text) || excelAliasNames[t.text]))
+            if (t.kind === 'operator' && t.text === ';')
+                replacements.push({ start: t.start, end: t.end, text: ',' });
+            else if (t.kind === 'name' && tokens[i + 1].text === '(' && (futureExcelNames.has(t.text) || excelAliasNames[t.text]))
                 replacements.push({ start: t.start, end: t.end, text: `${futureExcelNames.has(t.text) ? '_xlfn.' : ''}${excelAliasNames[t.text] ?? t.text}` });
         }
         let pos = 0, out = '';
@@ -98,14 +106,27 @@ function direct(node, local) { return Array.from(node.children).find(n => n.loca
 function parseXml(text) {
     if (/<!DOCTYPE|<!ENTITY/i.test(text))
         throw Error('XML external entities are not supported.');
-    if (typeof DOMParser === 'undefined')
-        throw Error('XLSX parsing requires a modern browser DOM parser.');
-    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    const doc = importXmlOverride ? importXmlOverride(text) : typeof DOMParser === 'undefined' ? (() => { throw Error('XLSX parsing requires a modern browser DOM parser.'); })() : new DOMParser().parseFromString(text, 'application/xml');
     if (doc.getElementsByTagName('parsererror').length)
         throw Error('Invalid XML inside XLSX.');
     return doc;
 }
 const attr = (n, name, def = '') => n.getAttribute(name) ?? def;
+function parseHeaderFooter(value) { const parts = ['', '', '']; let current = 1; const segments = value.split(/(&[LCR])/); for (const segment of segments) {
+    if (segment === '&L') {
+        current = 0;
+        continue;
+    }
+    if (segment === '&C') {
+        current = 1;
+        continue;
+    }
+    if (segment === '&R') {
+        current = 2;
+        continue;
+    }
+    parts[current] += segment;
+} return parts; }
 const int = (x, def = 0) => x && Number.isFinite(Number(x)) ? Number(x) : def;
 const color = (n) => {
     const v = n?.getAttribute('rgb');
@@ -288,8 +309,11 @@ function sheetXML(book, tool, styles, viewOptions) {
             return `<c r="${ref}"${attrS}/>`;
         if (raw.startsWith('=')) {
             const result = book.getValue(ref);
-            const cached = typeof result.value === 'number' && Number.isFinite(result.value) ? `<v>${result.value}</v>` : '';
-            return `<c r="${ref}"${attrS}><f>${esc(xlsxFormula(raw.slice(1)))}</f>${cached}</c>`;
+            if (result.error)
+                return `<c r="${ref}"${attrS} t="e"><f>${esc(xlsxFormula(raw.slice(1)))}</f><v>${xlsxErrorCode(result.error.code)}</v></c>`;
+            const cellType = typeof result.value === 'boolean' ? ' t="b"' : typeof result.value === 'string' ? ' t="str"' : '';
+            const cached = typeof result.value === 'number' && Number.isFinite(result.value) ? `<v>${result.value}</v>` : typeof result.value === 'boolean' ? `<v>${result.value ? 1 : 0}</v>` : typeof result.value === 'string' ? `<v>${esc(result.value)}</v>` : '';
+            return `<c r="${ref}"${attrS}${cellType}><f>${esc(xlsxFormula(raw.slice(1)))}</f>${cached}</c>`;
         }
         if (/^'/.test(raw))
             return `<c r="${ref}"${attrS} t="inlineStr"><is><t xml:space="preserve">${esc(raw.slice(1))}</t></is></c>`;
@@ -299,11 +323,12 @@ function sheetXML(book, tool, styles, viewOptions) {
             return `<c r="${ref}"${attrS}><v>${Number(raw)}</v></c>`;
         return `<c r="${ref}"${attrS} t="inlineStr"><is><t xml:space="preserve">${esc(raw)}</t></is></c>`;
     }).join('')}</row>`).join('');
-    const pane = tool.freezeRows || tool.freezeCols ? `<pane xSplit="${tool.freezeCols}" ySplit="${tool.freezeRows}" topLeftCell="${colToName(tool.freezeCols)}${tool.freezeRows + 1}" state="frozen"/>` : '';
+    const activePane = tool.freezeRows ? (tool.freezeCols ? 'bottomRight' : 'bottomLeft') : 'topRight';
+    const pane = tool.freezeRows || tool.freezeCols ? `<pane xSplit="${tool.freezeCols}" ySplit="${tool.freezeRows}" topLeftCell="${colToName(tool.freezeCols)}${tool.freezeRows + 1}" activePane="${activePane}" state="frozen"/>` : '';
     // Table filters belong in the table XML; a second sheet-wide filter over the same range would conflict in Excel.
     const tableOwnsFilter = tool.filter && tool.tables.some(t => t.range.toUpperCase() === `${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}`);
     const filter = tool.filter && !tableOwnsFilter ? `<autoFilter ref="${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}">${excelFilterColumns(tool.filter)}</autoFilter>` : '';
-    const cf = tool.conditional.map((r, i) => r.operator === 'scale' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="colorScale" priority="${i + 1}"><colorScale><cfvo type="min"/>${r.midColor ? '<cfvo type="percentile" val="50"/>' : ''}<cfvo type="max"/><color rgb="FF${(r.startColor ?? '#ffffff').slice(1).toUpperCase()}"/>${r.midColor ? `<color rgb="FF${r.midColor.slice(1).toUpperCase()}"/>` : ''}<color rgb="FF${r.color.slice(1).toUpperCase()}"/></colorScale></cfRule></conditionalFormatting>` : r.operator === 'dataBar' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="dataBar" priority="${i + 1}"><dataBar showValue="${r.showValue === false ? 0 : 1}"><cfvo type="${r.minValue === undefined ? 'min' : 'num'}"${r.minValue === undefined ? '' : ` val="${r.minValue}"`}/><cfvo type="${r.maxValue === undefined ? 'max' : 'num'}"${r.maxValue === undefined ? '' : ` val="${r.maxValue}"`}/><color rgb="FF${r.color.slice(1).toUpperCase()}"/></dataBar></cfRule></conditionalFormatting>` : `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="cellIs" priority="${i + 1}" operator="${{ gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', eq: 'equal', ne: 'notEqual', between: 'between', notBetween: 'notBetween' }[r.operator]}" dxfId="${i}"><formula>${r.threshold}</formula>${r.operator === 'between' || r.operator === 'notBetween' ? `<formula>${r.threshold2}</formula>` : ''}</cfRule></conditionalFormatting>`).join('');
+    const cf = tool.conditional.map((r, i) => r.operator === 'scale' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="colorScale" priority="${i + 1}"><colorScale><cfvo type="min"/>${r.midColor ? '<cfvo type="percentile" val="50"/>' : ''}<cfvo type="max"/><color rgb="FF${(r.startColor ?? '#ffffff').slice(1).toUpperCase()}"/>${r.midColor ? `<color rgb="FF${r.midColor.slice(1).toUpperCase()}"/>` : ''}<color rgb="FF${r.color.slice(1).toUpperCase()}"/></colorScale></cfRule></conditionalFormatting>` : r.operator === 'dataBar' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="dataBar" priority="${i + 1}"><dataBar showValue="${r.showValue === false ? 0 : 1}" gradient="${r.barStyle === 'solid' ? 0 : 1}"><cfvo type="${r.minValue === undefined ? 'min' : 'num'}"${r.minValue === undefined ? '' : ` val="${r.minValue}"`}/><cfvo type="${r.maxValue === undefined ? 'max' : 'num'}"${r.maxValue === undefined ? '' : ` val="${r.maxValue}"`}/><color rgb="FF${r.color.slice(1).toUpperCase()}"/>${r.negativeColor ? `<negativeFillColor rgb="FF${r.negativeColor.slice(1).toUpperCase()}"/>` : ''}</dataBar></cfRule></conditionalFormatting>` : `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="cellIs" priority="${i + 1}" operator="${{ gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', eq: 'equal', ne: 'notEqual', between: 'between', notBetween: 'notBetween' }[r.operator]}" dxfId="${i}"><formula>${r.threshold}</formula>${r.operator === 'between' || r.operator === 'notBetween' ? `<formula>${r.threshold2}</formula>` : ''}</cfRule></conditionalFormatting>`).join('');
     const dataValidations = tool.dataValidations.length ? `<dataValidations count="${tool.dataValidations.length}">${tool.dataValidations.map(rule => {
         const sqref = rule.start === rule.end ? rule.start : `${rule.start}:${rule.end}`;
         const prompt = rule.promptMessage || rule.promptTitle, showInput = rule.showInputMessage ?? Boolean(prompt), alert = ` errorStyle="${rule.errorStyle ?? 'stop'}" allowBlank="${rule.allowBlank ? 1 : 0}" showErrorMessage="${(rule.showErrorMessage ?? true) ? 1 : 0}"${showInput ? ' showInputMessage="1"' : ''}${rule.promptTitle ? ` promptTitle="${esc(rule.promptTitle)}"` : ''}${rule.promptMessage ? ` prompt="${esc(rule.promptMessage)}"` : ''}${rule.errorTitle ? ` errorTitle="${esc(rule.errorTitle)}"` : ''}${rule.errorMessage ? ` error="${esc(rule.errorMessage)}"` : ''}`;
@@ -315,7 +340,8 @@ function sheetXML(book, tool, styles, viewOptions) {
         return `<dataValidation type="${rule.type}" operator="${excelOperator}"${alert} sqref="${esc(sqref)}"><formula1>${rule.min ?? rule.max}</formula1>${operator === 'between' || operator === 'notBetween' ? `<formula2>${rule.max}</formula2>` : ''}</dataValidation>`;
     }).join('')}</dataValidations>` : '';
     const page = tool.pageSetup, paperSize = { letter: 1, legal: 5, a3: 8, a4: 9, tabloid: 3 }[page.paper];
-    const pageOptions = `<printOptions gridLines="${page.printGridlines ? 1 : 0}" headings="${page.printHeadings ? 1 : 0}"/><pageMargins left="${page.marginLeft}" right="${page.marginRight}" top="${page.marginTop}" bottom="${page.marginBottom}" header="0.3" footer="0.3"/><pageSetup paperSize="${paperSize}" orientation="${page.orientation}" fitToWidth="${page.fitWidth}" fitToHeight="${page.fitHeight}"/>`;
+    const headerFooter = (kind) => { const fields = kind === 'header' ? [page.headerLeft, page.headerCenter, page.headerRight] : [page.footerLeft, page.footerCenter, page.footerRight], markers = ['&L', '&C', '&R']; return fields.some(Boolean) ? `<odd${kind[0].toUpperCase() + kind.slice(1)}>${fields.map((value, index) => markers[index] + esc(value ?? '')).join('')}</odd${kind[0].toUpperCase() + kind.slice(1)}>` : ''; };
+    const pageOptions = `<printOptions gridLines="${page.printGridlines ? 1 : 0}" headings="${page.printHeadings ? 1 : 0}" horizontalCentered="${page.centerHorizontally ? 1 : 0}" verticalCentered="${page.centerVertically ? 1 : 0}"/><pageMargins left="${page.marginLeft}" right="${page.marginRight}" top="${page.marginTop}" bottom="${page.marginBottom}" header="0.3" footer="0.3"/><pageSetup paperSize="${paperSize}" orientation="${page.orientation}" pageOrder="${page.pageOrder}" fitToWidth="${page.fitWidth}" fitToHeight="${page.fitHeight}"/>${page.headerLeft || page.headerCenter || page.headerRight || page.footerLeft || page.footerCenter || page.footerRight ? `<headerFooter>${headerFooter('header')}${headerFooter('footer')}</headerFooter>` : ''}`;
     const colIndices = new Set([...Object.keys(tool.columnWidths).map(Number), ...tool.hiddenColumns]);
     const cols = [...colIndices].sort((a, b) => a - b).map(col => { const width = tool.columnWidths[col] ?? 126, hidden = tool.hiddenColumns.includes(col); return `<col min="${col + 1}" max="${col + 1}" width="${((width - 5) / 7).toFixed(2)}" customWidth="1"${hidden ? ' hidden="1"' : ''}/>`; }).join('');
     const viewAttributes = `${viewOptions?.showGridLines === false ? ' showGridLines="0"' : ''}${viewOptions?.zoomScale !== undefined ? ` zoomScale="${viewOptions.zoomScale}"` : ''}${viewOptions?.zoomScaleNormal !== undefined ? ` zoomScaleNormal="${viewOptions.zoomScaleNormal}"` : ''}`;
@@ -402,7 +428,7 @@ export function exportXlsx(doc) {
             for (let t = 0; t < sheet.tools.tables.length; t++) {
                 const table = sheet.tools.tables[t], number = tableIndex++, rid = `rId${relStart + t}`;
                 const bounds = tableRange(table.range, sheet.book.rows, sheet.book.cols), names = tableColumns(sheet.book, table);
-                const columns = names.map((name, k) => { const calculated = table.calculatedColumns?.find(c => c.column === k); return `<tableColumn id="${k + 1}" name="${esc(name)}">${calculated ? `<calculatedColumnFormula>${esc(calculated.formula.replace(/^=/, ''))}</calculatedColumnFormula>` : ''}</tableColumn>`; }).join('');
+                const columns = names.map((name, k) => { const calculated = table.calculatedColumns?.find(c => c.column === k); return `<tableColumn id="${k + 1}" name="${esc(name)}">${calculated ? `<calculatedColumnFormula>${esc(xlsxFormula(calculated.formula.replace(/^=/, '')))}</calculatedColumnFormula>` : ''}</tableColumn>`; }).join('');
                 parts[`xl/tables/table${number}.xml`] = xml(`<table xmlns="${ns}" id="${number}" name="${esc(table.name)}" displayName="${esc(table.name)}" ref="${esc(table.range)}" headerRowCount="${table.header ? 1 : 0}" totalsRowShown="0"><autoFilter ref="${esc(table.range)}">${sheet.tools.filter && sheet.tools.filter.startRow === bounds.r1 && sheet.tools.filter.endRow === bounds.r2 && sheet.tools.filter.startCol === bounds.c1 && sheet.tools.filter.endCol === bounds.c2 ? excelFilterColumns(sheet.tools.filter) : ''}</autoFilter><tableColumns count="${names.length}">${columns}</tableColumns><tableStyleInfo name="${table.style}" showFirstColumn="${table.firstColumn ? 1 : 0}" showLastColumn="${table.lastColumn ? 1 : 0}" showRowStripes="${table.bandedRows ? 1 : 0}" showColumnStripes="${table.bandedColumns ? 1 : 0}"/></table>`);
                 typeEntries.push(`<Override PartName="/xl/tables/table${number}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
                 sheetRels.push(`<Relationship Id="${rid}" Type="${relns}/table" Target="../tables/table${number}.xml"/>`);
@@ -516,15 +542,18 @@ export function exportXlsx(doc) {
     parts['[Content_Types].xml'] = xml(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${typeEntries.join('')}</Types>`);
     parts['_rels/.rels'] = xml(`<Relationships xmlns="${pkgns}"><Relationship Id="rId1" Type="${relns}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
     parts['xl/_rels/workbook.xml.rels'] = xml(`<Relationships xmlns="${pkgns}">${doc.sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${relns}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${doc.sheets.length + 1}" Type="${relns}/styles" Target="styles.xml"/>${workbookPivotRels.join('')}${workbookSlicerRels.join('')}</Relationships>`);
+    const globalDefinedNames = doc.getWorkbookDefinedNames().map(item => `<definedName name="${esc(item.name)}"${item.comment ? ` comment="${esc(item.comment)}"` : ''}${item.hidden ? ' hidden="1"' : ''}>${esc(xlsxFormula(item.ref.replace(/^=/, '')))}</definedName>`).join('');
     const definedNames = doc.sheets.flatMap((sheet, localSheetId) => {
         const quotedSheet = esc(`'${sheet.name.replace(/'/g, "''")}'`), titleParts = [...(sheet.tools.pageSetup.repeatRows ? [`${quotedSheet}!$${sheet.tools.pageSetup.repeatRows.split(':')[0]}:$${sheet.tools.pageSetup.repeatRows.split(':')[1]}`] : []), ...(sheet.tools.pageSetup.repeatColumns ? [`${quotedSheet}!$${sheet.tools.pageSetup.repeatColumns.split(':')[0]}:$${sheet.tools.pageSetup.repeatColumns.split(':')[1]}`] : [])];
         return [...sheet.book.getDefinedNames().map(item => {
+                if (item.ref.startsWith('='))
+                    return `<definedName name="${esc(item.name)}" localSheetId="${localSheetId}"${item.comment ? ` comment="${esc(item.comment)}"` : ''}${item.hidden ? ' hidden="1"' : ''}>${esc(xlsxFormula(item.ref.slice(1)))}</definedName>`;
                 const absolute = item.ref.split(':').map(ref => { const p = parseRef(ref); return `$${colToName(p.col)}$${p.row + 1}`; }).join(':');
-                return `<definedName name="${esc(item.name)}" localSheetId="${localSheetId}"${item.comment ? ` comment="${esc(item.comment)}"` : ''}>'${sheet.name.replace(/'/g, "''")}'!${absolute}</definedName>`;
+                return `<definedName name="${esc(item.name)}" localSheetId="${localSheetId}"${item.comment ? ` comment="${esc(item.comment)}"` : ''}${item.hidden ? ' hidden="1"' : ''}>'${sheet.name.replace(/'/g, "''")}'!${absolute}</definedName>`;
             }), ...(sheet.tools.pageSetup.printArea ? [`<definedName name="_xlnm.Print_Area" localSheetId="${localSheetId}">${quotedSheet}!${sheet.tools.pageSetup.printArea.split(':').map(ref => { const p = parseRef(ref); return `$${colToName(p.col)}$${p.row + 1}`; }).join(':')}</definedName>`] : []), ...(titleParts.length ? [`<definedName name="_xlnm.Print_Titles" localSheetId="${localSheetId}">${titleParts.join(',')}</definedName>`] : [])];
     }).join('');
     const slicerExtension = workbookSlicerRefs.length ? `<extLst><ext uri="{BBE1A952-AA13-448e-AADC-164F8A28A991}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:slicerCaches xmlns:r="${relns}">${workbookSlicerRefs.join('')}</x14:slicerCaches></ext></extLst>` : '';
-    parts['xl/workbook.xml'] = xml(`<workbook xmlns="${ns}" xmlns:r="${relns}"><bookViews><workbookView activeTab="${Math.max(0, doc.sheets.findIndex(s => s.id === doc.activeId))}"/></bookViews><sheets>${doc.sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}"${s.hidden ? ' state="hidden"' : ''} r:id="rId${i + 1}"/>`).join('')}</sheets>${definedNames ? `<definedNames>${definedNames}</definedNames>` : ''}${workbookPivotRefs.length ? `<pivotCaches>${workbookPivotRefs.join('')}</pivotCaches>` : ''}<calcPr calcId="191029" fullCalcOnLoad="1"/>${slicerExtension}</workbook>`);
+    parts['xl/workbook.xml'] = xml(`<workbook xmlns="${ns}" xmlns:r="${relns}"><bookViews><workbookView activeTab="${Math.max(0, doc.sheets.findIndex(s => s.id === doc.activeId))}"/></bookViews><sheets>${doc.sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}"${s.hidden ? ' state="hidden"' : ''} r:id="rId${i + 1}"/>`).join('')}</sheets>${globalDefinedNames || definedNames ? `<definedNames>${globalDefinedNames}${definedNames}</definedNames>` : ''}${workbookPivotRefs.length ? `<pivotCaches>${workbookPivotRefs.join('')}</pivotCaches>` : ''}<calcPr calcId="191029" fullCalcOnLoad="1"/>${slicerExtension}</workbook>`);
     return zipWrite(parts);
 }
 /** Read named Excel tables from verified local OOXML relationships, never external targets. */
@@ -623,7 +652,7 @@ function importNativePivots(parts, sheetPath, sheet, book, sheetName, warnings, 
             const cachePath = cacheTarget ? resolve(pivotPath, cacheTarget) : null, cacheXml = cachePath ? parts.get(cachePath) : undefined;
             if (!cacheXml)
                 throw Error('Pivot cache definition is unavailable.');
-            const cache = parseXml(cacheXml), source = nodes(cache, 'worksheetSource')[0], sourceName = attr(source ?? cache.documentElement, 'name'), declaredSheet = attr(source ?? cache.documentElement, 'sheet'), namedTable = sourceName ? doc.sheets.flatMap(candidate => candidate.tools.tables.filter(table => table.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase() && (!declaredSheet || candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase())).map(table => ({ sheet: candidate, range: table.range })))[0] : undefined, namedRange = sourceName ? doc.sheets.flatMap(candidate => candidate.book.getDefinedNames().filter(name => name.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase() && (!declaredSheet || candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase())).map(name => ({ sheet: candidate, range: name.ref })))[0] : undefined, globalRangeEntry = sourceName ? globalNamedRanges.get(sourceName.toLocaleLowerCase()) ?? undefined : undefined, globalNamedRange = globalRangeEntry && (!declaredSheet || globalRangeEntry.sheet.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase()) ? globalRangeEntry : undefined, sourceEntry = declaredSheet ? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase()) : namedTable?.sheet ?? namedRange?.sheet ?? (globalNamedRange ? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === globalNamedRange.sheet.toLocaleLowerCase()) : undefined) ?? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase()), sourceSheet = sourceEntry?.name ?? (declaredSheet || sheetName), sourceRange = attr(source ?? cache.documentElement, 'ref') || (namedTable && namedTable.sheet.id === sourceEntry?.id ? namedTable.range : namedRange && namedRange.sheet.id === sourceEntry?.id ? namedRange.range : globalNamedRange && globalNamedRange.sheet.toLocaleLowerCase() === sourceEntry?.name.toLocaleLowerCase() ? globalNamedRange.range : '');
+            const cache = parseXml(cacheXml), source = nodes(cache, 'worksheetSource')[0], sourceName = attr(source ?? cache.documentElement, 'name'), declaredSheet = attr(source ?? cache.documentElement, 'sheet'), namedTable = sourceName ? doc.sheets.flatMap(candidate => candidate.tools.tables.filter(table => table.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase() && (!declaredSheet || candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase())).map(table => ({ sheet: candidate, range: table.range })))[0] : undefined, namedRange = sourceName ? doc.sheets.flatMap(candidate => candidate.book.getDefinedNames().filter(name => !name.ref.startsWith('=') && name.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase() && (!declaredSheet || candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase())).map(name => ({ sheet: candidate, range: name.ref })))[0] : undefined, globalRangeEntry = sourceName ? globalNamedRanges.get(sourceName.toLocaleLowerCase()) ?? undefined : undefined, globalNamedRange = globalRangeEntry && (!declaredSheet || globalRangeEntry.sheet.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase()) ? globalRangeEntry : undefined, sourceEntry = declaredSheet ? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === declaredSheet.toLocaleLowerCase()) : namedTable?.sheet ?? namedRange?.sheet ?? (globalNamedRange ? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === globalNamedRange.sheet.toLocaleLowerCase()) : undefined) ?? doc.sheets.find(candidate => candidate.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase()), sourceSheet = sourceEntry?.name ?? (declaredSheet || sheetName), sourceRange = attr(source ?? cache.documentElement, 'ref') || (namedTable && namedTable.sheet.id === sourceEntry?.id ? namedTable.range : namedRange && namedRange.sheet.id === sourceEntry?.id ? namedRange.range : globalNamedRange && globalNamedRange.sheet.toLocaleLowerCase() === sourceEntry?.name.toLocaleLowerCase() ? globalNamedRange.range : '');
             if (!sourceEntry)
                 throw Error(`Pivot source worksheet “${sourceSheet}” is unavailable.`);
             if (!sourceRange)
@@ -960,14 +989,21 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
             const chartXml = parts.get(chartPath);
             if (!chartXml)
                 continue;
+            const chartNonVisual = nodes(anchor, 'cNvPr')[0], chartDescription = chartNonVisual ? attr(chartNonVisual, 'descr') : '';
             try {
-                const chartDoc = parseXml(chartXml), plot = nodes(chartDoc, 'plotArea')[0], pivotSource = nodes(chartDoc, 'pivotSource')[0], pivotSourceName = pivotSource ? nodes(pivotSource, 'name')[0]?.textContent?.trim() ?? '' : '', chartExSeries = nodes(chartDoc, 'series')[0], chartExLayout = chartExSeries ? attr(chartExSeries, 'layoutId') : '';
+                const chartDoc = parseXml(chartXml), plot = nodes(chartDoc, 'plotArea')[0], pivotSource = nodes(chartDoc, 'pivotSource')[0], pivotSourceName = pivotSource ? nodes(pivotSource, 'name')[0]?.textContent?.trim() ?? '' : '', chartExSeries = nodes(chartDoc, 'series')[0], chartExSeriesNodes = nodes(chartDoc, 'series'), chartExLayout = chartExSeries ? attr(chartExSeries, 'layoutId') : '';
                 if (chartExLayout) {
-                    const layout = chartExLayout, layoutProperties = nodes(chartExSeries ?? chartDoc.documentElement, 'layoutPr')[0], binning = layoutProperties ? nodes(layoutProperties, 'binning')[0] : undefined, binCountNode = binning ? nodes(binning, 'binCount')[0] : undefined, binSizeNode = binning ? nodes(binning, 'binSize')[0] : undefined, waterfallSubtotals = layoutProperties ? nodes(layoutProperties, 'subtotals')[0] : undefined, chartExRoot = nodes(chartDoc, 'chart')[0], chartExLegend = chartExRoot ? nodes(chartExRoot, 'legend')[0] : undefined, legendPosition = chartExLegend ? { b: 'bottom', t: 'top', r: 'right' }[attr(chartExLegend, 'pos')] : undefined;
+                    const layout = chartExLayout, layoutProperties = nodes(chartExSeries ?? chartDoc.documentElement, 'layoutPr')[0], binning = layoutProperties ? nodes(layoutProperties, 'binning')[0] : undefined, binCountNode = binning ? nodes(binning, 'binCount')[0] : undefined, binSizeNode = binning ? nodes(binning, 'binSize')[0] : undefined, waterfallSubtotals = layoutProperties ? nodes(layoutProperties, 'subtotals')[0] : undefined, boxVisibility = layoutProperties ? nodes(layoutProperties, 'visibility')[0] : undefined, boxStatistics = layoutProperties ? nodes(layoutProperties, 'statistics')[0] : undefined, chartExRoot = nodes(chartDoc, 'chart')[0], chartExLegend = chartExRoot ? nodes(chartExRoot, 'legend')[0] : undefined, legendPosition = chartExLegend ? { b: 'bottom', t: 'top', r: 'right', l: 'left' }[attr(chartExLegend, 'pos')] : undefined;
                     const layouts = { waterfall: 'waterfall', treemap: 'treemap', sunburst: 'sunburst', funnel: 'funnel', paretoLine: 'pareto', 'boxWhisker': 'box-whisker' };
                     const kind = layouts[layout] ?? (layout === 'clusteredColumn' && binning ? 'histogram' : undefined);
-                    if (!kind)
+                    if (!kind) {
+                        warnings.push(`${sheetName}: ChartEx layout “${layout}” is not supported and was omitted.`);
                         continue;
+                    }
+                    if (chartExSeriesNodes.length !== 1) {
+                        warnings.push(`${sheetName}: ${kind} ChartEx contains ${chartExSeriesNodes.length} series; GridForge can only edit one-series ChartEx charts, so this chart was omitted.`);
+                        continue;
+                    }
                     const formulaRanges = [];
                     for (const formula of nodes(chartDoc, 'f')) {
                         const text = formula.textContent ?? '', match = /^(?:'((?:[^']|'')+)'|([^!]+))?!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)$/i.exec(text);
@@ -983,6 +1019,14 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                     if (!formulaRanges.length || kind === 'histogram' && formulaRanges.length !== 1) {
                         warnings.push(`${sheetName}: ChartEx chart has no supported local data range${kind === 'histogram' ? ' for its single numeric series' : ''}.`);
                         continue;
+                    }
+                    const uniqueRanges = [...new Map(formulaRanges.map(range => [`${range.r1}:${range.r2}:${range.c1}:${range.c2}`, range])).values()];
+                    if (kind !== 'histogram') {
+                        const rowCounts = new Set(uniqueRanges.map(range => range.r2 - range.r1 + 1)), valueRanges = uniqueRanges.filter(range => range.c1 === range.c2), categoryRanges = uniqueRanges.filter(range => range.c2 < Math.max(...valueRanges.map(range => range.c1)));
+                        if (uniqueRanges.length !== 2 || rowCounts.size !== 1 || valueRanges.length !== 1 || categoryRanges.length !== 1 || categoryRanges[0].r1 !== valueRanges[0].r1 || categoryRanges[0].r2 !== valueRanges[0].r2) {
+                            warnings.push(`${sheetName}: ${kind} ChartEx uses disconnected, multi-value, or mismatched source ranges and was omitted rather than imported with altered data.`);
+                            continue;
+                        }
                     }
                     if (kind === 'histogram' && binCountNode && binSizeNode) {
                         warnings.push(`${sheetName}: ChartEx Histogram defines both a bin count and bin width.`);
@@ -1005,7 +1049,7 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                     const r1 = Math.min(...formulaRanges.map(r => r.r1)), r2 = Math.max(...formulaRanges.map(r => r.r2)), c1 = Math.min(...formulaRanges.map(r => r.c1)), c2 = Math.max(...formulaRanges.map(r => r.c2)), headerRow = Math.max(0, r1 - 1), range = `${colToName(c1)}${headerRow + 1}:${colToName(c2)}${r2 + 1}`;
                     chartRange(range, book.rows, book.cols);
                     const p = nodes(anchor, 'pos')[0], ext = nodes(anchor, 'ext')[0], from = nodes(anchor, 'from')[0], to = nodes(anchor, 'to')[0], px = (v) => Math.round(v / 9525), x = p ? px(int(attr(p, 'x'))) : from ? int(nodes(from, 'col')[0]?.textContent ?? '0') * 112 : 100, y = p ? px(int(attr(p, 'y'))) : from ? int(nodes(from, 'row')[0]?.textContent ?? '0') * 26 : 100, width = ext ? px(int(attr(ext, 'cx'))) : to && from ? Math.max(300, (int(nodes(to, 'col')[0]?.textContent ?? '0') - int(nodes(from, 'col')[0]?.textContent ?? '0')) * 112) : 510, height = ext ? px(int(attr(ext, 'cy'))) : to && from ? Math.max(210, (int(nodes(to, 'row')[0]?.textContent ?? '0') - int(nodes(from, 'row')[0]?.textContent ?? '0')) * 26) : 320;
-                    const chartTitle = nodes(chartDoc, 'title')[0], titleText = chartTitle ? nodes(chartTitle, 't').map(node => node.textContent ?? '').join('') : 'Chart', binCount = binCountNode ? Number((binCountNode.textContent ?? '').trim()) : undefined, binWidth = binSizeNode ? Number((binSizeNode.textContent ?? '').trim()) : undefined, underflowText = binning?.hasAttribute('underflow') ? attr(binning, 'underflow') : undefined, overflowText = binning?.hasAttribute('overflow') ? attr(binning, 'overflow') : undefined, underflow = underflowText !== undefined && underflowText.trim() !== '' ? Number(underflowText) : underflowText !== undefined ? NaN : undefined, overflow = overflowText !== undefined && overflowText.trim() !== '' ? Number(overflowText) : overflowText !== undefined ? NaN : undefined, dataLabelsNode = nodes(chartExSeries ?? chartDoc.documentElement, 'dataLabels')[0], visibilityNode = dataLabelsNode ? nodes(dataLabelsNode, 'visibility')[0] : undefined, dataLabelVisibility = visibilityNode ? attr(visibilityNode, 'value', '0') : dataLabelsNode ? attr(dataLabelsNode, 'value', '0') : '0', dataLabelCategoryVisibility = visibilityNode ? attr(visibilityNode, 'categoryName', '0') : '0', dataLabelSeriesVisibility = visibilityNode ? attr(visibilityNode, 'seriesName', '0') : '0', dataLabels = !!dataLabelsNode && ['1', 'true'].includes(dataLabelVisibility.toLocaleLowerCase()), dataLabelCategoryName = !!dataLabelsNode && ['1', 'true'].includes(dataLabelCategoryVisibility.toLocaleLowerCase()), dataLabelSeriesName = !!dataLabelsNode && ['1', 'true'].includes(dataLabelSeriesVisibility.toLocaleLowerCase()), seriesShape = chartExSeries ? direct(chartExSeries, 'spPr') : undefined, seriesSolidFill = seriesShape ? direct(seriesShape, 'solidFill') : undefined, seriesRgb = seriesSolidFill ? direct(seriesSolidFill, 'srgbClr') : undefined, seriesRgbValue = seriesRgb ? attr(seriesRgb, 'val') : '';
+                    const chartTitle = nodes(chartDoc, 'title')[0], titleText = chartTitle ? nodes(chartTitle, 't').map(node => node.textContent ?? '').join('') : 'Chart', binCount = binCountNode ? Number((binCountNode.textContent ?? '').trim()) : undefined, binWidth = binSizeNode ? Number((binSizeNode.textContent ?? '').trim()) : undefined, underflowText = binning?.hasAttribute('underflow') ? attr(binning, 'underflow') : undefined, overflowText = binning?.hasAttribute('overflow') ? attr(binning, 'overflow') : undefined, underflow = underflowText !== undefined && underflowText.trim() !== '' ? Number(underflowText) : underflowText !== undefined ? NaN : undefined, overflow = overflowText !== undefined && overflowText.trim() !== '' ? Number(overflowText) : overflowText !== undefined ? NaN : undefined, dataLabelsNode = nodes(chartExSeries ?? chartDoc.documentElement, 'dataLabels')[0], visibilityNode = dataLabelsNode ? nodes(dataLabelsNode, 'visibility')[0] : undefined, dataLabelVisibility = visibilityNode ? attr(visibilityNode, 'value', '0') : dataLabelsNode ? attr(dataLabelsNode, 'value', '0') : '0', dataLabelCategoryVisibility = visibilityNode ? attr(visibilityNode, 'categoryName', '0') : '0', dataLabelSeriesVisibility = visibilityNode ? attr(visibilityNode, 'seriesName', '0') : '0', dataLabels = !!dataLabelsNode && ['1', 'true'].includes(dataLabelVisibility.toLocaleLowerCase()), dataLabelCategoryName = !!dataLabelsNode && ['1', 'true'].includes(dataLabelCategoryVisibility.toLocaleLowerCase()), dataLabelSeriesName = !!dataLabelsNode && ['1', 'true'].includes(dataLabelSeriesVisibility.toLocaleLowerCase()), dataLabelPosition = { ctr: 'center', inBase: 'insideBase', inEnd: 'insideEnd', outEnd: 'outsideEnd', bestFit: 'bestFit', t: 'above', b: 'below', l: 'left', r: 'right' }[dataLabelsNode ? attr(dataLabelsNode, 'pos') : ''], dataLabelSeparatorNode = dataLabelsNode ? direct(dataLabelsNode, 'separator') : undefined, dataLabelSeparator = dataLabelSeparatorNode?.textContent ?? undefined, dataLabelFormatNode = dataLabelsNode ? direct(dataLabelsNode, 'numFmt') : undefined, dataLabelFormatCode = dataLabelFormatNode ? attr(dataLabelFormatNode, 'formatCode') : undefined, seriesShape = chartExSeries ? direct(chartExSeries, 'spPr') : undefined, seriesSolidFill = seriesShape ? direct(seriesShape, 'solidFill') : undefined, seriesRgb = seriesSolidFill ? direct(seriesSolidFill, 'srgbClr') : undefined, seriesRgbValue = seriesRgb ? attr(seriesRgb, 'val') : '';
                     const seriesColor = /^[0-9a-f]{6}$/i.test(seriesRgbValue) ? `#${seriesRgbValue.toLowerCase()}` : undefined;
                     if (kind === 'histogram' && ((underflowText !== undefined && (!Number.isFinite(underflow) || Math.abs(underflow) > 1e15)) || (overflowText !== undefined && (!Number.isFinite(overflow) || Math.abs(overflow) > 1e15)) || (underflow !== undefined && overflow !== undefined && underflow >= overflow))) {
                         warnings.push(`${sheetName}: ChartEx Histogram has invalid underflow or overflow thresholds.`);
@@ -1036,7 +1080,7 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                             }
                         }
                     }
-                    const chart = validateChart({ id: `chart-import-${result.length + 1}`, kind, title: titleText || 'Chart', range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: legendPosition ?? 'none', dataLabels, dataLabelCategoryName, dataLabelSeriesName, ...(seriesColor ? { seriesOptions: [{ color: seriesColor }] } : {}), ...(showFinalTotal !== undefined ? { showFinalTotal } : {}), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(kind === 'histogram' && binCount !== undefined ? { histogramBins: binCount } : {}), ...(kind === 'histogram' && binWidth !== undefined ? { histogramBinWidth: binWidth } : {}), ...(kind === 'histogram' && underflow !== undefined ? { histogramUnderflow: underflow } : {}), ...(kind === 'histogram' && overflow !== undefined ? { histogramOverflow: overflow } : {}) }, book.rows, book.cols);
+                    const chart = validateChart({ id: `chart-import-${result.length + 1}`, kind, title: titleText || 'Chart', ...(chartDescription ? { accessibilityDescription: chartDescription } : {}), range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: legendPosition ?? 'none', dataLabels, dataLabelCategoryName, dataLabelSeriesName, ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator !== undefined ? { dataLabelSeparator } : {}), ...(dataLabelFormatCode ? { dataLabelFormatCode } : {}), ...(seriesColor ? { seriesOptions: [{ color: seriesColor }] } : {}), ...(showFinalTotal !== undefined ? { showFinalTotal } : {}), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(kind === 'histogram' && binCount !== undefined ? { histogramBins: binCount } : {}), ...(kind === 'histogram' && binWidth !== undefined ? { histogramBinWidth: binWidth } : {}), ...(kind === 'histogram' && underflow !== undefined ? { histogramUnderflow: underflow } : {}), ...(kind === 'histogram' && overflow !== undefined ? { histogramOverflow: overflow } : {}), ...(kind === 'box-whisker' ? { boxQuartileMethod: boxStatistics && ['inclusive', 'exclusive'].includes(attr(boxStatistics, 'quartileMethod')) ? attr(boxStatistics, 'quartileMethod') : 'inclusive', boxShowOutliers: boxVisibility ? ['1', 'true'].includes(attr(boxVisibility, 'outliers', '1').toLowerCase()) : true, boxShowInnerPoints: boxVisibility ? ['1', 'true'].includes(attr(boxVisibility, 'nonoutliers', '0').toLowerCase()) : false, boxShowMeanMarker: boxVisibility ? ['1', 'true'].includes(attr(boxVisibility, 'meanMarker', '0').toLowerCase()) : false, boxShowMeanLine: boxVisibility ? ['1', 'true'].includes(attr(boxVisibility, 'meanLine', '0').toLowerCase()) : false } : {}) }, book.rows, book.cols);
                     result.push(chart);
                     if (pivotSourceName)
                         pivotSourceNames?.set(chart.id, pivotSourceName);
@@ -1092,6 +1136,8 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                 const title = nodes(chartDoc, 'title')[0];
                 const titleText = title ? nodes(title, 't').map(n => n.textContent ?? '').join('') : 'Chart';
                 const leg = nodes(chartDoc, 'legend')[0], lp = leg ? attr(nodes(leg, 'legendPos')[0] ?? leg, 'val') : 'none';
+                const dataTableNode = nodes(plot, 'dTable')[0], dataTable = dataTableNode ? true : undefined, dataTableShowKeys = dataTableNode ? attr(nodes(dataTableNode, 'showKeys')[0] ?? dataTableNode, 'val', '0') === '1' : undefined;
+                const plotVisibleOnly = nodes(chartDoc, 'plotVisOnly')[0], includeHiddenData = plotVisibleOnly && attr(plotVisibleOnly, 'val', '1') === '0' ? true : undefined;
                 const p = nodes(anchor, 'pos')[0], ext = nodes(anchor, 'ext')[0], from = nodes(anchor, 'from')[0], to = nodes(anchor, 'to')[0];
                 const px = (v) => Math.round(v / 9525);
                 const x = p ? px(int(attr(p, 'x'))) : from ? int(nodes(from, 'col')[0]?.textContent ?? '0') * 112 : 100;
@@ -1110,9 +1156,11 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                         trendline = { type: tt, ...(numeric('order') ? { order: numeric('order') } : {}), ...(numeric('period') ? { period: numeric('period') } : {}), ...(numeric('forward') ? { forward: numeric('forward') } : {}), ...(numeric('backward') ? { backward: numeric('backward') } : {}), ...(attr(nodes(trend, 'dispEq')[0] ?? trend, 'val') === '1' ? { showEquation: true } : {}), ...(attr(nodes(trend, 'dispRSqr')[0] ?? trend, 'val') === '1' ? { showR2: true } : {}) };
                     }
                 } let errorBars; if (error) {
-                    const type = attr(nodes(error, 'errValType')[0] ?? error, 'val'), value = Number(attr(nodes(error, 'val')[0] ?? error, 'val'));
-                    if (['fixedVal', 'percentage', 'stdDev'].includes(type) && Number.isFinite(value))
-                        errorBars = { type: type === 'fixedVal' ? 'fixed' : type === 'percentage' ? 'percentage' : 'standardDeviation', value };
+                    const type = attr(nodes(error, 'errValType')[0] ?? error, 'val'), value = Number(attr(nodes(error, 'val')[0] ?? error, 'val')), barType = attr(nodes(error, 'errBarType')[0] ?? error, 'val'), errorAxis = attr(nodes(error, 'errDir')[0] ?? error, 'val'), noEndCap = attr(nodes(error, 'noEndCap')[0] ?? error, 'val') === '1', direction = barType === 'plus' || barType === 'minus' ? barType : 'both', cap = !noEndCap;
+                    if (type === 'stdErr')
+                        errorBars = { type: 'standardError', value: 0, ...(direction !== 'both' ? { direction } : {}), ...(errorAxis === 'x' || errorAxis === 'y' ? { axis: errorAxis } : {}), ...(cap ? {} : { endCap: false }) };
+                    else if (['fixedVal', 'percentage', 'stdDev'].includes(type) && Number.isFinite(value))
+                        errorBars = { type: type === 'fixedVal' ? 'fixed' : type === 'percentage' ? 'percentage' : 'standardDeviation', value, ...(direction !== 'both' ? { direction } : {}), ...(errorAxis === 'x' || errorAxis === 'y' ? { axis: errorAxis } : {}), ...(cap ? {} : { endCap: false }) };
                 } return { ...(kind === 'combo' && group?.localName === 'lineChart' ? { kind: 'line' } : kind === 'combo' && group?.localName === 'barChart' ? { kind: 'column' } : {}), ...(axisIds.includes('404') ? { axis: 'secondary' } : {}), ...(colorNode && /^([0-9a-f]{6})$/i.test(attr(colorNode, 'val')) ? { color: `#${attr(colorNode, 'val').toLowerCase()}` } : {}), ...(marker ? { marker: attr(nodes(marker, 'symbol')[0] ?? marker, 'val') !== 'none' } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline: trendline } : {}) }; });
                 const firstColor = seriesOptions[0]?.color?.slice(1) ?? (nodes(typeNode, 'srgbClr')[0] ? attr(nodes(typeNode, 'srgbClr')[0], 'val').toLowerCase() : '');
                 const theme = Object.keys(CHART_PALETTES).find(name => seriesOptions.length > 0 && seriesOptions.every((option, index) => !option.color || option.color.toLowerCase() === CHART_PALETTES[name][index % CHART_PALETTES[name].length].toLowerCase())) ?? Object.keys(CHART_PALETTES).find(name => CHART_PALETTES[name][0].slice(1).toLowerCase() === firstColor);
@@ -1132,8 +1180,8 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                 const majorUnitNode = valAxis ? nodes(valAxis, 'majorUnit')[0] : undefined, majorUnit = majorUnitNode ? Number(attr(majorUnitNode, 'val')) : undefined, secondaryMajorUnitNode = secondaryAxis ? nodes(secondaryAxis, 'majorUnit')[0] : undefined, secondaryMajorUnit = secondaryMajorUnitNode ? Number(attr(secondaryMajorUnitNode, 'val')) : undefined;
                 const xMajorUnitNode = kind === 'scatter' && catAxis ? nodes(catAxis, 'majorUnit')[0] : undefined, xMajorUnit = xMajorUnitNode ? Number(attr(xMajorUnitNode, 'val')) : undefined, xNumFmt = kind === 'scatter' && catAxis ? attr(nodes(catAxis, 'numFmt')[0] ?? catAxis, 'formatCode') : '', xAxisFormat = xNumFmt === '$#,##0.00' ? 'currency' : xNumFmt === '0%' ? 'percent' : xNumFmt === '0.00' ? 'number' : 'general', xAxisFormatCode = xNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(xNumFmt) ? xNumFmt : undefined;
                 const yNumFmt = valAxis ? attr(nodes(valAxis, 'numFmt')[0] ?? valAxis, 'formatCode') : '', axisFormat = yNumFmt === '$#,##0.00' ? 'currency' : yNumFmt === '0%' ? 'percent' : yNumFmt === '0.00' ? 'number' : 'general', yAxisFormatCode = yNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(yNumFmt) ? yNumFmt : undefined, secondaryNumFmt = secondaryAxis ? attr(nodes(secondaryAxis, 'numFmt')[0] ?? secondaryAxis, 'formatCode') : '', secondaryAxisFormat = secondaryNumFmt === '$#,##0.00' ? 'currency' : secondaryNumFmt === '0%' ? 'percent' : secondaryNumFmt === '0.00' ? 'number' : 'general', secondaryYAxisFormatCode = secondaryNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(secondaryNumFmt) ? secondaryNumFmt : undefined;
-                const rawDataLabelPosition = attr(nodes(typeNode, 'dLblPos')[0] ?? typeNode, 'val'), dataLabelPosition = { ctr: 'center', inEnd: 'insideEnd', outEnd: 'outsideEnd', bestFit: 'bestFit' }[rawDataLabelPosition], dataLabelsNode = nodes(typeNode, 'dLbls')[0], showLabel = (name) => attr(nodes(dataLabelsNode ?? typeNode, name)[0] ?? typeNode, 'val', '0') === '1', sliceAngleNode = nodes(typeNode, 'firstSliceAng')[0], sliceAngle = sliceAngleNode ? Number(attr(sliceAngleNode, 'val')) : undefined, holeSizeNode = nodes(typeNode, 'holeSize')[0], holeSize = holeSizeNode ? Number(attr(holeSizeNode, 'val')) : undefined, dataLabelSeparatorNode = dataLabelsNode ? nodes(dataLabelsNode, 'separator')[0] : undefined, dataLabelSeparator = dataLabelSeparatorNode?.textContent ?? undefined;
-                const c = { ...(theme ? { theme } : {}), id: `chart-import-${result.length + 1}`, kind, title: titleText.slice(0, 100), range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: leg ? (lp === 'r' ? 'right' : lp === 't' ? 'top' : 'bottom') : 'none', dataLabels: dataLabelsNode ? showLabel('showVal') : false, dataLabelCategoryName: showLabel('showCatName'), dataLabelSeriesName: showLabel('showSerName'), dataLabelPercent: showLabel('showPercent'), ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator ? { dataLabelSeparator } : {}), ...(dataPointColors ? { dataPointColors } : {}), ...(switchRowsColumns ? { switchRowsColumns: true } : {}), xAxisTitle: axTitle(catAxis), ...(categoryAngle !== undefined ? { xAxisLabelAngle: categoryAngle } : {}), ...(categoryInterval !== undefined ? { xAxisLabelInterval: categoryInterval } : {}), ...(kind === 'scatter' && bound(catAxis, 'min') !== undefined ? { xAxisMin: bound(catAxis, 'min') } : {}), ...(kind === 'scatter' && bound(catAxis, 'max') !== undefined ? { xAxisMax: bound(catAxis, 'max') } : {}), ...(kind === 'scatter' && xMajorUnit !== undefined && Number.isFinite(xMajorUnit) && xMajorUnit > 0 ? { xAxisMajorUnit: xMajorUnit } : {}), ...(kind === 'scatter' && xAxisFormat !== 'general' ? { xAxisNumberFormat: xAxisFormat } : {}), ...(kind === 'scatter' && xAxisFormatCode ? { xAxisFormatCode } : {}), yAxisTitle: axTitle(valAxis), ...(secondaryAxis ? { secondaryYAxisTitle: axTitle(secondaryAxis) } : {}), ...(bound(valAxis, 'min') !== undefined ? { yAxisMin: bound(valAxis, 'min') } : {}), ...(bound(valAxis, 'max') !== undefined ? { yAxisMax: bound(valAxis, 'max') } : {}), ...(majorUnit !== undefined && Number.isFinite(majorUnit) && majorUnit > 0 ? { yAxisMajorUnit: majorUnit } : {}), ...(secondaryAxis && bound(secondaryAxis, 'min') !== undefined ? { secondaryYAxisMin: bound(secondaryAxis, 'min') } : {}), ...(secondaryAxis && bound(secondaryAxis, 'max') !== undefined ? { secondaryYAxisMax: bound(secondaryAxis, 'max') } : {}), ...(secondaryMajorUnit !== undefined && Number.isFinite(secondaryMajorUnit) && secondaryMajorUnit > 0 ? { secondaryYAxisMajorUnit: secondaryMajorUnit } : {}), ...(axisFormat !== 'general' ? { yAxisNumberFormat: axisFormat } : {}), ...(secondaryAxisFormat !== 'general' ? { secondaryYAxisNumberFormat: secondaryAxisFormat } : {}), ...(yAxisFormatCode ? { yAxisFormatCode } : {}), ...(secondaryYAxisFormatCode ? { secondaryYAxisFormatCode } : {}), ...(holeSize !== undefined && Number.isInteger(holeSize) ? { doughnutHoleSize: holeSize } : {}), ...(sliceAngle !== undefined && Number.isInteger(sliceAngle) ? { firstSliceAngle: sliceAngle } : {}), ...(valAxis ? { majorGridlines: nodes(valAxis, 'majorGridlines').length > 0, minorGridlines: nodes(valAxis, 'minorGridlines').length > 0 } : {}), ...(kind === 'combo' || seriesOptions.some(o => o.axis === 'secondary' || o.trendline || o.errorBars || o.color || o.marker !== undefined) ? { seriesOptions } : {}) };
+                const rawDataLabelPosition = attr(nodes(typeNode, 'dLblPos')[0] ?? typeNode, 'val'), dataLabelPosition = { ctr: 'center', inBase: 'insideBase', inEnd: 'insideEnd', outEnd: 'outsideEnd', bestFit: 'bestFit', t: 'above', b: 'below', l: 'left', r: 'right' }[rawDataLabelPosition], dataLabelsNode = nodes(typeNode, 'dLbls')[0], showLabel = (name) => attr(nodes(dataLabelsNode ?? typeNode, name)[0] ?? typeNode, 'val', '0') === '1', sliceAngleNode = nodes(typeNode, 'firstSliceAng')[0], sliceAngle = sliceAngleNode ? Number(attr(sliceAngleNode, 'val')) : undefined, holeSizeNode = nodes(typeNode, 'holeSize')[0], holeSize = holeSizeNode ? Number(attr(holeSizeNode, 'val')) : undefined, dataLabelSeparatorNode = dataLabelsNode ? nodes(dataLabelsNode, 'separator')[0] : undefined, dataLabelSeparator = dataLabelSeparatorNode?.textContent ?? undefined, dataLabelFormatNode = dataLabelsNode ? nodes(dataLabelsNode, 'numFmt')[0] : undefined, dataLabelFormatCode = dataLabelFormatNode ? attr(dataLabelFormatNode, 'formatCode') : undefined;
+                const c = { ...(theme ? { theme } : {}), id: `chart-import-${result.length + 1}`, kind, title: titleText.slice(0, 100), ...(chartDescription ? { accessibilityDescription: chartDescription } : {}), range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: leg ? (lp === 'r' ? 'right' : lp === 'l' ? 'left' : lp === 't' ? 'top' : 'bottom') : 'none', ...(includeHiddenData ? { includeHiddenData: true } : {}), ...(dataTable ? { dataTable: true, dataTableShowKeys } : {}), ...(['gap', 'zero', 'span'].includes(attr(nodes(chartDoc, 'dispBlanksAs')[0] ?? chartDoc.documentElement, 'val')) ? { displayBlanksAs: attr(nodes(chartDoc, 'dispBlanksAs')[0] ?? chartDoc.documentElement, 'val') } : {}), ...(kind !== 'scatter' && catAxis && attr(nodes(catAxis, 'orientation')[0] ?? catAxis, 'val') === 'maxMin' ? { reverseCategories: true } : {}), dataLabels: dataLabelsNode ? showLabel('showVal') : false, dataLabelCategoryName: showLabel('showCatName'), dataLabelSeriesName: showLabel('showSerName'), dataLabelPercent: showLabel('showPercent'), ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator ? { dataLabelSeparator } : {}), ...(dataLabelFormatCode ? { dataLabelFormatCode } : {}), ...(dataPointColors ? { dataPointColors } : {}), ...(switchRowsColumns ? { switchRowsColumns: true } : {}), xAxisTitle: axTitle(catAxis), ...(categoryAngle !== undefined ? { xAxisLabelAngle: categoryAngle } : {}), ...(categoryInterval !== undefined ? { xAxisLabelInterval: categoryInterval } : {}), ...(kind === 'scatter' && bound(catAxis, 'min') !== undefined ? { xAxisMin: bound(catAxis, 'min') } : {}), ...(kind === 'scatter' && bound(catAxis, 'max') !== undefined ? { xAxisMax: bound(catAxis, 'max') } : {}), ...(kind === 'scatter' && xMajorUnit !== undefined && Number.isFinite(xMajorUnit) && xMajorUnit > 0 ? { xAxisMajorUnit: xMajorUnit } : {}), ...(kind === 'scatter' && xAxisFormat !== 'general' ? { xAxisNumberFormat: xAxisFormat } : {}), ...(kind === 'scatter' && xAxisFormatCode ? { xAxisFormatCode } : {}), yAxisTitle: axTitle(valAxis), ...(secondaryAxis ? { secondaryYAxisTitle: axTitle(secondaryAxis) } : {}), ...(bound(valAxis, 'min') !== undefined ? { yAxisMin: bound(valAxis, 'min') } : {}), ...(bound(valAxis, 'max') !== undefined ? { yAxisMax: bound(valAxis, 'max') } : {}), ...(majorUnit !== undefined && Number.isFinite(majorUnit) && majorUnit > 0 ? { yAxisMajorUnit: majorUnit } : {}), ...(secondaryAxis && bound(secondaryAxis, 'min') !== undefined ? { secondaryYAxisMin: bound(secondaryAxis, 'min') } : {}), ...(secondaryAxis && bound(secondaryAxis, 'max') !== undefined ? { secondaryYAxisMax: bound(secondaryAxis, 'max') } : {}), ...(secondaryMajorUnit !== undefined && Number.isFinite(secondaryMajorUnit) && secondaryMajorUnit > 0 ? { secondaryYAxisMajorUnit: secondaryMajorUnit } : {}), ...(axisFormat !== 'general' ? { yAxisNumberFormat: axisFormat } : {}), ...(secondaryAxisFormat !== 'general' ? { secondaryYAxisNumberFormat: secondaryAxisFormat } : {}), ...(yAxisFormatCode ? { yAxisFormatCode } : {}), ...(secondaryYAxisFormatCode ? { secondaryYAxisFormatCode } : {}), ...(holeSize !== undefined && Number.isInteger(holeSize) ? { doughnutHoleSize: holeSize } : {}), ...(sliceAngle !== undefined && Number.isInteger(sliceAngle) ? { firstSliceAngle: sliceAngle } : {}), ...(valAxis ? { majorGridlines: nodes(valAxis, 'majorGridlines').length > 0, minorGridlines: nodes(valAxis, 'minorGridlines').length > 0 } : {}), ...(kind === 'combo' || seriesOptions.some(o => o.axis === 'secondary' || o.trendline || o.errorBars || o.color || o.marker !== undefined) ? { seriesOptions } : {}) };
                 const chart = validateChart(c, book.rows, book.cols);
                 result.push(chart);
                 if (pivotSourceName)
@@ -1147,10 +1195,11 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
     return result;
 }
 function pivotSourceTableName(value) { const tail = value.slice(value.lastIndexOf('!') + 1).trim(); return tail.replace(/^['"]|['"]$/g, ''); }
-export async function importXlsx(bytes) {
+export async function importXlsx(bytes, options = {}) {
     if (bytes.length > 25 * 1024 * 1024)
         throw Error('XLSX exceeds the 25 MB import limit.');
-    const parts = await zipRead(bytes), warnings = [];
+    options.onProgress?.('Opening XLSX archive…');
+    const parts = await zipRead(bytes, options.onProgress), warnings = [];
     const workbookData = parts.get('xl/workbook.xml');
     if (!workbookData)
         throw Error('Not an XLSX workbook: missing xl/workbook.xml');
@@ -1162,14 +1211,40 @@ export async function importXlsx(bytes) {
     const shared = parts.get('xl/sharedStrings.xml') ? nodes(parseXml(parts.get('xl/sharedStrings.xml')), 'si').map(si => nodes(si, 't').map(t => t.textContent ?? '').join('')) : [];
     const catalog = styleFromXlsx(parts), dateFormatStyleIds = dateFormatStyleIdsFromXlsx(parts);
     const dxfXml = parts.get('xl/styles.xml'), dxfs = dxfXml ? nodes(direct(parseXml(dxfXml).documentElement, 'dxfs') ?? parseXml(dxfXml).documentElement, 'dxf').map(node => color(nodes(node, 'fgColor')[0]) ?? '#ffe0a2') : [];
-    const result = new SpreadsheetDocument(); // Replace the default sheet with the first imported sheet below.
-    for (const definedName of nodes(workbook, 'definedName'))
-        if (attr(definedName, 'name').toLowerCase() === '_xlnm.print_titles' && !definedName.hasAttribute('localSheetId'))
+    const result = new SpreadsheetDocument(); // Reuse the initial sheet at the imported workbook's first position.
+    result.renameSheet(result.activeId, attr(sheets[0] ?? workbook.documentElement, 'name'));
+    const workbookNames = [];
+    for (const definedName of nodes(workbook, 'definedName')) {
+        const name = attr(definedName, 'name');
+        if (definedName.hasAttribute('localSheetId'))
+            continue;
+        if (name.toLowerCase() === '_xlnm.print_titles') {
             warnings.push('_xlnm.Print_Titles: workbook-scoped print titles are unsupported and were ignored.');
+            continue;
+        }
+        if (name.toLowerCase() === '_xlnm.print_area' || name.startsWith('_xlnm.'))
+            continue;
+        const ref = `=${fromXlsxFormula((definedName.textContent ?? '').trim().replace(/^=/, '').trim())}`;
+        try {
+            const validator = new Workbook();
+            validator.setWorkbookDefinedNames([...workbookNames, { name, ref, ...(attr(definedName, 'comment') ? { comment: attr(definedName, 'comment') } : {}), ...(['1', 'true'].includes(attr(definedName, 'hidden').toLowerCase()) ? { hidden: true } : {}) }], true);
+            workbookNames.splice(0, workbookNames.length, ...validator.getWorkbookDefinedNames());
+        }
+        catch (error) {
+            warnings.push(`${name || 'Workbook name'}: unsupported workbook-scoped defined name was skipped (${error instanceof Error ? error.message : 'invalid name'}).`);
+        }
+    }
+    try {
+        result.setWorkbookDefinedNames(workbookNames, true);
+    }
+    catch (error) {
+        warnings.push(`Workbook-scoped defined names were skipped (${error instanceof Error ? error.message : 'invalid names'}).`);
+    }
     let first = true, sheetIndex = 0;
     const importedSheetPaths = [], importedSheetDocuments = [], pivotChartSourcesBySheet = new Map();
     for (const item of sheets) {
         const name = attr(item, 'name'), relId = item.getAttributeNS(relns, 'id') ?? attr(item, 'r:id');
+        options.onProgress?.(`Importing ${name}…`);
         const target = relation.get(relId);
         if (!target)
             throw Error(`Worksheet ${name} has no relationship target.`);
@@ -1192,21 +1267,41 @@ export async function importXlsx(bytes) {
                 sharedMasters.set(attr(f, 'si'), { ref: attr(source, 'r'), formula: '=' + fromXlsxFormula((f.textContent ?? '').trim()) });
             }
         }
-        if (cells.length > 50000)
-            throw Error(`${name} has more than 50,000 cells. Split this workbook before importing.`);
-        for (const c of cells) {
+        if (cells.length > MAX_XLSX_CELLS_PER_SHEET)
+            throw Error(`${name} has more than ${MAX_XLSX_CELLS_PER_SHEET.toLocaleString()} cells. Split this workbook before importing.`);
+        for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+            const c = cells[cellIndex];
             const ref = attr(c, 'r'), p = parseRef(ref);
             if (!p)
                 continue;
-            if (p.row >= 1000 || p.col >= 104)
-                throw Error(`${name}!${ref} is outside GridForge's 1000-row × 104-column import limit.`);
+            if (p.row >= MAX_WORKSHEET_ROWS || p.col >= MAX_WORKSHEET_COLUMNS)
+                throw Error(`${name}!${ref} is outside GridForge's ${MAX_WORKSHEET_ROWS.toLocaleString()}-row × ${MAX_WORKSHEET_COLUMNS}-column import limit.`);
             maxR = Math.max(maxR, p.row + 1);
             maxC = Math.max(maxC, p.col + 1);
             const f = direct(c, 'f'), type = attr(c, 't'), value = direct(c, 'v')?.textContent ?? '', inline = direct(c, 'is');
             let raw = '';
             if (f) {
                 const formula = (f.textContent ?? '').trim();
-                if (formula)
+                if (attr(f, 't') === 'array') {
+                    // OOXML stores a legacy/dynamic array formula at its anchor while
+                    // the remaining cells hold cached results. The local evaluator
+                    // cannot own that imported range, so preserve its displayed cache
+                    // instead of recalculating only the anchor into a blocked spill.
+                    warnings.push(`${name}!${ref}: array formula imported as cached values; GridForge cannot recalculate this Excel array formula.`);
+                    if (type === 'e')
+                        raw = '=' + value;
+                    else if (type === 'b')
+                        raw = value === '1' ? 'TRUE' : 'FALSE';
+                    else if (type === 's')
+                        raw = shared[int(value)] ?? '';
+                    else if (type === 'inlineStr')
+                        raw = inline ? nodes(inline, 't').map(n => n.textContent ?? '').join('') : '';
+                    else
+                        raw = value;
+                    if (raw.startsWith('=') && type !== 'e')
+                        raw = "'" + raw;
+                }
+                else if (formula)
                     raw = '=' + fromXlsxFormula(formula);
                 else if (attr(f, 't') === 'shared' && sharedMasters.has(attr(f, 'si'))) {
                     const master = sharedMasters.get(attr(f, 'si')), origin = parseRef(master.ref);
@@ -1236,8 +1331,14 @@ export async function importXlsx(bytes) {
             else if (type === 'b')
                 raw = value === '1' ? 'TRUE' : 'FALSE';
             else if (type === 'e') {
-                warnings.push(`${name}!${ref}: cached Excel error imported as text.`);
-                raw = "'" + value;
+                // Keep an OOXML error cell as an error expression so dependent formulas
+                // continue to observe its error value instead of an ordinary text string.
+                if (/^#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|DATA!|CYCLE!|FIELD!|BLOCKED!|CONNECT!|UNKNOWN!|BUSY!|PYTHON!)$/i.test(value))
+                    raw = '=' + value.toUpperCase();
+                else {
+                    warnings.push(`${name}!${ref}: unsupported cached Excel error imported as text.`);
+                    raw = "'" + value;
+                }
             }
             else if (type === 'str') {
                 raw = value;
@@ -1259,11 +1360,15 @@ export async function importXlsx(bytes) {
             const st = catalog[styleIndex] ?? {};
             if (Object.keys(st).length)
                 styleEdits.push({ ref, style: st });
+            if ((cellIndex + 1) % 2048 === 0) {
+                options.onProgress?.(`Reading ${name}: ${cellIndex + 1} of ${cells.length} cells…`);
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
         const preImportHyperlinkContainer = direct(sheet.documentElement, 'hyperlinks');
         for (const node of preImportHyperlinkContainer ? nodes(preImportHyperlinkContainer, 'hyperlink') : []) {
             const ref = attr(node, 'ref'), point = parseRef(ref);
-            if (point && point.row < 1000 && point.col < 104) {
+            if (point && point.row < MAX_WORKSHEET_ROWS && point.col < MAX_WORKSHEET_COLUMNS) {
                 maxR = Math.max(maxR, point.row + 1);
                 maxC = Math.max(maxC, point.col + 1);
             }
@@ -1305,41 +1410,62 @@ export async function importXlsx(bytes) {
                 }
         }
         const importedNames = nodes(workbook, 'definedName').filter(node => attr(node, 'localSheetId') === String(sheetIndex) && !['_xlnm.print_area', '_xlnm.print_titles'].includes(attr(node, 'name').toLowerCase())).flatMap(node => {
-            const definedName = attr(node, 'name'), expression = (node.textContent ?? '').trim();
-            const qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!(.+)$/.exec(expression);
-            if (qualified) {
-                const scope = (qualified[1] ?? qualified[2] ?? '').replace(/''/g, "'");
-                if (scope.toLowerCase() !== name.toLowerCase()) {
-                    warnings.push(`${definedName}: defined name points to another worksheet and was skipped.`);
-                    return [];
-                }
+            const definedName = attr(node, 'name'), expression = (node.textContent ?? '').trim(), range = /^\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?$/i;
+            const qualifiedRange = /^(?:'((?:[^']|'')+)'|([^!]+))!\s*(\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?)$/i.exec(expression);
+            const nameMetadata = { ...(attr(node, 'comment') ? { comment: attr(node, 'comment') } : {}), ...(['1', 'true'].includes(attr(node, 'hidden').toLowerCase()) ? { hidden: true } : {}) };
+            if (qualifiedRange) {
+                const scope = (qualifiedRange[1] ?? qualifiedRange[2] ?? '').replace(/''/g, "'");
+                if (scope.toLowerCase() === name.toLowerCase())
+                    return [{ name: definedName, ref: qualifiedRange[3].replace(/\$/g, '').toUpperCase(), ...nameMetadata }];
             }
-            const ref = (qualified?.[3] ?? expression).replace(/\$/g, '').toUpperCase();
-            if (!/^([A-Z]{1,3}[1-9]\d*)(:[A-Z]{1,3}[1-9]\d*)?$/.test(ref)) {
-                warnings.push(`${definedName}: unsupported defined-name reference was skipped.`);
+            if (!qualifiedRange && range.test(expression))
+                return [{ name: definedName, ref: expression.replace(/\$/g, '').toUpperCase(), ...nameMetadata }];
+            try {
+                return [{ name: definedName, ref: `=${fromXlsxFormula(expression.replace(/^\s*=\s*/, ''))}`, ...nameMetadata }];
+            }
+            catch (error) {
+                warnings.push(`${definedName}: unsupported defined-name formula was skipped (${error instanceof Error ? error.message : 'invalid formula'}).`);
                 return [];
             }
-            return [{ name: definedName, ref, ...(attr(node, 'comment') ? { comment: attr(node, 'comment') } : {}) }];
         });
-        try {
-            if (importedNames.length)
-                book.setDefinedNames(importedNames, false);
-        }
-        catch (e) {
-            warnings.push(`${name}: defined names skipped (${e instanceof Error ? e.message : 'invalid names'}).`);
-        }
-        book.applyEdits(edits, false);
-        book.applyStyles(styleEdits, false);
-        let unsupported = 0;
-        for (const item of edits)
-            if (item.raw.startsWith('=')) {
-                const fault = book.getValue(item.ref).error;
-                if (fault && ['#PARSE!', '#NAME?', '#REF!'].includes(fault.code)) {
-                    unsupported++;
-                    if (unsupported <= 5)
-                        warnings.push(`${name}!${item.ref}: ${fault.code} — ${fault.message}`);
-                }
+        const acceptedNames = [];
+        for (const candidate of importedNames) {
+            try {
+                const validator = new Workbook(book.rows, book.cols);
+                validator.setDefinedNames([...acceptedNames, candidate], false);
+                acceptedNames.splice(0, acceptedNames.length, ...validator.getDefinedNames());
             }
+            catch (error) {
+                warnings.push(`${candidate.name}: unsupported worksheet-scoped defined name was skipped (${error instanceof Error ? error.message : 'invalid name'}).`);
+            }
+        }
+        if (acceptedNames.length)
+            book.setDefinedNames(acceptedNames, false);
+        for (let offset = 0; offset < edits.length; offset += 2048) {
+            book.applyEdits(edits.slice(offset, offset + 2048), false, false);
+            options.onProgress?.(`Loading ${name}: ${Math.min(offset + 2048, edits.length)} of ${edits.length} cells…`);
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        for (let offset = 0; offset < styleEdits.length; offset += 2048) {
+            book.applyStyles(styleEdits.slice(offset, offset + 2048), false);
+            if (offset + 2048 < styleEdits.length)
+                await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        let unsupported = 0;
+        const formulas = edits.filter(edit => edit.raw.startsWith('='));
+        for (let formulaIndex = 0; formulaIndex < formulas.length; formulaIndex++) {
+            const formula = formulas[formulaIndex];
+            const fault = book.getValue(formula.ref).error;
+            if (fault && ['#PARSE!', '#NAME?', '#REF!'].includes(fault.code)) {
+                unsupported++;
+                if (unsupported <= 5)
+                    warnings.push(`${name}!${formula.ref}: ${fault.code} — ${fault.message}`);
+            }
+            if ((formulaIndex + 1) % 128 === 0) {
+                options.onProgress?.(`Calculating ${name}: ${formulaIndex + 1} of ${formulas.length} formulas…`);
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
         if (unsupported > 5)
             warnings.push(`${name}: ${unsupported - 5} additional formulas could not be evaluated by the custom engine.`);
         let added;
@@ -1430,12 +1556,13 @@ export async function importXlsx(bytes) {
         }
         if (rejectedLinks)
             warnings.push(`${name}: ${rejectedLinks} malformed, unsupported, or out-of-range hyperlinks were ignored.`);
-        const setup = nodes(sheet, 'pageSetup')[0], margins = nodes(sheet, 'pageMargins')[0], printOptions = nodes(sheet, 'printOptions')[0], paper = { 1: 'letter', 3: 'tabloid', 5: 'legal', 8: 'a3', 9: 'a4' }[attr(setup ?? sheet.documentElement, 'paperSize')], orient = attr(setup ?? sheet.documentElement, 'orientation');
+        const setup = nodes(sheet, 'pageSetup')[0], margins = nodes(sheet, 'pageMargins')[0], printOptions = nodes(sheet, 'printOptions')[0], headerFooter = direct(sheet.documentElement, 'headerFooter'), headerParts = parseHeaderFooter(direct(headerFooter ?? sheet.documentElement, 'oddHeader')?.textContent ?? ''), footerParts = parseHeaderFooter(direct(headerFooter ?? sheet.documentElement, 'oddFooter')?.textContent ?? ''), paper = { 1: 'letter', 3: 'tabloid', 5: 'legal', 8: 'a3', 9: 'a4' }[attr(setup ?? sheet.documentElement, 'paperSize')], orient = attr(setup ?? sheet.documentElement, 'orientation');
         const parsedPrintParts = printAreaRaw.split(':'), pa = parseRef(parsedPrintParts[0] ?? ''), pb = parseRef(parsedPrintParts[1] ?? parsedPrintParts[0] ?? ''), printArea = parsedPrintParts.length <= 2 && pa && pb && pa.row <= pb.row && pa.col <= pb.col && pb.row < maxR && pb.col < maxC ? printAreaRaw : undefined;
         if (printAreaRaw && !printArea)
             warnings.push(`${name}: print area exceeded the imported worksheet range and was ignored.`);
         const margin = (key, fallback) => { const value = Number(attr(margins ?? sheet.documentElement, key, String(fallback))); return Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : fallback; };
-        tool.pageSetup = { ...tool.pageSetup, ...(orient === 'portrait' || orient === 'landscape' ? { orientation: orient } : {}), ...(paper ? { paper } : {}), ...(setup ? { fitWidth: Math.max(0, Math.min(4, int(attr(setup, 'fitToWidth'), tool.pageSetup.fitWidth))), fitHeight: Math.max(0, Math.min(4, int(attr(setup, 'fitToHeight'), tool.pageSetup.fitHeight))) } : {}), ...(printArea ? { printArea } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}), ...(printOptions ? { printGridlines: attr(printOptions, 'gridLines') === '1', printHeadings: attr(printOptions, 'headings') === '1' } : {}), ...(margins ? { marginTop: margin('top', tool.pageSetup.marginTop), marginBottom: margin('bottom', tool.pageSetup.marginBottom), marginLeft: margin('left', tool.pageSetup.marginLeft), marginRight: margin('right', tool.pageSetup.marginRight) } : {}) };
+        const order = attr(setup ?? sheet.documentElement, 'pageOrder');
+        tool.pageSetup = { ...tool.pageSetup, ...(orient === 'portrait' || orient === 'landscape' ? { orientation: orient } : {}), ...(paper ? { paper } : {}), ...(order === 'downThenOver' || order === 'overThenDown' ? { pageOrder: order } : {}), ...(setup ? { fitWidth: Math.max(0, Math.min(4, int(attr(setup, 'fitToWidth'), tool.pageSetup.fitWidth))), fitHeight: Math.max(0, Math.min(4, int(attr(setup, 'fitToHeight'), tool.pageSetup.fitHeight))) } : {}), ...(printArea ? { printArea } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}), ...(printOptions ? { printGridlines: attr(printOptions, 'gridLines') === '1', printHeadings: attr(printOptions, 'headings') === '1', centerHorizontally: attr(printOptions, 'horizontalCentered') === '1', centerVertically: attr(printOptions, 'verticalCentered') === '1' } : {}), ...(margins ? { marginTop: margin('top', tool.pageSetup.marginTop), marginBottom: margin('bottom', tool.pageSetup.marginBottom), marginLeft: margin('left', tool.pageSetup.marginLeft), marginRight: margin('right', tool.pageSetup.marginRight) } : {}), ...(headerParts.some(Boolean) ? { headerLeft: headerParts[0], headerCenter: headerParts[1], headerRight: headerParts[2] } : {}), ...(footerParts.some(Boolean) ? { footerLeft: footerParts[0], footerCenter: footerParts[1], footerRight: footerParts[2] } : {}) };
         for (const col of nodes(sheet, 'col')) {
             const from = int(attr(col, 'min')) - 1, to = int(attr(col, 'max')) - 1, width = Number(attr(col, 'width'));
             if (Number.isFinite(width) && width > 0 && from >= 0 && to < maxC)
@@ -1533,7 +1660,7 @@ export async function importXlsx(bytes) {
                     }
                 }
                 if (type === 'whole' || type === 'decimal' || type === 'date' || type === 'textLength') {
-                    const excelOperator = attr(node, 'operator', 'between'), operator = { equal: 'equalTo', notEqual: 'notEqualTo' }[excelOperator] ?? excelOperator, first = Number(formula), second = Number(direct(node, 'formula2')?.textContent?.trim() ?? 'NaN');
+                    const excelOperator = attr(node, 'operator', 'between'), operator = { equal: 'equalTo', notEqual: 'notEqualTo' }[excelOperator] ?? excelOperator, rawFirst = Number(formula), rawSecond = Number(direct(node, 'formula2')?.textContent?.trim() ?? 'NaN'), dateOffset = type === 'date' && date1904 ? 1462 : 0, first = rawFirst + dateOffset, second = rawSecond + dateOffset;
                     if ((operator === 'between' || operator === 'notBetween') && Number.isFinite(first) && Number.isFinite(second))
                         tool.dataValidations.push({ start, end, type, min: first, max: second, operator, allowBlank, ...messages });
                     else if (operator && operator !== 'between' && operator !== 'notBetween' && Number.isFinite(first))

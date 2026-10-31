@@ -1,10 +1,12 @@
 import { colToName, parseRef } from './parser.js';
 import { display } from './workbook.js';
+import { excelDateSerial, excelSerialDateIso } from './date_serial.js';
+import { MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_POPULATED_CELLS, MAX_WORKSHEET_ROWS } from './limits.js';
 const MAX_PIVOT_OUTPUT_CELLS = 250_000;
 // GridForge worksheets are bounded to 1,000 rows by 104 columns. Keep the
 // source limit aligned with that worksheet capacity rather than an unrelated
 // 12,000-cell restriction that rejected otherwise valid ranges.
-export const MAX_PIVOT_SOURCE_CELLS = 1_000 * 104;
+export const MAX_PIVOT_SOURCE_CELLS = MAX_WORKSHEET_POPULATED_CELLS / 2;
 const DATE_GROUP_UNITS = ['years', 'quarters', 'months', 'weeks', 'days'];
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** Return unique, nonblank field captions for a headered PivotTable source range. */
@@ -68,26 +70,11 @@ const cleanGroupNumber = (value) => Number(Number(value.toPrecision(15)).toStrin
 export function pivotDateSerial(value) {
     if (typeof value === 'number')
         return Number.isFinite(value) && value >= 0 && value <= 2_958_465 ? value : null;
-    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value))
-        return null;
-    const day = value.slice(0, 10), dayDate = new Date(`${day}T00:00:00Z`);
-    if (!Number.isFinite(dayDate.getTime()) || dayDate.toISOString().slice(0, 10) !== day)
-        return null;
-    const timestamp = value.includes('T') ? Date.parse(value) : dayDate.getTime();
-    if (!Number.isFinite(timestamp))
-        return null;
-    const serial = (timestamp - Date.UTC(1899, 11, 31)) / 86_400_000 + (timestamp >= Date.UTC(1900, 2, 1) ? 1 : 0);
-    return serial >= 0 && serial <= 2_958_465 ? serial : null;
+    return excelDateSerial(value);
 }
 /** Convert a valid Excel 1900-system serial to an ISO calendar label, including Excel's serial 60. */
 export function pivotSerialDateIso(serial) {
-    if (!Number.isFinite(serial) || serial < 0 || serial > 2_958_465)
-        return null;
-    const whole = Math.floor(serial);
-    if (whole === 60)
-        return '1900-02-29';
-    const date = new Date((whole < 60 ? Date.UTC(1899, 11, 31) : Date.UTC(1899, 11, 30)) + whole * 86_400_000);
-    return Number.isFinite(date.getTime()) ? `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}` : null;
+    return excelSerialDateIso(serial);
 }
 /** Produce a date-only cache boundary using the same 1900-system rules as grouping. */
 export function pivotDateGroupIsoBoundary(value) {
@@ -130,7 +117,7 @@ export function validatePivotSummary(value, rows, cols, outputRows = rows, outpu
     const sourceSheetName = typeof spec.sourceSheet === 'string' ? spec.sourceSheet : undefined, crossSheet = !!sourceSheetName?.trim();
     if (spec.sourceSheet !== undefined && (!crossSheet || sourceSheetName.trim().length > 31 || /[\\/?*\[\]:]/.test(sourceSheetName ?? '')))
         throw Error('Pivot source worksheet name is invalid.');
-    if (typeof spec.id !== 'string' || !/^pivot-[A-Za-z0-9_-]{1,60}$/.test(spec.id) || spec.sourceTable !== undefined && (typeof spec.sourceTable !== 'string' || !/^[_A-Za-z][_A-Za-z0-9.]{0,254}$/.test(spec.sourceTable)) || !a || !b || !dest || parts.length > 2 || a.row >= b.row || a.row < 0 || b.row >= (crossSheet ? 1000 : rows) || b.col >= (crossSheet ? 104 : cols) || a.col > b.col || a.col >= (crossSheet ? 104 : cols) || (b.row - a.row + 1) * (b.col - a.col + 1) > MAX_PIVOT_SOURCE_CELLS || dest.row >= outputRows || dest.col >= outputCols)
+    if (typeof spec.id !== 'string' || !/^pivot-[A-Za-z0-9_-]{1,60}$/.test(spec.id) || spec.sourceTable !== undefined && (typeof spec.sourceTable !== 'string' || !/^[_A-Za-z][_A-Za-z0-9.]{0,254}$/.test(spec.sourceTable)) || !a || !b || !dest || parts.length > 2 || a.row >= b.row || a.row < 0 || b.row >= (crossSheet ? MAX_WORKSHEET_ROWS : rows) || b.col >= (crossSheet ? MAX_WORKSHEET_COLUMNS : cols) || a.col > b.col || a.col >= (crossSheet ? MAX_WORKSHEET_COLUMNS : cols) || (b.row - a.row + 1) * (b.col - a.col + 1) > MAX_PIVOT_SOURCE_CELLS || dest.row >= outputRows || dest.col >= outputCols)
         throw Error('Pivot source needs a valid header and data range, and an available destination cell.');
     const width = b.col - a.col + 1, field = (x) => Number.isInteger(x) && x >= 0 && x < width, rowFields = spec.rowFields === undefined ? (field(spec.rowField) ? [spec.rowField] : []) : spec.rowFields;
     const rawMeasures = spec.measures, rawValues = spec.valueFields === undefined ? [spec.valueField] : spec.valueFields, valueFields = rawMeasures === undefined ? (Array.isArray(rawValues) ? rawValues : []) : Array.isArray(rawMeasures) ? rawMeasures.map(m => m?.field) : [], aggregations = ['sum', 'count', 'countNumbers', 'average', 'min', 'max', 'product', 'stdDev', 'stdDevp', 'var', 'varp'], measures = rawMeasures === undefined ? valueFields.map(field => ({ field, aggregation: spec.aggregation })) : Array.isArray(rawMeasures) ? rawMeasures : [], columnFields = spec.columnFields === undefined ? (spec.columnField === undefined ? [] : [spec.columnField]) : spec.columnFields, rawFilters = spec.filters === undefined ? (spec.filterField === undefined ? [] : [{ field: spec.filterField, value: spec.filterValue }]) : spec.filters, filters = Array.isArray(rawFilters) ? rawFilters : [], itemFilters = Array.isArray(spec.itemFilters) ? spec.itemFilters : [], labelFilters = Array.isArray(spec.labelFilters) ? spec.labelFilters : [], collapsedRows = spec.collapsedRows, collapsedColumns = spec.collapsedColumns, subtotalFields = spec.subtotalFields, columnSubtotalFields = spec.columnSubtotalFields, pathCharCount = (paths) => Array.isArray(paths) ? paths.reduce((total, path) => total + (Array.isArray(path) ? path.reduce((length, label) => length + (typeof label === 'string' ? label.length : 0), 0) : 0), 0) : 0;

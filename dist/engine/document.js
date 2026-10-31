@@ -26,8 +26,9 @@ export class SpreadsheetDocument {
     changeQueue = [];
     notifyingChanges = false;
     pendingExternalInvalidations = new Map();
+    workbookDefinedNames = [];
     activeId = '';
-    constructor(initial) { this.addSheet('Sheet 1', initial ?? new Workbook()); }
+    constructor(initial, deferRecalculation = false) { this.addSheet('Sheet 1', initial ?? new Workbook(), deferRecalculation); }
     get sheets() { return this.items; }
     get active() { return this.items.find(x => x.id === this.activeId) ?? this.items[0]; }
     validateName(name, excludeId) {
@@ -38,7 +39,7 @@ export class SpreadsheetDocument {
             throw Error('A sheet with that name already exists.');
         return n;
     }
-    addSheet(name, book) {
+    addSheet(name, book, deferRecalculation = false) {
         if (this.items.length >= 12)
             throw Error('This version supports a maximum of 12 sheets.');
         let title = name;
@@ -52,10 +53,10 @@ export class SpreadsheetDocument {
         const item = { id: `s${this.nextId++}`, name: title, book: book ?? new Workbook(), tools: freshTools(), hidden: false };
         this.items.push(item);
         this.activeId = item.id;
-        this.bindSheetContexts();
+        this.bindSheetContexts(deferRecalculation);
         return item;
     }
-    bindSheetContexts() {
+    bindSheetContexts(deferRecalculation = false) {
         for (const item of this.items)
             item.book.setSheetContext(item.name, (name, ref, visiting) => {
                 const target = this.items.find(sheet => sheet.name.toLowerCase() === name.toLowerCase());
@@ -75,9 +76,22 @@ export class SpreadsheetDocument {
                 this.filteredRowsCache.set(key, filteredRows);
                 if (this.filteredRowsCache.size > 24)
                     this.filteredRowsCache.delete(this.filteredRowsCache.keys().next().value);
-            } return includeManuallyHidden ? [...new Set([...target.tools.hiddenRows, ...filteredRows])] : filteredRows; }, (sheetName, ref) => this.items.find(sheet => sheet.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase())?.book.hasNestedAggregateFormula(ref) ?? false, (sheetName, ref) => this.items.find(sheet => sheet.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase())?.book.getRaw(ref));
+            } return includeManuallyHidden ? [...new Set([...target.tools.hiddenRows, ...filteredRows])] : filteredRows; }, (sheetName, ref) => this.items.find(sheet => sheet.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase())?.book.hasNestedAggregateFormula(ref) ?? false, (sheetName, ref) => this.items.find(sheet => sheet.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase())?.book.getRaw(ref), deferRecalculation, sheetName => this.items.find(sheet => sheet.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase())?.tools.hiddenColumns ?? []);
         for (const item of this.items)
-            item.book.setPivotDataContext((pivotSheet, pivotRef, dataField, criteria, trackRange) => this.resolvePivotData(pivotSheet, pivotRef, dataField, criteria, trackRange));
+            item.book.setPivotDataContext((pivotSheet, pivotRef, dataField, criteria, trackRange) => this.resolvePivotData(pivotSheet, pivotRef, dataField, criteria, trackRange), deferRecalculation);
+        for (const item of this.items)
+            item.book.setWorkbookDefinedNames(this.workbookDefinedNames, deferRecalculation);
+    }
+    getWorkbookDefinedNames() { return this.workbookDefinedNames.map(item => ({ ...item })); }
+    setWorkbookDefinedNames(items, deferRecalculation = false) {
+        const validator = new Workbook();
+        validator.setWorkbookDefinedNames(items, true);
+        const next = validator.getWorkbookDefinedNames();
+        if (JSON.stringify(next) === JSON.stringify(this.workbookDefinedNames))
+            return;
+        this.workbookDefinedNames = next;
+        for (const item of this.items)
+            item.book.setWorkbookDefinedNames(next, deferRecalculation);
     }
     /** Return formula cells recalculated by cross-sheet edits so dependent tools can refresh. */
     consumeExternalInvalidations() {
@@ -453,7 +467,9 @@ export class SpreadsheetDocument {
         return; found.name = next; for (const item of this.items)
         for (const pivot of item.tools.pivotTables)
             if (pivot.sourceSheet?.toLocaleLowerCase() === previous.toLocaleLowerCase())
-                pivot.sourceSheet = next; this.bindSheetContexts(); for (const item of this.items) {
+                pivot.sourceSheet = next; this.bindSheetContexts(); this.setWorkbookDefinedNames(this.workbookDefinedNames.map(item => ({ ...item, ref: rewriteSheetReferences(item.ref, previous, next) }))); for (const item of this.items) {
+        const names = item.book.getDefinedNames();
+        item.book.setDefinedNames(names.map(named => ({ ...named, ref: rewriteSheetReferences(named.ref, previous, next) })), false);
         const entries = item.book.allEntries(), edits = entries.map(cell => ({ ref: cell.ref, raw: rewriteSheetReferences(cell.raw, previous, next) })).filter((cell, index) => cell.raw !== entries[index]?.raw);
         if (edits.length)
             item.book.applyEdits(edits);
@@ -483,7 +499,9 @@ export class SpreadsheetDocument {
     deleteSheet(id = this.activeId) { const idx = this.items.findIndex(x => x.id === id); if (idx === -1)
         throw Error('Sheet not found.'); if (this.items.length === 1)
         throw Error('At least one sheet must remain.'); if (!this.items[idx].hidden && this.items.filter(x => !x.hidden).length <= 1)
-        throw Error('A workbook must keep at least one worksheet visible.'); const removed = this.items[idx].name; this.items.splice(idx, 1); this.bindSheetContexts(); for (const item of this.items) {
+        throw Error('A workbook must keep at least one worksheet visible.'); const removed = this.items[idx].name; this.items.splice(idx, 1); this.bindSheetContexts(); this.setWorkbookDefinedNames(this.workbookDefinedNames.map(item => ({ ...item, ref: rewriteSheetReferences(item.ref, removed, null) }))); for (const item of this.items) {
+        const names = item.book.getDefinedNames();
+        item.book.setDefinedNames(names.map(named => ({ ...named, ref: rewriteSheetReferences(named.ref, removed, null) })), false);
         const removedPivotIds = new Set(item.tools.pivotTables.filter(pivot => pivot.sourceSheet?.toLocaleLowerCase() === removed.toLocaleLowerCase()).map(pivot => pivot.id));
         if (removedPivotIds.size) {
             item.tools.pivotTables = item.tools.pivotTables.filter(pivot => !removedPivotIds.has(pivot.id));
@@ -499,16 +517,16 @@ export class SpreadsheetDocument {
             item.book.applyEdits(edits);
     } if (this.activeId === id)
         this.activeId = this.items.slice(Math.min(idx, this.items.length)).find(x => !x.hidden)?.id ?? this.items.find(x => !x.hidden).id; }
-    toJSON() { return { format: 'gridforge', version: 4, activeId: this.activeId, sheets: this.items.map(x => ({ id: x.id, name: x.name, workbook: x.book.toJSON(), tools: x.tools, hidden: x.hidden, ...(x.tabColor ? { tabColor: x.tabColor } : {}), ...(x.viewOptions ? { viewOptions: x.viewOptions } : {}) })) }; }
-    static fromJSON(raw) {
+    toJSON() { return { format: 'gridforge', version: 5, activeId: this.activeId, workbookDefinedNames: this.getWorkbookDefinedNames(), sheets: this.items.map(x => ({ id: x.id, name: x.name, workbook: x.book.toJSON(), tools: x.tools, hidden: x.hidden, ...(x.tabColor ? { tabColor: x.tabColor } : {}), ...(x.viewOptions ? { viewOptions: x.viewOptions } : {}) })) }; }
+    static fromJSON(raw, options = {}) {
         if (!raw || typeof raw !== 'object')
             throw Error('Invalid document JSON.');
         const data = raw;
         if (!Array.isArray(data.sheets)) {
-            return new SpreadsheetDocument(Workbook.fromJSON(raw));
+            return new SpreadsheetDocument(Workbook.fromJSON(raw, options), options.deferCalculation === true);
         }
-        if (data.format !== 'gridforge' || ![2, 3, 4].includes(data.version) || !data.sheets.length || data.sheets.length > 12)
-            throw Error('Invalid GridForge v2 document.');
+        if (data.format !== 'gridforge' || ![2, 3, 4, 5].includes(data.version) || !data.sheets.length || data.sheets.length > 12)
+            throw Error('Invalid GridForge document.');
         const doc = new SpreadsheetDocument();
         doc.items = [];
         doc.nextId = 1;
@@ -520,7 +538,7 @@ export class SpreadsheetDocument {
                 throw Error('Invalid sheet name, visibility or tab color.');
             const name = doc.validateName(x.name);
             const id = `s${doc.nextId++}`;
-            const book = Workbook.fromJSON(x.workbook);
+            const book = Workbook.fromJSON(x.workbook, options);
             const tools = validateTools(x.tools, book.rows, book.cols);
             if (tools.tables.length)
                 book.setTableContext(tools.tables);
@@ -529,9 +547,12 @@ export class SpreadsheetDocument {
         }
         if (doc.items.every(sheet => sheet.hidden))
             throw Error('A workbook must contain at least one visible worksheet.');
-        doc.bindSheetContexts();
-        for (const sheet of doc.items)
-            sheet.book.recalculateAggregatesForRowVisibilityChange();
+        doc.bindSheetContexts(options.deferCalculation === true);
+        if (data.workbookDefinedNames !== undefined)
+            doc.setWorkbookDefinedNames(data.workbookDefinedNames, options.deferCalculation === true);
+        if (!options.deferCalculation)
+            for (const sheet of doc.items)
+                sheet.book.recalculateAggregatesForRowVisibilityChange();
         if (typeof data.activeId === 'string') {
             const i = data.sheets.findIndex((x) => !!x && typeof x === 'object' && x.id === data.activeId);
             const requested = doc.items[Math.max(0, i)];

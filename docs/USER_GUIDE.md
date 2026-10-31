@@ -76,9 +76,13 @@ Select **Functions**, search `VLOOKUP`, or scroll the 56 function cards. Each ca
 - **JSON** exports all worksheet names, formulas, dimensions, formatting, and selected worksheet. Use this as a reliable backup, and re-import it to continue working.
 - **Autosave** writes to browser localStorage after each edit, grouped into a small debounce. Reload to see the previous workbook again. Storage is local to this browser and site origin.
 
+## Defined names
+
+Use **Formulas → Define Name** or **Name Manager** to create worksheet-scoped or workbook-scoped names. Worksheet names take precedence over workbook names with the same spelling. Workbook names may refer to a value, formula, LAMBDA, or sheet-qualified range such as `='Data'!$A$1:$A$20`; supported names are saved in GridForge JSON and XLSX.
+
 ## Page setup and printing
 
-Choose **Page Layout → Page Setup** to set portrait or landscape orientation, Letter/Legal/A3/A4/Tabloid paper, fit-to-page width and height, margins, gridlines, headings, and an optional print area. **Print Sheet** opens a print-ready browser view. The same basic settings are saved to XLSX. Excel-only options such as repeating title rows, manual page breaks, headers/footers, and print order are not included yet.
+Choose **Page Layout → Page Setup** to set portrait or landscape orientation, Letter/Legal/A3/A4/Tabloid paper, page order, centering, fit-to-page width and height, margins, gridlines, headings, and an optional print area. Page order can be **Down, then over** or **Over, then down**; horizontal/vertical centering settings are preserved during XLSX import/export. Repeating title rows and columns and header/footer text are also preserved for Excel. **Print Sheet** opens the browser print view, which renders title rows and basic headers/footers; browser pagination does not yet apply Excel's page order, centering, repeated columns, or manual page breaks.
 
 ## Refreshable offline queries
 

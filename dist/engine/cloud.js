@@ -1,0 +1,219 @@
+const MAX_CLOUD_BYTES = 80 * 1024 * 1024, MAX_CLOUD_FILES = 500;
+const bodyBuffer = (bytes) => Uint8Array.from(bytes).buffer;
+const service = { onedrive: { origin: 'https://graph.microsoft.com', label: 'OneDrive' }, googledrive: { origin: 'https://www.googleapis.com', label: 'Google Drive' }, dropbox: { origin: 'https://api.dropboxapi.com', label: 'Dropbox' }, box: { origin: 'https://api.box.com', label: 'Box' } };
+const boxJson = (bridge, path, token, method = 'GET', bodyBase64 = '', contentType = 'application/json', ifMatch = '') => bridge(method, path, token, bodyBase64, contentType, ifMatch).then(result => JSON.parse(new TextDecoder().decode(fromBase64(result.bodyBase64))));
+const toBase64 = (bytes) => { let raw = ''; for (let i = 0; i < bytes.length; i += 16384)
+    raw += String.fromCharCode(...bytes.subarray(i, i + 16384)); return btoa(raw); };
+const fromBase64 = (value) => Uint8Array.from(atob(value), char => char.charCodeAt(0));
+function safeName(value) { if (typeof value !== 'string' || !value.trim() || value.length > 255 || /[\\/\u0000-\u001f]/.test(value))
+    throw Error('Cloud returned an invalid file name.'); return value; }
+function safePageToken(value) { if (value === undefined || value === null || value === '')
+    return undefined; if (typeof value !== 'string' || value.length > 4096)
+    throw Error('Cloud returned an invalid page token.'); return value; }
+function checkProvider(provider) { if (!(provider in service))
+    throw Error('Unsupported cloud storage provider.'); }
+async function request(url, token, init = {}, provider, allowDownloadRedirect = false) { if (provider) {
+    const allowed = provider === 'dropbox' ? ['https://api.dropboxapi.com', 'https://content.dropboxapi.com'] : provider === 'box' ? ['https://api.box.com', 'https://upload.box.com'] : [service[provider].origin];
+    if (!allowed.some(base => url.startsWith(`${base}/`)))
+        throw Error('Cloud request destination was rejected.');
+} const headers = new Headers(init.headers); headers.set('Authorization', `Bearer ${token}`); const controller = new AbortController(), timeout = window.setTimeout(() => controller.abort(), 45000), method = (init.method ?? 'GET').toUpperCase(), retryable = method === 'GET'; try {
+    let response;
+    for (let attempt = 0;; attempt++) {
+        response = await fetch(url, { ...init, headers, signal: controller.signal, cache: 'no-store', credentials: 'omit', redirect: allowDownloadRedirect ? 'follow' : 'error' });
+        if (!retryable || (response.status !== 429 && response.status < 500) || attempt >= 2)
+            break;
+        const retry = Number(response.headers.get('Retry-After')), delay = Number.isFinite(retry) ? Math.min(5000, Math.max(250, retry * 1000)) : 500 * (attempt + 1);
+        await new Promise(resolve => window.setTimeout(resolve, delay));
+    }
+    if (allowDownloadRedirect) {
+        const final = new URL(response.url), host = final.hostname.toLowerCase(), allowed = provider === 'onedrive' ? (host.endsWith('.sharepoint.com') || host.endsWith('.1drv.com') || host.endsWith('.onedrive.com')) : provider === 'box' && host === 'dl.boxcloud.com';
+        if (!allowed)
+            throw Error(`${service[provider ?? 'onedrive'].label} returned an untrusted download address.`);
+    }
+    if (!response.ok) {
+        let detail = '';
+        try {
+            const body = await response.clone().json();
+            detail = body.error?.message ?? body.error?.summary ?? body.error_description ?? '';
+        }
+        catch { }
+        throw Error(detail ? `${service[provider ?? 'onedrive'].label}: ${detail}` : `Cloud request failed (${response.status}).`);
+    }
+    return response;
+}
+catch (e) {
+    if (e instanceof Error && e.name === 'AbortError')
+        throw Error('Cloud request timed out.');
+    throw e;
+}
+finally {
+    window.clearTimeout(timeout);
+} }
+function jsonHeaders() { return { 'Content-Type': 'application/json' }; }
+export async function listCloudFiles(provider, token, page, boxRequest, folder) {
+    checkProvider(provider);
+    if (!token)
+        throw Error('Connect your cloud account before browsing files.');
+    if (folder && (folder.provider !== provider || folder.kind !== 'folder'))
+        throw Error('The selected cloud folder does not belong to this provider.');
+    const files = [];
+    let next;
+    if (provider === 'onedrive') {
+        const url = page ? new URL(page) : new URL(folder ? `/v1.0/me/drive/items/${encodeURIComponent(folder.id)}/children` : '/v1.0/me/drive/root/children', service[provider].origin);
+        if (!page) {
+            url.searchParams.set('$select', 'id,name,size,lastModifiedDateTime,file,folder,webUrl,eTag');
+            url.searchParams.set('$top', '100');
+        }
+        else if (url.origin !== service[provider].origin)
+            throw Error('OneDrive returned an unexpected paging URL.');
+        const result = await request(url.href, token, {}, provider), body = await result.json();
+        for (const item of body.value ?? []) {
+            const isFolder = !!item.folder, isFile = !!item.file;
+            if (!isFolder && !isFile)
+                continue;
+            files.push({ provider, id: String(item.id ?? ''), name: safeName(item.name), kind: isFolder ? 'folder' : 'file', ...(!isFolder && Number.isFinite(Number(item.size)) ? { size: Number(item.size) } : {}), modified: typeof item.lastModifiedDateTime === 'string' ? item.lastModifiedDateTime : undefined, mimeType: item.file?.mimeType, webUrl: typeof item.webUrl === 'string' ? item.webUrl : undefined, revision: typeof item.eTag === 'string' ? item.eTag : undefined });
+            if (files.length >= MAX_CLOUD_FILES)
+                break;
+        }
+        next = safePageToken(body['@odata.nextLink']);
+    }
+    else if (provider === 'googledrive') {
+        const url = new URL('/drive/v3/files', service[provider].origin), parent = folder?.id ?? 'root';
+        url.searchParams.set('q', `'${parent.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' in parents and trashed = false`);
+        url.searchParams.set('pageSize', '100');
+        url.searchParams.set('orderBy', 'folder,name');
+        url.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink,version)');
+        if (page)
+            url.searchParams.set('pageToken', safePageToken(page));
+        const result = await request(url.href, token, {}, provider), body = await result.json();
+        for (const item of body.files ?? []) {
+            const mimeType = typeof item.mimeType === 'string' ? item.mimeType : undefined, isFolder = mimeType === 'application/vnd.google-apps.folder';
+            files.push({ provider, id: String(item.id ?? ''), name: safeName(item.name), kind: isFolder ? 'folder' : 'file', ...(!isFolder && item.size !== undefined ? { size: Number(item.size) } : {}), modified: typeof item.modifiedTime === 'string' ? item.modifiedTime : undefined, mimeType, webUrl: typeof item.webViewLink === 'string' ? item.webViewLink : undefined, revision: typeof item.version === 'string' ? item.version : undefined });
+            if (files.length >= MAX_CLOUD_FILES)
+                break;
+        }
+        next = safePageToken(body.nextPageToken);
+    }
+    else if (provider === 'dropbox') {
+        const headers = { ...jsonHeaders(), 'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'home' }) };
+        const result = await request(`${service[provider].origin}/2/files/list_folder`, token, { method: 'POST', headers, body: JSON.stringify(page ? { cursor: safePageToken(page) } : { path: folder?.path ?? '', recursive: false, include_deleted: false, limit: 200 }) }, provider), body = await result.json();
+        for (const item of body.entries ?? []) {
+            const kind = item['.tag'];
+            if (kind !== 'file' && kind !== 'folder')
+                continue;
+            const path = typeof item.path_lower === 'string' ? item.path_lower : undefined;
+            files.push({ provider, id: String(item.id ?? path ?? ''), name: safeName(item.name), kind, ...(kind === 'file' && Number.isFinite(Number(item.size)) ? { size: Number(item.size) } : {}), modified: typeof item.server_modified === 'string' ? item.server_modified : undefined, mimeType: kind === 'file' ? 'application/octet-stream' : undefined, path, revision: typeof item.rev === 'string' ? item.rev : undefined });
+            if (files.length >= MAX_CLOUD_FILES)
+                break;
+        }
+        next = body.has_more ? safePageToken(body.cursor) : undefined;
+    }
+    else {
+        if (!boxRequest)
+            throw Error('Box workbook access requires the installed desktop app.');
+        const url = new URL(`/2.0/folders/${encodeURIComponent(folder?.id ?? '0')}/items`, service.box.origin);
+        url.searchParams.set('usemarker', 'true');
+        url.searchParams.set('limit', '100');
+        url.searchParams.set('fields', 'id,type,name,size,modified_at,etag,file_version');
+        if (page)
+            url.searchParams.set('marker', safePageToken(page));
+        const body = await boxJson(boxRequest, url.pathname + url.search, token);
+        for (const item of body.entries ?? []) {
+            if (item.type !== 'file' && item.type !== 'folder')
+                continue;
+            const isFolder = item.type === 'folder';
+            files.push({ provider: 'box', id: String(item.id ?? ''), name: safeName(item.name), kind: isFolder ? 'folder' : 'file', ...(!isFolder && Number.isFinite(Number(item.size)) ? { size: Number(item.size) } : {}), modified: typeof item.modified_at === 'string' ? item.modified_at : undefined, mimeType: isFolder ? undefined : 'application/octet-stream', revision: typeof item.etag === 'string' ? item.etag : undefined, webUrl: isFolder ? undefined : `https://app.box.com/file/${encodeURIComponent(String(item.id ?? ''))}` });
+            if (files.length >= MAX_CLOUD_FILES)
+                break;
+        }
+        next = safePageToken(body.next_marker);
+    }
+    return { files, next };
+}
+export async function downloadCloudFile(file, token, boxRequest) { checkProvider(file.provider); if (file.kind === 'folder')
+    throw Error('Choose a workbook file; folders cannot be downloaded as workbooks.'); if (file.size !== undefined && file.size > MAX_CLOUD_BYTES)
+    throw Error('This cloud file exceeds GridForge’s 80 MB workbook limit.'); if (file.provider === 'box') {
+    if (!boxRequest)
+        throw Error('Box workbook access requires the installed desktop app.');
+    const result = await boxRequest('GET', `/2.0/files/${encodeURIComponent(file.id)}/content`, token);
+    return fromBase64(result.bodyBase64);
+} let response; if (file.provider === 'onedrive')
+    response = await request(`${service[file.provider].origin}/v1.0/me/drive/items/${encodeURIComponent(file.id)}/content`, token, {}, file.provider, true);
+else if (file.provider === 'googledrive')
+    response = await request(`${service[file.provider].origin}/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`, token, {}, file.provider);
+else if (file.provider === 'dropbox') {
+    if (!file.path || file.path.length > 1024)
+        throw Error('The selected Dropbox path is invalid.');
+    response = await request('https://content.dropboxapi.com/2/files/download', token, { method: 'POST', headers: { 'Dropbox-API-Arg': JSON.stringify({ path: file.path }) } }, file.provider);
+} const length = Number(response.headers.get('Content-Length')); if (Number.isFinite(length) && length > MAX_CLOUD_BYTES)
+    throw Error('This cloud file exceeds GridForge’s 80 MB workbook limit.'); const bytes = new Uint8Array(await response.arrayBuffer()); if (bytes.length > MAX_CLOUD_BYTES)
+    throw Error('This cloud file exceeds GridForge’s 80 MB workbook limit.'); return bytes; }
+export async function uploadCloudFile(provider, token, name, bytes, file, boxRequest, folder) {
+    checkProvider(provider);
+    safeName(name);
+    if (file && (file.provider !== provider || file.kind === 'folder'))
+        throw Error('Choose a workbook file from the selected cloud provider before updating it.');
+    if (folder && (folder.provider !== provider || folder.kind !== 'folder'))
+        throw Error('The destination cloud folder does not belong to this provider.');
+    if (!token)
+        throw Error('Connect your cloud account before saving.');
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > MAX_CLOUD_BYTES)
+        throw Error('Cloud workbook save is limited to 80 MB.');
+    if (provider === 'box' && bytes.byteLength > 50 * 1024 * 1024)
+        throw Error('Box simple uploads are limited to 50 MB in GridForge.');
+    let result;
+    if (provider === 'onedrive') {
+        const path = file ? `/v1.0/me/drive/items/${encodeURIComponent(file.id)}/content` : folder ? `/v1.0/me/drive/items/${encodeURIComponent(folder.id)}:/${encodeURIComponent(name)}:/content` : `/v1.0/me/drive/root:/${encodeURIComponent(name)}:/content`, headers = { 'Content-Type': 'application/octet-stream' };
+        if (file) {
+            if (!file.revision)
+                throw Error('Reopen this OneDrive workbook before saving so GridForge can protect newer cloud changes.');
+            headers['If-Match'] = file.revision;
+        }
+        result = await request(`${service[provider].origin}${path}`, token, { method: 'PUT', headers, body: bodyBuffer(bytes) }, provider);
+        const item = await result.json();
+        return { provider, id: String(item.id ?? file?.id ?? ''), name: safeName(item.name ?? name), size: Number.isFinite(Number(item.size)) ? Number(item.size) : bytes.byteLength, modified: typeof item.lastModifiedDateTime === 'string' ? item.lastModifiedDateTime : undefined, webUrl: typeof item.webUrl === 'string' ? item.webUrl : undefined, revision: typeof item.eTag === 'string' ? item.eTag : undefined };
+    }
+    if (provider === 'googledrive') {
+        if (file) {
+            if (!file.revision)
+                throw Error('Reopen this Google Drive workbook before saving so GridForge can check for newer cloud changes.');
+            const checkUrl = new URL(`/drive/v3/files/${encodeURIComponent(file.id)}`, service[provider].origin);
+            checkUrl.searchParams.set('fields', 'id,version');
+            const current = await request(checkUrl.href, token, {}, provider).then(response => response.json());
+            if (current.version !== file.revision)
+                throw Error('This workbook changed in Google Drive after it was opened. Reopen the latest copy before saving.');
+            const url = new URL(`/upload/drive/v3/files/${encodeURIComponent(file.id)}`, service[provider].origin);
+            url.searchParams.set('uploadType', 'media');
+            result = await request(url.href, token, { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: bodyBuffer(bytes) }, provider);
+        }
+        else {
+            const boundary = `gridforge-${crypto.randomUUID()}`, meta = JSON.stringify({ name, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ...(folder ? { parents: [folder.id] } : {}) }), prefix = new TextEncoder().encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`), suffix = new TextEncoder().encode(`\r\n--${boundary}--`), body = new Uint8Array(prefix.length + bytes.length + suffix.length);
+            body.set(prefix);
+            body.set(bytes, prefix.length);
+            body.set(suffix, prefix.length + bytes.length);
+            const url = new URL('/upload/drive/v3/files', service[provider].origin);
+            url.searchParams.set('uploadType', 'multipart');
+            result = await request(url.href, token, { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: bodyBuffer(body) }, provider);
+        }
+        const item = await result.json();
+        return { provider, id: String(item.id ?? file?.id ?? ''), name: safeName(item.name ?? name), size: Number.isFinite(Number(item.size)) ? Number(item.size) : bytes.byteLength, modified: typeof item.modifiedTime === 'string' ? item.modifiedTime : undefined, webUrl: typeof item.webViewLink === 'string' ? item.webViewLink : undefined, revision: typeof item.version === 'string' ? item.version : undefined };
+    }
+    if (provider === 'box') {
+        if (!boxRequest)
+            throw Error('Box workbook access requires the installed desktop app.');
+        const attrs = JSON.stringify(file ? { name } : { name, parent: { id: folder?.id ?? '0' } }), boundary = 'gridforge-box', head = new TextEncoder().encode(`--${boundary}\r\nContent-Disposition: form-data; name="attributes"\r\n\r\n${attrs}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name.replace(/["\\\r\n]/g, '_')}"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`), tail = new TextEncoder().encode(`\r\n--${boundary}--\r\n`), body = new Uint8Array(head.length + bytes.length + tail.length);
+        body.set(head);
+        body.set(bytes, head.length);
+        body.set(tail, head.length + bytes.length);
+        const path = file ? `/api/2.0/files/${encodeURIComponent(file.id)}/content` : '/api/2.0/files/content', itemResponse = await boxJson(boxRequest, path, token, 'POST', toBase64(body), `multipart/form-data; boundary=${boundary}`, file?.revision), item = (itemResponse.entries ?? [])[0];
+        if (!item)
+            throw Error('Box returned no uploaded file record.');
+        return { provider, id: String(item.id ?? file?.id ?? ''), name: safeName(item.name ?? name), size: Number.isFinite(Number(item.size)) ? Number(item.size) : bytes.byteLength, modified: typeof item.modified_at === 'string' ? item.modified_at : undefined, revision: typeof item.etag === 'string' ? item.etag : undefined, webUrl: `https://app.box.com/file/${encodeURIComponent(String(item.id ?? file?.id ?? ''))}` };
+    }
+    const path = file?.path ?? `${folder?.path?.replace(/\/$/, '') ?? ''}/${name}`, arg = { path, mode: file ? { '.tag': 'update', update: file.revision } : 'add', autorename: !file, mute: true };
+    if (file && !file.revision)
+        throw Error('Reopen this Dropbox workbook before saving so GridForge can protect newer cloud changes.');
+    result = await request('https://content.dropboxapi.com/2/files/upload', token, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': JSON.stringify(arg) }, body: bodyBuffer(bytes) }, provider);
+    const item = await result.json();
+    return { provider, id: String(item.id ?? ''), name: safeName(item.name ?? name), size: Number.isFinite(Number(item.size)) ? Number(item.size) : bytes.byteLength, modified: typeof item.server_modified === 'string' ? item.server_modified : undefined, path: typeof item.path_lower === 'string' ? item.path_lower : path, revision: typeof item.rev === 'string' ? item.rev : undefined };
+}

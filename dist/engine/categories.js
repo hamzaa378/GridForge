@@ -16,7 +16,7 @@ const groups = {
 };
 // Accept newly registered functions even if a category map has an omission.
 const membership = new Map();
-for (const name of ['CUBEKPIMEMBER', 'CUBEMEMBER', 'CUBEMEMBERPROPERTY', 'CUBERANKEDMEMBER', 'CUBESET', 'CUBEVALUE', 'RTD', 'STOCKHISTORY', 'WEBSERVICE'])
+for (const name of ['CUBEKPIMEMBER', 'CUBEMEMBER', 'CUBEMEMBERPROPERTY', 'CUBERANKEDMEMBER', 'CUBESET', 'CUBESETCOUNT', 'CUBEVALUE', 'RTD', 'STOCKHISTORY', 'WEBSERVICE'])
     groups['External & Connected'].push(name);
 for (const [category, names] of Object.entries(groups))
     for (const name of names)

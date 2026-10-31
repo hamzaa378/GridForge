@@ -53,11 +53,21 @@ def main() -> None:
                 archive.write(path, path.relative_to(PORTABLE).as_posix())
         archive.write(bridge, bridge.relative_to(PORTABLE).as_posix())
 
-    with ZipFile(ARCHIVE, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
-        add_repository_files(archive, PREFIX)
-
     if not INSTALLER.is_file():
         raise SystemExit(f"Build the Windows installer first; missing {INSTALLER.name}.")
+    manifest_path = ROOT / "docs" / "DESKTOP_RELEASE_MANIFEST.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for key, path in (("installer", INSTALLER), ("portable", PORTABLE_ARCHIVE)):
+            manifest.setdefault("artifacts", {})[key] = {
+                "file": path.name,
+                "size_bytes": path.stat().st_size,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest().upper(),
+            }
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    with ZipFile(ARCHIVE, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+        add_repository_files(archive, PREFIX)
     with ZipFile(GITHUB_ARCHIVE, "w", compression=ZIP_DEFLATED, compresslevel=6) as archive:
         add_repository_files(archive, GITHUB_PREFIX)
         installer_member = f"{GITHUB_PREFIX}/release/{INSTALLER.name}"

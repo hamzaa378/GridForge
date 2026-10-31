@@ -9,6 +9,8 @@ export function calculateAxisScales(series, options = []) {
     return { primary: scale(values('primary')), secondary: scale(values('secondary')) };
 }
 export const CHART_KINDS = ['column', 'bar', 'line', 'area', 'pie', 'scatter', 'doughnut', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'radar', 'histogram', 'waterfall', 'pareto', 'box-whisker', 'funnel', 'treemap', 'stock', 'sunburst'];
+export const CHART_DATA_TABLE_KINDS = ['column', 'bar', 'line', 'area', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo'];
+export const CHART_HIDDEN_DATA_KINDS = ['column', 'bar', 'line', 'area', 'pie', 'scatter', 'doughnut', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'radar', 'stock'];
 const xml = (s) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export function chartRange(input, rows, cols) {
     const match = /^\s*(\$?[A-Z]{1,3}\$?\d{1,7})\s*:\s*(\$?[A-Z]{1,3}\$?\d{1,7})\s*$/i.exec(input);
@@ -31,6 +33,8 @@ export function validateChart(raw, rows, cols) {
         throw Error('Unsupported chart type.');
     if (typeof c.title !== 'string' || c.title.length > 100)
         throw Error('Chart title is too long.');
+    if (c.accessibilityDescription !== undefined && (typeof c.accessibilityDescription !== 'string' || c.accessibilityDescription.length > 500 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(c.accessibilityDescription)))
+        throw Error('Chart description must be accessible text of at most 500 characters.');
     if (typeof c.range !== 'string')
         throw Error('Invalid chart source.');
     if (c.pivotId !== undefined && (typeof c.pivotId !== 'string' || !/^pivot-[A-Za-z0-9_-]{1,60}$/.test(c.pivotId)))
@@ -43,21 +47,40 @@ export function validateChart(raw, rows, cols) {
         throw Error('Chart size or position is outside permitted limits.');
     if (c.theme !== undefined && !CHART_THEMES.includes(c.theme))
         throw Error('Invalid chart color theme.');
-    if (c.legend !== undefined && !['bottom', 'top', 'right', 'none'].includes(c.legend))
+    if (c.legend !== undefined && !['bottom', 'top', 'right', 'left', 'none'].includes(c.legend))
         throw Error('Invalid chart legend position.');
+    const hiddenDataKinds = CHART_HIDDEN_DATA_KINDS;
+    if (c.includeHiddenData !== undefined && typeof c.includeHiddenData !== 'boolean')
+        throw Error('Invalid hidden chart data setting.');
+    if (c.includeHiddenData === true && !hiddenDataKinds.includes(c.kind))
+        throw Error('Hidden-row and hidden-column plotting is available for standard Excel charts; this specialized chart type does not support the option.');
+    const dataTableKinds = CHART_DATA_TABLE_KINDS;
+    if (c.dataTable !== undefined && typeof c.dataTable !== 'boolean')
+        throw Error('Invalid chart data-table setting.');
+    if (c.dataTable === true && !dataTableKinds.includes(c.kind))
+        throw Error('Chart data tables are available for column, bar, line, area, stacked, 100% stacked and combo charts.');
+    if (c.dataTableShowKeys !== undefined && typeof c.dataTableShowKeys !== 'boolean')
+        throw Error('Invalid chart data-table legend key setting.');
     if (c.dataLabels !== undefined && typeof c.dataLabels !== 'boolean')
         throw Error('Invalid chart data-label setting.');
     for (const field of ['dataLabelCategoryName', 'dataLabelSeriesName', 'dataLabelPercent'])
         if (c[field] !== undefined && typeof c[field] !== 'boolean')
             throw Error('Invalid chart data-label content setting.');
+    if (c.dataLabelFormatCode !== undefined && (typeof c.dataLabelFormatCode !== 'string' || c.dataLabelFormatCode.length > 100 || /[\u0000-\u001f]/.test(c.dataLabelFormatCode)))
+        throw Error('Chart data-label format must be text of at most 100 characters.');
     if (c.dataLabelSeparator !== undefined && (typeof c.dataLabelSeparator !== 'string' || c.dataLabelSeparator.length > 20 || /[\u0000-\u001f]/.test(c.dataLabelSeparator)))
         throw Error('Chart data-label separator must be text of at most 20 characters.');
-    if (c.dataLabelPosition !== undefined && !['center', 'insideEnd', 'outsideEnd', 'bestFit'].includes(c.dataLabelPosition))
+    if (c.dataLabelPosition !== undefined && !['center', 'insideBase', 'insideEnd', 'outsideEnd', 'bestFit', 'above', 'below', 'left', 'right'].includes(c.dataLabelPosition))
         throw Error('Invalid chart data-label position.');
     if (c.switchRowsColumns !== undefined && typeof c.switchRowsColumns !== 'boolean')
         throw Error('Invalid chart data orientation.');
     if (c.showFinalTotal !== undefined && typeof c.showFinalTotal !== 'boolean')
         throw Error('Invalid waterfall final-total setting.');
+    if (c.boxQuartileMethod !== undefined && !['inclusive', 'exclusive'].includes(c.boxQuartileMethod))
+        throw Error('Box and whisker quartiles must be inclusive or exclusive.');
+    for (const field of ['boxShowInnerPoints', 'boxShowOutliers', 'boxShowMeanMarker', 'boxShowMeanLine'])
+        if (c[field] !== undefined && typeof c[field] !== 'boolean')
+            throw Error('Invalid Box and Whisker display setting.');
     const rangeBounds = chartRange(c.range, rows, cols), sourcePointCapacity = rangeBounds.r2 - rangeBounds.r1 + 1;
     if (c.waterfallTotalPoints !== undefined && (!Array.isArray(c.waterfallTotalPoints) || c.waterfallTotalPoints.length > 250 || c.waterfallTotalPoints.some(index => !Number.isInteger(index) || typeof index !== 'number' || index < 0 || index >= sourcePointCapacity)))
         throw Error('Waterfall total point indexes must be zero-based indexes within the selected source rows.');
@@ -104,6 +127,10 @@ export function validateChart(raw, rows, cols) {
         throw Error('Category axis label angle must be a whole number from -90 to 90 degrees.');
     if (c.xAxisLabelInterval !== undefined && (!Number.isInteger(c.xAxisLabelInterval) || typeof c.xAxisLabelInterval !== 'number' || c.xAxisLabelInterval < 1 || c.xAxisLabelInterval > 250))
         throw Error('Category axis label interval must be a whole number from 1 to 250.');
+    if (c.displayBlanksAs !== undefined && !['gap', 'zero', 'span'].includes(c.displayBlanksAs))
+        throw Error('Blank chart cells must be shown as gaps, zeroes, or connected points.');
+    if (c.reverseCategories !== undefined && typeof c.reverseCategories !== 'boolean')
+        throw Error('Invalid chart category-order setting.');
     let seriesOptions;
     if (c.seriesOptions !== undefined) {
         if (!Array.isArray(c.seriesOptions) || c.seriesOptions.length > 12)
@@ -112,9 +139,9 @@ export function validateChart(raw, rows, cols) {
             throw Error('Invalid chart series options.'); const o = raw; if (o.axis !== undefined && !['primary', 'secondary'].includes(o.axis) || o.kind !== undefined && !['column', 'line'].includes(o.kind) || o.color !== undefined && (typeof o.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(o.color)) || o.marker !== undefined && typeof o.marker !== 'boolean')
             throw Error('Invalid chart series options.'); let errorBars; if (o.errorBars !== undefined) {
             const e = o.errorBars;
-            if (!e || typeof e !== 'object' || !['fixed', 'percentage', 'standardDeviation'].includes(e.type) || typeof e.value !== 'number' || !Number.isFinite(e.value) || e.value < 0 || e.value > 1e9)
+            if (!e || typeof e !== 'object' || !['fixed', 'percentage', 'standardDeviation', 'standardError'].includes(e.type) || typeof e.value !== 'number' || !Number.isFinite(e.value) || e.value < 0 || e.value > 1e9 || e.direction !== undefined && !['both', 'plus', 'minus'].includes(e.direction) || e.endCap !== undefined && typeof e.endCap !== 'boolean' || e.axis !== undefined && !['x', 'y'].includes(e.axis))
                 throw Error('Invalid chart error bars.');
-            errorBars = e;
+            errorBars = { type: e.type, value: e.value, ...(e.direction !== undefined ? { direction: e.direction } : {}), ...(e.endCap !== undefined ? { endCap: e.endCap } : {}), ...(e.axis !== undefined ? { axis: e.axis } : {}) };
         } let trendline; if (o.trendline !== undefined) {
             const t = o.trendline;
             if (!t || typeof t !== 'object' || !['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].includes(t.type) || !['order', 'period', 'forward', 'backward'].every(k => t[k] === undefined || Number.isInteger(t[k]) && t[k] >= 0 && t[k] <= 100) || !['showEquation', 'showR2'].every(k => t[k] === undefined || typeof t[k] === 'boolean'))
@@ -123,27 +150,22 @@ export function validateChart(raw, rows, cols) {
         } return { ...(o.axis ? { axis: o.axis } : {}), ...(o.kind ? { kind: o.kind } : {}), ...(o.color ? { color: o.color } : {}), ...(o.marker !== undefined ? { marker: o.marker } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline } : {}) }; });
     }
     const waterfallTotalPoints = c.waterfallTotalPoints === undefined ? undefined : [...new Set(c.waterfallTotalPoints)].sort((a, b) => a - b);
-    return { ...(c.theme !== undefined ? { theme: c.theme } : {}), id: c.id, kind: c.kind, title: c.title, range: c.range, ...(typeof c.pivotId === 'string' ? { pivotId: c.pivotId } : {}), x: c.x, y: c.y, width: c.width, height: c.height, ...(c.legend !== undefined ? { legend: c.legend } : {}), ...(c.dataLabels !== undefined ? { dataLabels: c.dataLabels } : {}), ...(c.dataLabelCategoryName !== undefined ? { dataLabelCategoryName: c.dataLabelCategoryName } : {}), ...(c.dataLabelSeriesName !== undefined ? { dataLabelSeriesName: c.dataLabelSeriesName } : {}), ...(c.dataLabelPercent !== undefined ? { dataLabelPercent: c.dataLabelPercent } : {}), ...(typeof c.dataLabelSeparator === 'string' ? { dataLabelSeparator: c.dataLabelSeparator } : {}), ...(c.dataLabelPosition !== undefined ? { dataLabelPosition: c.dataLabelPosition } : {}), ...(c.switchRowsColumns !== undefined ? { switchRowsColumns: c.switchRowsColumns } : {}), ...(c.showFinalTotal !== undefined ? { showFinalTotal: c.showFinalTotal } : {}), ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(c.histogramBins !== undefined ? { histogramBins: c.histogramBins } : {}), ...(c.histogramBinWidth !== undefined ? { histogramBinWidth: c.histogramBinWidth } : {}), ...(c.histogramUnderflow !== undefined ? { histogramUnderflow: c.histogramUnderflow } : {}), ...(c.histogramOverflow !== undefined ? { histogramOverflow: c.histogramOverflow } : {}), ...(c.xAxisTitle !== undefined ? { xAxisTitle: c.xAxisTitle } : {}), ...(c.xAxisLabelAngle !== undefined ? { xAxisLabelAngle: c.xAxisLabelAngle } : {}), ...(c.xAxisLabelInterval !== undefined ? { xAxisLabelInterval: c.xAxisLabelInterval } : {}), ...(c.xAxisMin !== undefined ? { xAxisMin: c.xAxisMin } : {}), ...(c.xAxisMax !== undefined ? { xAxisMax: c.xAxisMax } : {}), ...(c.xAxisMajorUnit !== undefined ? { xAxisMajorUnit: c.xAxisMajorUnit } : {}), ...(c.xAxisNumberFormat !== undefined ? { xAxisNumberFormat: c.xAxisNumberFormat } : {}), ...(typeof c.xAxisFormatCode === 'string' ? { xAxisFormatCode: c.xAxisFormatCode } : {}), ...(c.yAxisTitle !== undefined ? { yAxisTitle: c.yAxisTitle } : {}), ...(c.secondaryYAxisTitle !== undefined ? { secondaryYAxisTitle: c.secondaryYAxisTitle } : {}), ...(c.yAxisMin !== undefined ? { yAxisMin: c.yAxisMin } : {}), ...(c.yAxisMax !== undefined ? { yAxisMax: c.yAxisMax } : {}), ...(c.yAxisMajorUnit !== undefined ? { yAxisMajorUnit: c.yAxisMajorUnit } : {}), ...(c.secondaryYAxisMin !== undefined ? { secondaryYAxisMin: c.secondaryYAxisMin } : {}), ...(c.secondaryYAxisMax !== undefined ? { secondaryYAxisMax: c.secondaryYAxisMax } : {}), ...(c.secondaryYAxisMajorUnit !== undefined ? { secondaryYAxisMajorUnit: c.secondaryYAxisMajorUnit } : {}), ...(c.yAxisNumberFormat !== undefined ? { yAxisNumberFormat: c.yAxisNumberFormat } : {}), ...(c.secondaryYAxisNumberFormat !== undefined ? { secondaryYAxisNumberFormat: c.secondaryYAxisNumberFormat } : {}), ...(typeof c.yAxisFormatCode === 'string' ? { yAxisFormatCode: c.yAxisFormatCode } : {}), ...(typeof c.secondaryYAxisFormatCode === 'string' ? { secondaryYAxisFormatCode: c.secondaryYAxisFormatCode } : {}), ...(c.doughnutHoleSize !== undefined ? { doughnutHoleSize: c.doughnutHoleSize } : {}), ...(c.firstSliceAngle !== undefined ? { firstSliceAngle: c.firstSliceAngle } : {}), ...(Array.isArray(c.dataPointColors) ? { dataPointColors: [...c.dataPointColors] } : {}), ...(c.majorGridlines !== undefined ? { majorGridlines: c.majorGridlines } : {}), ...(c.minorGridlines !== undefined ? { minorGridlines: c.minorGridlines } : {}), ...(seriesOptions ? { seriesOptions } : {}) };
+    return { ...(c.theme !== undefined ? { theme: c.theme } : {}), id: c.id, kind: c.kind, title: c.title, ...(typeof c.accessibilityDescription === 'string' && c.accessibilityDescription ? { accessibilityDescription: c.accessibilityDescription } : {}), range: c.range, ...(typeof c.pivotId === 'string' ? { pivotId: c.pivotId } : {}), x: c.x, y: c.y, width: c.width, height: c.height, ...(c.legend !== undefined ? { legend: c.legend } : {}), ...(c.displayBlanksAs !== undefined ? { displayBlanksAs: c.displayBlanksAs } : {}), ...(c.reverseCategories !== undefined ? { reverseCategories: c.reverseCategories } : {}), ...(c.includeHiddenData !== undefined ? { includeHiddenData: c.includeHiddenData } : {}), ...(c.dataTable !== undefined ? { dataTable: c.dataTable } : {}), ...(c.dataTableShowKeys !== undefined ? { dataTableShowKeys: c.dataTableShowKeys } : {}), ...(c.dataLabels !== undefined ? { dataLabels: c.dataLabels } : {}), ...(c.dataLabelCategoryName !== undefined ? { dataLabelCategoryName: c.dataLabelCategoryName } : {}), ...(c.dataLabelSeriesName !== undefined ? { dataLabelSeriesName: c.dataLabelSeriesName } : {}), ...(c.dataLabelPercent !== undefined ? { dataLabelPercent: c.dataLabelPercent } : {}), ...(typeof c.dataLabelFormatCode === 'string' && c.dataLabelFormatCode ? { dataLabelFormatCode: c.dataLabelFormatCode } : {}), ...(typeof c.dataLabelSeparator === 'string' ? { dataLabelSeparator: c.dataLabelSeparator } : {}), ...(c.dataLabelPosition !== undefined ? { dataLabelPosition: c.dataLabelPosition } : {}), ...(c.switchRowsColumns !== undefined ? { switchRowsColumns: c.switchRowsColumns } : {}), ...(c.showFinalTotal !== undefined ? { showFinalTotal: c.showFinalTotal } : {}), ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(c.boxQuartileMethod !== undefined ? { boxQuartileMethod: c.boxQuartileMethod } : {}), ...(c.boxShowInnerPoints !== undefined ? { boxShowInnerPoints: c.boxShowInnerPoints } : {}), ...(c.boxShowOutliers !== undefined ? { boxShowOutliers: c.boxShowOutliers } : {}), ...(c.boxShowMeanMarker !== undefined ? { boxShowMeanMarker: c.boxShowMeanMarker } : {}), ...(c.boxShowMeanLine !== undefined ? { boxShowMeanLine: c.boxShowMeanLine } : {}), ...(c.histogramBins !== undefined ? { histogramBins: c.histogramBins } : {}), ...(c.histogramBinWidth !== undefined ? { histogramBinWidth: c.histogramBinWidth } : {}), ...(c.histogramUnderflow !== undefined ? { histogramUnderflow: c.histogramUnderflow } : {}), ...(c.histogramOverflow !== undefined ? { histogramOverflow: c.histogramOverflow } : {}), ...(c.xAxisTitle !== undefined ? { xAxisTitle: c.xAxisTitle } : {}), ...(c.xAxisLabelAngle !== undefined ? { xAxisLabelAngle: c.xAxisLabelAngle } : {}), ...(c.xAxisLabelInterval !== undefined ? { xAxisLabelInterval: c.xAxisLabelInterval } : {}), ...(c.xAxisMin !== undefined ? { xAxisMin: c.xAxisMin } : {}), ...(c.xAxisMax !== undefined ? { xAxisMax: c.xAxisMax } : {}), ...(c.xAxisMajorUnit !== undefined ? { xAxisMajorUnit: c.xAxisMajorUnit } : {}), ...(c.xAxisNumberFormat !== undefined ? { xAxisNumberFormat: c.xAxisNumberFormat } : {}), ...(typeof c.xAxisFormatCode === 'string' ? { xAxisFormatCode: c.xAxisFormatCode } : {}), ...(c.yAxisTitle !== undefined ? { yAxisTitle: c.yAxisTitle } : {}), ...(c.secondaryYAxisTitle !== undefined ? { secondaryYAxisTitle: c.secondaryYAxisTitle } : {}), ...(c.yAxisMin !== undefined ? { yAxisMin: c.yAxisMin } : {}), ...(c.yAxisMax !== undefined ? { yAxisMax: c.yAxisMax } : {}), ...(c.yAxisMajorUnit !== undefined ? { yAxisMajorUnit: c.yAxisMajorUnit } : {}), ...(c.secondaryYAxisMin !== undefined ? { secondaryYAxisMin: c.secondaryYAxisMin } : {}), ...(c.secondaryYAxisMax !== undefined ? { secondaryYAxisMax: c.secondaryYAxisMax } : {}), ...(c.secondaryYAxisMajorUnit !== undefined ? { secondaryYAxisMajorUnit: c.secondaryYAxisMajorUnit } : {}), ...(c.yAxisNumberFormat !== undefined ? { yAxisNumberFormat: c.yAxisNumberFormat } : {}), ...(c.secondaryYAxisNumberFormat !== undefined ? { secondaryYAxisNumberFormat: c.secondaryYAxisNumberFormat } : {}), ...(typeof c.yAxisFormatCode === 'string' ? { yAxisFormatCode: c.yAxisFormatCode } : {}), ...(typeof c.secondaryYAxisFormatCode === 'string' ? { secondaryYAxisFormatCode: c.secondaryYAxisFormatCode } : {}), ...(c.doughnutHoleSize !== undefined ? { doughnutHoleSize: c.doughnutHoleSize } : {}), ...(c.firstSliceAngle !== undefined ? { firstSliceAngle: c.firstSliceAngle } : {}), ...(Array.isArray(c.dataPointColors) ? { dataPointColors: [...c.dataPointColors] } : {}), ...(c.majorGridlines !== undefined ? { majorGridlines: c.majorGridlines } : {}), ...(c.minorGridlines !== undefined ? { minorGridlines: c.minorGridlines } : {}), ...(seriesOptions ? { seriesOptions } : {}) };
 }
-export function extractChartData(book, range, switchRowsColumns = false) {
-    const r = chartRange(range, book.rows, book.cols);
+export function extractChartData(book, range, switchRowsColumns = false, includeHiddenData = true) {
+    const r = chartRange(range, book.rows, book.cols), hiddenRows = includeHiddenData ? new Set() : new Set(book.getHiddenRowsForChart()), hiddenColumns = includeHiddenData ? new Set() : new Set(book.getHiddenColumnsForChart());
     const cell = (row, col) => book.getValue(`${colToName(col)}${row + 1}`);
     const scalar = (row, col) => { const v = cell(row, col); return !v.error && typeof v.value === 'number' && Number.isFinite(v.value) ? v.value : null; };
     const shown = (row, col) => { const v = cell(row, col); return v.error ? '' : v.value === null ? '' : String(v.value); };
-    const hasLabels = r.c2 > r.c1 && Array.from({ length: Math.min(6, r.r2 - r.r1) }, (_, i) => shown(r.r1 + i + 1, r.c1)).some(t => t !== '' && isNaN(Number(t)));
-    const firstNumericCol = r.c1 + (hasLabels ? 1 : 0);
-    const heading = r.r2 > r.r1 && Array.from({ length: r.c2 - firstNumericCol + 1 }, (_, i) => shown(r.r1, firstNumericCol + i)).some((t, i) => t !== '' && scalar(r.r1, firstNumericCol + i) === null);
-    const start = r.r1 + (heading ? 1 : 0);
-    const count = r.r2 - start + 1;
-    const labels = Array.from({ length: count }, (_, i) => hasLabels ? (shown(start + i, r.c1) || String(start + i + 1)) : String(start + i + 1));
-    const series = [];
-    for (let col = firstNumericCol; col <= r.c2; col++) {
-        series.push({ name: heading ? (shown(r.r1, col) || `Series ${col - firstNumericCol + 1}`) : `Series ${col - firstNumericCol + 1}`,
-            values: Array.from({ length: count }, (_, i) => scalar(start + i, col)) });
-    }
+    const hasLabels = !hiddenColumns.has(r.c1) && r.c2 > r.c1 && Array.from({ length: Math.min(6, r.r2 - r.r1) }, (_, i) => shown(r.r1 + i + 1, r.c1)).some(t => t !== '' && isNaN(Number(t)));
+    const firstNumericCol = r.c1 + (hasLabels ? 1 : 0), columns = Array.from({ length: r.c2 - firstNumericCol + 1 }, (_, i) => firstNumericCol + i).filter(col => !hiddenColumns.has(col));
+    const heading = r.r2 > r.r1 && columns.some(col => { const t = shown(r.r1, col); return t !== '' && scalar(r.r1, col) === null; });
+    const start = r.r1 + (heading ? 1 : 0), dataRows = Array.from({ length: Math.max(0, r.r2 - start + 1) }, (_, i) => start + i).filter(row => !hiddenRows.has(row));
+    const labels = dataRows.map(row => hasLabels ? (shown(row, r.c1) || String(row + 1)) : String(row + 1));
+    const series = columns.map((col, index) => ({ name: heading ? (shown(r.r1, col) || `Series ${index + 1}`) : `Series ${index + 1}`, values: dataRows.map(row => scalar(row, col)) }));
     if (!switchRowsColumns)
-        return { range, labels, series, rows: count };
-    return { range, labels: series.map(item => item.name), series: labels.map((name, row) => ({ name, values: series.map(item => item.values[row] ?? null) })), rows: series.length };
+        return { range, labels, series, rows: dataRows.length };
+    return { range, labels: series.map(item => item.name), series: dataRows.map((row, index) => ({ name: labels[index] ?? String(row + 1), values: series.map(item => item.values[index] ?? null) })), rows: dataRows.length };
 }
 export function histogramData(source, requestedBins, requestedWidth, underflow, overflow) {
     const values = source.series.flatMap(item => item.values.filter((v) => v !== null && Number.isFinite(v)));
@@ -216,33 +238,41 @@ export function treemapData(book, range) {
             throw Error('Hierarchy chart values must be non-negative.');
         if (measured.value === 0 || !path.length)
             continue;
-        const label = path.join(' › '), existing = groups.get(label);
+        // Use the full hierarchy tuple as the identity. A printable path delimiter
+        // can also occur inside a category label, so the joined label is not safe
+        // as a grouping key (for example, ["North › East", "Retail"] versus
+        // ["North", "East › Retail"]).
+        const label = path.join(' › '), key = JSON.stringify(path), existing = groups.get(key);
         if (existing)
             existing.value += measured.value;
         else
-            groups.set(label, { label, parent: path[0], value: measured.value });
+            groups.set(key, { label, parent: path[0], value: measured.value, path: [...path] });
     }
     const entries = [...groups.values()].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
-    return { range, labels: entries.map(entry => entry.label), series: [{ name: 'Value', values: entries.map(entry => entry.value) }], rows: entries.length };
+    return { range, labels: entries.map(entry => entry.label), hierarchy: entries.map(entry => entry.path), series: [{ name: 'Value', values: entries.map(entry => entry.value) }], rows: entries.length };
 }
 /** Parse Excel stock-chart inputs by header name: HLC or OHLC, each with an optional date/category column. */
-export function stockData(book, range) {
-    const bounds = chartRange(range, book.rows, book.cols), columnCount = bounds.c2 - bounds.c1 + 1;
-    if (columnCount < 3 || columnCount > 5 || bounds.r1 === bounds.r2)
+export function stockData(book, range, includeHiddenData = true) {
+    const bounds = chartRange(range, book.rows, book.cols), hiddenRows = includeHiddenData ? new Set() : new Set(book.getHiddenRowsForChart()), hiddenColumns = includeHiddenData ? new Set() : new Set(book.getHiddenColumnsForChart()), columnCount = bounds.c2 - bounds.c1 + 1, visibleColumnCount = columnCount - Array.from({ length: columnCount }, (_, i) => bounds.c1 + i).filter(col => hiddenColumns.has(col)).length;
+    if (visibleColumnCount < 3 || visibleColumnCount > 5 || bounds.r1 === bounds.r2)
         throw Error('Stock charts need a header row and High, Low and Close columns, with optional Open and date/category columns.');
     const headerText = (col) => { const result = book.getValue(`${colToName(col)}${bounds.r1 + 1}`); return result.error || result.value === null ? '' : String(result.value).trim().toLowerCase(); };
     const columns = new Map();
     for (let col = bounds.c1; col <= bounds.c2; col++) {
+        if (hiddenColumns.has(col))
+            continue;
         const header = headerText(col);
         for (const field of ['open', 'high', 'low', 'close'])
             if (header === field || header.startsWith(`${field} `) || header === `${field} price`)
                 columns.set(field, col);
     }
-    if (['high', 'low', 'close'].some(field => !columns.has(field)) || new Set(columns.values()).size !== columns.size || ![3, 4].includes(columns.size) || columnCount - columns.size > 1)
+    if (['high', 'low', 'close'].some(field => !columns.has(field)) || new Set(columns.values()).size !== columns.size || ![3, 4].includes(columns.size) || visibleColumnCount - columns.size > 1)
         throw Error('Name the stock columns High, Low and Close, optionally Open and a date/category column.');
-    const dateCol = Array.from({ length: columnCount }, (_, i) => bounds.c1 + i).find(col => ![...columns.values()].includes(col));
+    const dateCol = Array.from({ length: columnCount }, (_, i) => bounds.c1 + i).find(col => !hiddenColumns.has(col) && ![...columns.values()].includes(col));
     const labels = [], rows = [];
     for (let row = bounds.r1 + 1; row <= bounds.r2; row++) {
+        if (hiddenRows.has(row))
+            continue;
         const fields = [...(columns.has('open') ? ['open'] : []), 'high', 'low', 'close'], values = fields.map(field => { const result = book.getValue(`${colToName(columns.get(field))}${row + 1}`); return !result.error && typeof result.value === 'number' && Number.isFinite(result.value) ? result.value : null; });
         if (values.every(value => value !== null)) {
             const high = values[fields.indexOf('high')], low = values[fields.indexOf('low')], close = values[fields.indexOf('close')], open = columns.has('open') ? values[fields.indexOf('open')] : undefined;
@@ -271,6 +301,7 @@ export const CHART_PALETTES = {
     monochrome: ['#25374a', '#50687e', '#7891a8', '#a9baca', '#405569', '#8795a3', '#627489', '#bdc7d0']
 };
 const fmt = (n) => !Number.isFinite(n) ? '' : Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(1) + 'm' : Math.abs(n) >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Number(n.toPrecision(4)));
+const chartDataLabelFmt = (chart, n) => chart.dataLabelFormatCode ? formatExcelNumber(n, chart.dataLabelFormatCode) ?? fmt(n) : fmt(n);
 const axisFmt = (n, format, customCode) => customCode ? formatExcelNumber(n, customCode) ?? fmt(n) : format === 'currency' ? `$${fmt(n)}` : format === 'percent' ? `${fmt(n * 100)}%` : format === 'number' ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(n) : fmt(n);
 function resolveScale(values, minimum, maximum, includeZero = true) {
     const low = includeZero ? Math.min(0, ...values) : Math.min(...values), high = includeZero ? Math.max(0, ...values) : Math.max(...values), autoLow = low === high ? low - 1 : low, autoHigh = low === high ? high + 1 : high;
@@ -286,19 +317,45 @@ function resolveScale(values, minimum, maximum, includeZero = true) {
 const esc = xml;
 const tag = (x, y, content) => `<text x="${x}" y="${y}" font-family="Aptos,Segoe UI,Arial,sans-serif" fill="#53677f" font-size="11">${esc(content)}</text>`;
 const rotatedTag = (x, y, content, angle) => angle ? `<text x="${x}" y="${y}" transform="rotate(${angle} ${x} ${y})" font-family="Aptos,Segoe UI,Arial,sans-serif" fill="#53677f" font-size="11">${esc(content)}</text>` : tag(x, y, content);
+const chartDataTableSvg = (chart, labels, series, palette, x, y, width, rowHeight) => {
+    const shownSeries = series.slice(0, 4), maxCategories = 12, hasMoreCategories = labels.length > maxCategories, categoryIndexes = Array.from({ length: Math.min(labels.length, hasMoreCategories ? maxCategories - 1 : maxCategories) }, (_, index) => index), showKeys = chart.dataTableShowKeys === true, keyWidth = showKeys ? Math.min(92, width * .22) : 0, extraColumn = hasMoreCategories ? 1 : 0, categoryWidth = Math.max(22, (width - keyWidth) / (categoryIndexes.length + extraColumn || 1)), height = rowHeight * (shownSeries.length + 1 + (series.length > shownSeries.length ? 1 : 0)), muted = '#6b7785';
+    let out = `<g role="table" aria-label="Chart data table"><title>Chart data table</title><rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#fff" stroke="#9ba8b5" stroke-width=".8"/>`;
+    const cell = (cx, cy, cw, value, bold = false, color = muted, role = bold ? 'columnheader' : 'cell') => `<rect aria-hidden="true" x="${cx}" y="${cy}" width="${cw}" height="${rowHeight}" fill="${bold ? '#f1f4f7' : '#fff'}" stroke="#cbd3dc" stroke-width=".55"/><text role="${role}" aria-label="${esc(value)}" x="${cx + 4}" y="${cy + rowHeight * .69}" font-family="Aptos,Segoe UI,Arial,sans-serif" font-size="9" font-weight="${bold ? 600 : 400}" fill="${color}">${esc(value.length > 18 ? value.slice(0, 17) + '…' : value)}</text>`;
+    out += '<g role="row" aria-label="Categories">';
+    if (showKeys)
+        out += cell(x, y, keyWidth, 'Series', true);
+    categoryIndexes.forEach((index, column) => out += cell(x + keyWidth + column * categoryWidth, y, categoryWidth, labels[index] ?? '', true));
+    if (hasMoreCategories)
+        out += cell(x + keyWidth + categoryIndexes.length * categoryWidth, y, categoryWidth, `+${labels.length - categoryIndexes.length}`, true);
+    out += '</g>';
+    shownSeries.forEach((item, row) => { const cy = y + (row + 1) * rowHeight; out += `<g role="row" aria-label="${esc(item.name)}">`; if (showKeys) {
+        const color = chart.seriesOptions?.[row]?.color ?? palette[row % palette.length];
+        out += `<rect aria-hidden="true" x="${x + 4}" y="${cy + rowHeight / 2 - 3}" width="6" height="6" fill="${color}"/>` + cell(x + 12, cy, Math.max(20, keyWidth - 12), item.name, false, color, 'rowheader');
+    } categoryIndexes.forEach((index, column) => { const value = item.values[index], formatted = value === null || value === undefined ? '' : chartDataLabelFmt(chart, value); out += cell(x + keyWidth + column * categoryWidth, cy, categoryWidth, formatted); }); if (hasMoreCategories)
+        out += cell(x + keyWidth + categoryIndexes.length * categoryWidth, cy, categoryWidth, `+${labels.length - categoryIndexes.length}`, false); out += '</g>'; });
+    if (series.length > shownSeries.length) {
+        const additional = `${series.length - shownSeries.length} additional series`;
+        out += `<g role="row" aria-label="${additional}">` + cell(x, y + (shownSeries.length + 1) * rowHeight, width, additional, false, muted) + '</g>';
+    }
+    return out + '</g>';
+};
+const errorBarAmount = (values, dataValue, bars) => { const valid = values.filter((item) => item !== null && Number.isFinite(item)); if (bars.type === 'fixed')
+    return bars.value; if (bars.type === 'percentage')
+    return Math.abs(dataValue) * bars.value / 100; const mean = valid.length ? valid.reduce((sum, item) => sum + item, 0) / valid.length : 0, sumSquares = valid.reduce((sum, item) => sum + (item - mean) ** 2, 0); if (bars.type === 'standardError')
+    return valid.length > 1 ? Math.sqrt(sumSquares / (valid.length - 1) / valid.length) : 0; return valid.length ? Math.sqrt(sumSquares / valid.length) : 0; };
 /** Deterministic SVG for preview, floating chart and SVG download. Missing numerical cells are gaps, never zeroes. */
 export function chartSvg(book, chart) {
     let source;
     try {
-        source = chart.kind === 'treemap' || chart.kind === 'sunburst' ? treemapData(book, chart.range) : chart.kind === 'stock' ? stockData(book, chart.range) : extractChartData(book, chart.range, chart.switchRowsColumns ?? false);
+        source = chart.kind === 'treemap' || chart.kind === 'sunburst' ? treemapData(book, chart.range) : chart.kind === 'stock' ? stockData(book, chart.range, chart.includeHiddenData ?? false) : extractChartData(book, chart.range, chart.switchRowsColumns ?? false, chart.includeHiddenData ?? false);
     }
     catch (error) {
-        const W = Math.max(300, Math.round(chart.width)), H = Math.max(210, Math.round(chart.height)), svg = `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${xml(chart.title || chart.kind + ' chart')}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#ffffff"/>`, title = tag(23, 30, chart.title || `${chart.kind} chart`);
+        const W = Math.max(300, Math.round(chart.width)), H = Math.max(210, Math.round(chart.height)), svg = `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(chart.accessibilityDescription || chart.title || chart.kind + ' chart')}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><title>${esc(chart.title || chart.kind + ' chart')}</title>${chart.accessibilityDescription ? `<desc>${esc(chart.accessibilityDescription)}</desc>` : ''}<rect width="${W}" height="${H}" fill="#ffffff"/>`, title = tag(23, 30, chart.title || `${chart.kind} chart`);
         return svg + title + tag(23, 85, error instanceof Error ? error.message : 'Chart source data is invalid.') + '</svg>';
     }
     let d = source;
     const palette = CHART_PALETTES[chart.theme ?? 'office'], W = Math.max(300, Math.round(chart.width)), H = Math.max(210, Math.round(chart.height));
-    const svgStart = `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(chart.title || chart.kind + ' chart')}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#ffffff"/>`;
+    const svgStart = `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(chart.accessibilityDescription || chart.title || chart.kind + ' chart')}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><title>${esc(chart.title || chart.kind + ' chart')}</title>${chart.accessibilityDescription ? `<desc>${esc(chart.accessibilityDescription)}</desc>` : ''}<rect width="${W}" height="${H}" fill="#ffffff"/>`;
     const title = tag(23, 30, chart.title || `${chart.kind} chart`).replace('font-size="11"', 'font-size="16" font-weight="700" fill="#172b4d"');
     if (chart.kind === 'histogram')
         d = histogramData(source, chart.histogramBins, chart.histogramBinWidth, chart.histogramUnderflow, chart.histogramOverflow);
@@ -309,6 +366,10 @@ export function chartSvg(book, chart) {
         catch (error) {
             return svgStart + title + tag(23, 85, error instanceof Error ? error.message : 'Pareto charts require non-negative values.') + '</svg>';
         }
+    if (chart.displayBlanksAs === 'zero')
+        d = { ...d, series: d.series.map(series => ({ ...series, values: series.values.map(value => value ?? 0) })) };
+    if (chart.reverseCategories && ['column', 'bar', 'line', 'area', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'radar'].includes(chart.kind))
+        d = { ...d, labels: [...d.labels].reverse(), series: d.series.map(series => ({ ...series, values: [...series.values].reverse() })) };
     const all = d.series.flatMap(s => s.values.filter((x) => x !== null));
     if (!d.rows || !d.series.length || !all.length)
         return svgStart + title + tag(23, 85, 'Select a range containing numeric values to plot.') + '</svg>';
@@ -331,7 +392,7 @@ export function chartSvg(book, chart) {
         const total = pairs.reduce((a, b) => a + b.v, 0);
         if (!total)
             return svgStart + title + tag(23, 85, 'Pie charts require positive values.') + '</svg>';
-        const cx = Math.max(100, Math.min(W * .39, 215)), cy = chart.legend === 'top' ? H * .62 : H * .56, rad = Math.min(H * .31, W * .29, 125), innerRadius = rad * (chart.doughnutHoleSize ?? 57) / 100;
+        const cx = chart.legend === 'left' ? Math.max(145, Math.min(W * .64, W - 135)) : Math.max(100, Math.min(W * .39, 215)), cy = chart.legend === 'top' ? H * .62 : H * .56, rad = Math.min(H * .31, W * .29, 125), innerRadius = rad * (chart.doughnutHoleSize ?? 57) / 100;
         let angle = -Math.PI / 2 + (chart.firstSliceAngle ?? 0) * Math.PI / 180, out = '';
         pairs.forEach(({ v, label, sourceIndex }, i) => {
             const span = v / total * 2 * Math.PI;
@@ -342,7 +403,7 @@ export function chartSvg(book, chart) {
             else
                 out += `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${rad} ${rad} 0 ${span > Math.PI ? 1 : 0} 1 ${x2} ${y2} Z" fill="${sliceColor}"/>`;
             if (chart.dataLabels || chart.dataLabelCategoryName || chart.dataLabelSeriesName || chart.dataLabelPercent) {
-                const mid = angle + span / 2, labelParts = [...(chart.dataLabelCategoryName ? [label] : []), ...(chart.dataLabelSeriesName ? [s.name] : []), ...(chart.dataLabels ? [fmt(v)] : []), ...(chart.dataLabelPercent ? [`${(v / total * 100).toFixed(1)}%`] : [])], position = chart.dataLabelPosition ?? 'outsideEnd', outside = position === 'outsideEnd' || position === 'bestFit' && span < .5, labelRadius = position === 'center' ? rad * .5 : outside ? rad * 1.23 : rad * .78;
+                const mid = angle + span / 2, labelParts = [...(chart.dataLabelCategoryName ? [label] : []), ...(chart.dataLabelSeriesName ? [s.name] : []), ...(chart.dataLabels ? [chartDataLabelFmt(chart, v)] : []), ...(chart.dataLabelPercent ? [`${(v / total * 100).toFixed(1)}%`] : [])], position = chart.dataLabelPosition ?? 'outsideEnd', outside = position === 'outsideEnd' || position === 'bestFit' && span < .5, labelRadius = position === 'center' ? rad * .5 : outside ? rad * 1.23 : rad * .78;
                 if (labelParts.length && span > .12) {
                     const lx = cx + labelRadius * Math.cos(mid), ly = cy + labelRadius * Math.sin(mid) + 4, content = labelParts.join(chart.dataLabelSeparator ?? ' ');
                     if (outside) {
@@ -360,7 +421,7 @@ export function chartSvg(book, chart) {
                 }
                 else {
                     const y = 64 + i * 23;
-                    out += `<rect x="${W * .73}" y="${y - 10}" width="10" height="10" fill="${palette[i % palette.length]}"/>${tag(W * .73 + 16, y, `${label.slice(0, 14)} (${Math.round(v / total * 100)}%)`)}`;
+                    out += `<rect x="${chart.legend === 'left' ? W * .03 : W * .73}" y="${y - 10}" width="10" height="10" fill="${palette[i % palette.length]}"/>${tag(chart.legend === 'left' ? W * .03 + 16 : W * .73 + 16, y, `${label.slice(0, 14)} (${Math.round(v / total * 100)}%)`)}`;
                 }
             }
             angle = end;
@@ -386,7 +447,7 @@ export function chartSvg(book, chart) {
         return svgStart + title + out + '</svg>';
     }
     const hasSecondary = chart.kind !== 'scatter' && (chart.seriesOptions?.some(option => option.axis === 'secondary') ?? false);
-    const L = 58, T = chart.legend === 'top' ? 78 : 55, R = hasSecondary ? 54 : 22, B = (chart.legend === 'none' || chart.legend === 'top' ? 55 : 74) + (chart.xAxisTitle ? 23 : 0), px = L, py = T, pw = W - L - R, ph = H - T - B;
+    const dataTable = chart.dataTable === true, tableSeriesCount = Math.min(d.series.length, 4), tableHeight = dataTable ? 15 * (tableSeriesCount + 1 + (d.series.length > tableSeriesCount ? 1 : 0)) + 8 : 0, L = chart.legend === 'left' ? 145 : 58, T = chart.legend === 'top' ? 78 : 55, R = hasSecondary ? 54 : 22, B = (dataTable ? (chart.xAxisTitle ? 58 : 34) : (chart.legend === 'none' || chart.legend === 'top' ? 55 : 74) + (chart.xAxisTitle ? 23 : 0)) + (dataTable ? tableHeight + 4 : 0), px = L, py = T, pw = W - L - R, ph = Math.max(45, H - T - B);
     const percent = chart.kind === 'percent-column' || chart.kind === 'percent-bar';
     const stacked = percent || chart.kind === 'stacked-column' || chart.kind === 'stacked-bar';
     const dataSeries = percent ? d.series.map(series => ({ name: series.name, values: series.values.map((v, i) => { if (v === null)
@@ -396,13 +457,19 @@ export function chartSvg(book, chart) {
     else
         tot.neg += v; return tot; }, { pos: 0, neg: 0 })) : [];
     const isScatter = chart.kind === 'scatter', values = isScatter && d.series.length >= 2 ? d.series.slice(1).flatMap(item => item.values) : all, scatterValues = values.filter((v) => v !== null && Number.isFinite(v)), scatterXValues = isScatter ? (d.series[0]?.values.filter((v) => v !== null && Number.isFinite(v)) ?? []) : [];
+    const scatterYBounds = isScatter ? d.series.slice(1, 9).flatMap((series, si) => series.values.flatMap(value => { if (value === null)
+        return []; const bars = chart.seriesOptions?.[si]?.errorBars; if (!bars || bars.axis === 'x')
+        return [value]; const amount = errorBarAmount(series.values, value, bars), direction = bars.direction ?? 'both'; return [value, ...(direction === 'minus' ? [] : [value + amount]), ...(direction === 'plus' ? [] : [value - amount])]; })) : scatterValues;
+    const scatterXBounds = isScatter ? d.series.slice(1, 9).flatMap((series, si) => { const xs = d.series[0]?.values ?? [], bars = chart.seriesOptions?.[si]?.errorBars; return xs.flatMap(value => { if (value === null)
+        return []; if (!bars || bars.axis !== 'x')
+        return [value]; const amount = errorBarAmount(xs, value, bars), direction = bars.direction ?? 'both'; return [value, ...(direction === 'minus' ? [] : [value + amount]), ...(direction === 'plus' ? [] : [value - amount])]; }); }) : scatterXValues;
     const secondaryIndices = new Set((chart.seriesOptions ?? []).map((option, index) => option.axis === 'secondary' ? index : -1).filter(index => index >= 0));
     const primaryValues = dataSeries.flatMap((series, index) => secondaryIndices.has(index) ? [] : series.values.filter((v) => v !== null));
     const secondaryValues = dataSeries.flatMap((series, index) => secondaryIndices.has(index) ? series.values.filter((v) => v !== null) : []);
     const axisScales = calculateAxisScales(dataSeries, chart.seriesOptions);
     const hasNegativePercent = percent && dataSeries.some(series => series.values.some(value => value !== null && value < 0));
-    const rawMin = percent ? (hasNegativePercent ? -100 : 0) : stacked ? Math.min(0, ...stackMinMax.map(x => x.neg)) : hasSecondary ? axisScales.primary.min : isScatter && scatterValues.length ? Math.min(...scatterValues) : Math.min(0, ...values.filter((v) => v !== null)), rawMax = percent ? 100 : stacked ? Math.max(0, ...stackMinMax.map(x => x.pos)) : hasSecondary ? axisScales.primary.max : isScatter && scatterValues.length ? Math.max(...scatterValues) : Math.max(0, ...values.filter((v) => v !== null));
-    const primaryScale = resolveScale(isScatter ? scatterValues : primaryValues.length ? primaryValues : values.filter((v) => v !== null), chart.yAxisMin ?? rawMin, chart.yAxisMax ?? rawMax, !isScatter), secondaryScale = resolveScale(secondaryValues, chart.secondaryYAxisMin ?? axisScales.secondary.min, chart.secondaryYAxisMax ?? axisScales.secondary.max), min = primaryScale.min, max = primaryScale.max, scatterXScale = isScatter ? resolveScale(scatterXValues, chart.xAxisMin, chart.xAxisMax, false) : undefined;
+    const rawMin = percent ? (hasNegativePercent ? -100 : 0) : stacked ? Math.min(0, ...stackMinMax.map(x => x.neg)) : hasSecondary ? axisScales.primary.min : isScatter && scatterYBounds.length ? Math.min(...scatterYBounds) : Math.min(0, ...values.filter((v) => v !== null)), rawMax = percent ? 100 : stacked ? Math.max(0, ...stackMinMax.map(x => x.pos)) : hasSecondary ? axisScales.primary.max : isScatter && scatterYBounds.length ? Math.max(...scatterYBounds) : Math.max(0, ...values.filter((v) => v !== null));
+    const primaryScale = resolveScale(isScatter ? scatterYBounds : primaryValues.length ? primaryValues : values.filter((v) => v !== null), chart.yAxisMin ?? rawMin, chart.yAxisMax ?? rawMax, !isScatter), secondaryScale = resolveScale(secondaryValues, chart.secondaryYAxisMin ?? axisScales.secondary.min, chart.secondaryYAxisMax ?? axisScales.secondary.max), min = primaryScale.min, max = primaryScale.max, scatterXScale = isScatter ? resolveScale(scatterXBounds, chart.xAxisMin, chart.xAxisMax, false) : undefined;
     const yOf = (v) => py + ph - (v - min) / (max - min) * ph;
     const secMin = secondaryScale.min, secMax = secondaryScale.max;
     const yOfSeries = (i, v) => secondaryIndices.has(i) ? py + ph - (v - secMin) / (secMax - secMin) * ph : yOf(v);
@@ -449,19 +516,26 @@ export function chartSvg(book, chart) {
     if (chart.kind === 'bar' || chart.kind === 'stacked-bar' || chart.kind === 'percent-bar') {
         const block = ph / n, band = block * .78 / series.length;
         const accumPos = Array(n).fill(0), accumNeg = Array(n).fill(0);
-        series.forEach((s, si) => s.values.slice(0, n).forEach((v, i) => {
-            if (v === null)
-                return;
-            const base = stacked ? (v >= 0 ? accumPos[i] : accumNeg[i]) : 0;
-            if (stacked) {
-                if (v >= 0)
-                    accumPos[i] += v;
-                else
-                    accumNeg[i] += v;
-            }
-            const zeroX = px + pw * (base - min) / (max - min), endX = px + pw * (base + v - min) / (max - min);
-            out += `<rect x="${Math.min(zeroX, endX)}" y="${py + i * block + (block - (stacked ? band * series.length : band * series.length)) / 2 + (stacked ? 0 : si * band)}" width="${Math.max(1, Math.abs(endX - zeroX))}" height="${Math.max(2, stacked ? band * series.length - 2 : band - 2)}" fill="${palette[si % palette.length]}"/>`;
-        }));
+        series.forEach((s, si) => {
+            const values = s.values.slice(0, n), bars = chart.seriesOptions?.[si]?.errorBars;
+            values.forEach((v, i) => {
+                if (v === null)
+                    return;
+                const base = stacked ? (v >= 0 ? accumPos[i] : accumNeg[i]) : 0;
+                if (stacked) {
+                    if (v >= 0)
+                        accumPos[i] += v;
+                    else
+                        accumNeg[i] += v;
+                }
+                const zeroX = px + pw * (base - min) / (max - min), endX = px + pw * (base + v - min) / (max - min), bandY = py + i * block + (block - band * series.length) / 2 + (stacked ? 0 : si * band), barHeight = Math.max(2, stacked ? band * series.length - 2 : band - 2);
+                out += `<rect x="${Math.min(zeroX, endX)}" y="${bandY}" width="${Math.max(1, Math.abs(endX - zeroX))}" height="${barHeight}" fill="${palette[si % palette.length]}"/>`;
+                if (bars) {
+                    const amount = errorBarAmount(values, v, bars), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', centerY = bandY + barHeight / 2, xValue = px + pw * (v - min) / (max - min), xPlus = showPlus ? px + pw * (v + amount - min) / (max - min) : xValue, xMinus = showMinus ? px + pw * (v - amount - min) / (max - min) : xValue, color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length], cap = (x) => bars.endCap === false ? '' : `<line x1="${x}" x2="${x}" y1="${centerY - 4}" y2="${centerY + 4}"/>`;
+                    out += `<g stroke="${color}" stroke-width="1.2"><line x1="${xPlus}" x2="${xMinus}" y1="${centerY}" y2="${centerY}"/>${showPlus ? cap(xPlus) : ''}${showMinus ? cap(xMinus) : ''}</g>`;
+                }
+            });
+        });
     }
     else if (chart.kind === 'scatter') {
         const xMin = scatterXScale.min, xMax = scatterXScale.max, xUnit = chart.xAxisMajorUnit === undefined ? undefined : Math.max(chart.xAxisMajorUnit, (xMax - xMin) / 60), xTicks = xUnit === undefined ? Array.from({ length: 5 }, (_, index) => xMin + (xMax - xMin) * index / 4) : Array.from({ length: Math.max(1, Math.floor((xMax - xMin) / xUnit + 1e-12) + 1) }, (_, index) => xMin + index * xUnit).filter(value => value <= xMax + xUnit * 1e-10);
@@ -478,10 +552,20 @@ export function chartSvg(book, chart) {
             const sx = px + ((x - xMin) / (xMax - xMin || 1)) * pw, sy = yOf(v), color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length];
             if (chart.seriesOptions?.[si]?.marker !== false)
                 out += `<circle cx="${sx}" cy="${sy}" r="4.5" fill="${color}" opacity=".88"><title>${esc(`${item.name} · ${x}: ${v}`)}</title></circle>`;
+            const bars = chart.seriesOptions?.[si]?.errorBars;
+            if (bars) {
+                const xBars = bars.axis === 'x', sourceValues = xBars ? (d.series[0]?.values ?? []) : item.values, sourceValue = xBars ? x : v;
+                if (sourceValue === null)
+                    return;
+                const amount = errorBarAmount(sourceValues, sourceValue, bars), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', xPlus = showPlus ? px + ((x + amount - xMin) / (xMax - xMin || 1)) * pw : sx, xMinus = showMinus ? px + ((x - amount - xMin) / (xMax - xMin || 1)) * pw : sx, yPlus = showPlus ? yOf(v + amount) : sy, yMinus = showMinus ? yOf(v - amount) : sy, capX = (point) => bars.endCap === false ? '' : `<line x1="${point}" x2="${point}" y1="${sy - 4}" y2="${sy + 4}"/>`, capY = (point) => bars.endCap === false ? '' : `<line x1="${sx - 4}" x2="${sx + 4}" y1="${point}" y2="${point}"/>`;
+                out += xBars ? `<g stroke="${color}" stroke-width="1.2"><line x1="${xPlus}" x2="${xMinus}" y1="${sy}" y2="${sy}"/>${showPlus ? capX(xPlus) : ''}${showMinus ? capX(xMinus) : ''}</g>` : `<g stroke="${color}" stroke-width="1.2"><line x1="${sx}" x2="${sx}" y1="${yPlus}" y2="${yMinus}"/>${showPlus ? capY(yPlus) : ''}${showMinus ? capY(yMinus) : ''}</g>`;
+            }
             if ((chart.dataLabels || chart.dataLabelCategoryName || chart.dataLabelSeriesName) && d.rows <= 30) {
-                const label = [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [item.name] : []), ...(chart.dataLabels ? [fmt(v)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
-                if (label)
-                    out += tag(sx + 6, sy - 6, label);
+                const label = [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [item.name] : []), ...(chart.dataLabels ? [chartDataLabelFmt(chart, v)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
+                if (label) {
+                    const position = chart.dataLabelPosition ?? 'outsideEnd', bestFit = position === 'bestFit', left = position === 'left' || bestFit && sx > px + pw * .78, right = position === 'right', below = position === 'below' || bestFit && sy < py + ph * .2, above = position === 'above', labelX = position === 'center' ? sx : left ? sx - 6 : right ? sx + 6 : sx + 6, labelY = position === 'center' ? sy + 4 : below ? sy + 15 : above ? sy - 11 : sy - 6, anchor = position === 'center' ? 'middle' : left ? 'end' : 'start';
+                    out += `<text x="${labelX}" y="${labelY}" text-anchor="${anchor}" font-family="Aptos,Segoe UI,Arial,sans-serif" fill="#53677f" font-size="11">${esc(label)}</text>`;
+                }
             }
         }));
     }
@@ -508,7 +592,8 @@ export function chartSvg(book, chart) {
                     out += `<polyline fill="none" stroke="${color}" stroke-width="2.8" stroke-linejoin="round" points="${line}"/>`;
                 } points = []; };
                 s.values.slice(0, n).forEach((v, i) => { if (v === null) {
-                    flush();
+                    if (chart.displayBlanksAs !== 'span')
+                        flush();
                     return;
                 } const x = xAt(i), y = yOfSeries(si, v); points.push(`${x},${y}`); if (chart.seriesOptions?.[si]?.marker !== false)
                     out += `<circle cx="${x}" cy="${y}" r="2.8" fill="${color}"/>`; });
@@ -516,9 +601,8 @@ export function chartSvg(book, chart) {
             }
             const bars = chart.seriesOptions?.[si]?.errorBars;
             if (bars) {
-                const vals = s.values.slice(0, n).filter((v) => v !== null), mean = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0, std = vals.length ? Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) : 0;
                 s.values.slice(0, n).forEach((v, i) => { if (v === null)
-                    return; const amount = bars.type === 'fixed' ? bars.value : bars.type === 'percentage' ? Math.abs(v) * bars.value / 100 : std, x = xAt(i), y1 = yOfSeries(si, v + amount), y2 = yOfSeries(si, v - amount), color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length]; out += `<g stroke="${color}" stroke-width="1.2"><line x1="${x}" x2="${x}" y1="${y1}" y2="${y2}"/><line x1="${x - 4}" x2="${x + 4}" y1="${y1}" y2="${y1}"/><line x1="${x - 4}" x2="${x + 4}" y1="${y2}" y2="${y2}"/></g>`; });
+                    return; const amount = errorBarAmount(s.values, v, bars), x = xAt(i), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', yValue = yOfSeries(si, v), yPlus = showPlus ? yOfSeries(si, v + amount) : yValue, yMinus = showMinus ? yOfSeries(si, v - amount) : yValue, color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length], cap = (y) => bars.endCap === false ? '' : `<line x1="${x - 4}" x2="${x + 4}" y1="${y}" y2="${y}"/>`; out += `<g stroke="${color}" stroke-width="1.2"><line x1="${x}" x2="${x}" y1="${yPlus}" y2="${yMinus}"/>${showPlus ? cap(yPlus) : ''}${showMinus ? cap(yMinus) : ''}</g>`; });
             }
         });
         const labelStep = chart.xAxisLabelInterval ?? Math.max(1, Math.ceil(n / 8));
@@ -552,12 +636,16 @@ export function chartSvg(book, chart) {
             }
         }
     if (chart.xAxisTitle)
-        out += tag(Math.max(70, W / 2 - 28), chart.legend === 'none' ? H - 18 : H - 35, chart.xAxisTitle.slice(0, 50));
+        out += tag(Math.max(70, W / 2 - 28), dataTable ? py + ph + 43 : chart.legend === 'none' ? H - 18 : H - 35, chart.xAxisTitle.slice(0, 50));
     if (chart.yAxisTitle)
         out += `<text x="15" y="${H / 2}" transform="rotate(-90 15 ${H / 2})" font-size="11" fill="#53677f">${esc(chart.yAxisTitle)}</text>`;
+    if (dataTable) {
+        const tableY = Math.min(H - tableHeight - 4, py + ph + (chart.xAxisTitle ? 50 : 30));
+        out += chartDataTableSvg(chart, d.labels, d.series, palette, px, tableY, pw, 15);
+    }
     if ((chart.dataLabels || chart.dataLabelCategoryName || chart.dataLabelSeriesName) && d.rows <= 30 && chart.kind !== 'scatter') {
-        const position = chart.dataLabelPosition ?? 'outsideEnd', labelY = (value, pointY, baseY) => position === 'center' ? (pointY + baseY) / 2 + 4 : position === 'insideEnd' ? (value >= 0 ? pointY + 13 : pointY - 3) : (value >= 0 ? pointY - 7 : pointY + 14);
-        const labelText = (value, si, i) => [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [series[si]?.name ?? ''] : []), ...(chart.dataLabels ? [percent ? `${fmt(value)}%` : fmt(value)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
+        const position = chart.dataLabelPosition ?? 'outsideEnd', labelY = (value, pointY, baseY) => position === 'center' ? (pointY + baseY) / 2 + 4 : position === 'insideBase' ? (value >= 0 ? baseY - 3 : baseY + 13) : position === 'insideEnd' ? (value >= 0 ? pointY + 13 : pointY - 3) : position === 'above' ? pointY - 8 : position === 'below' ? pointY + 15 : position === 'left' || position === 'right' ? pointY + 4 : (value >= 0 ? pointY - 7 : pointY + 14);
+        const labelText = (value, si, i) => [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [series[si]?.name ?? ''] : []), ...(chart.dataLabels ? [percent ? `${chartDataLabelFmt(chart, value)}%` : chartDataLabelFmt(chart, value)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
         if (horizontalBar) {
             const block = ph / n, band = block * .78 / series.length, positive = Array(n).fill(0), negative = Array(n).fill(0);
             series.forEach((item, si) => item.values.slice(0, n).forEach((value, i) => { if (value === null)
@@ -566,7 +654,7 @@ export function chartSvg(book, chart) {
                     positive[i] += value;
                 else
                     negative[i] += value;
-            } const startX = px + pw * (base - min) / (max - min), endX = px + pw * (base + value - min) / (max - min), centerY = py + i * block + (block - band * series.length) / 2 + (stacked ? band * series.length / 2 : si * band + band / 2), labelX = position === 'center' ? (startX + endX) / 2 : position === 'insideEnd' ? (value >= 0 ? endX - 22 : endX + 3) : (value >= 0 ? endX + 3 : endX - 22); out += tag(labelX, centerY + 4, labelText(value, si, i)); }));
+            } const startX = px + pw * (base - min) / (max - min), endX = px + pw * (base + value - min) / (max - min), centerY = py + i * block + (block - band * series.length) / 2 + (stacked ? band * series.length / 2 : si * band + band / 2), labelX = position === 'center' ? (startX + endX) / 2 : position === 'insideBase' ? (value >= 0 ? startX + 3 : startX - 22) : position === 'insideEnd' ? (value >= 0 ? endX - 22 : endX + 3) : position === 'left' ? startX - 23 : position === 'right' ? endX + 3 : (value >= 0 ? endX + 3 : endX - 22); out += tag(labelX, centerY + 4, labelText(value, si, i)); }));
         }
         else if (chart.kind === 'stacked-column' || chart.kind === 'percent-column') {
             const positive = Array(n).fill(0), negative = Array(n).fill(0);
@@ -578,19 +666,19 @@ export function chartSvg(book, chart) {
                     positive[i] = end;
                 else
                     negative[i] = end;
-                const renderedValue = percent ? `${fmt(value)}%` : fmt(value), label = [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [item.name] : []), ...(chart.dataLabels ? [renderedValue] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
+                const renderedValue = percent ? `${chartDataLabelFmt(chart, value)}%` : chartDataLabelFmt(chart, value), label = [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [item.name] : []), ...(chart.dataLabels ? [renderedValue] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
                 if (label)
                     out += tag(xAt(i) - 12, labelY(value, yOf(end), yOf(base)), label);
             }));
         }
         else
             series.forEach((s, si) => s.values.slice(0, n).forEach((v, i) => { if (v !== null) {
-                const x = (chart.kind === 'column' || chart.kind === 'combo') ? px + (i + .1) * pw / n + si * (pw / n * .7 / series.length) : xAt(i) - 12, isLine = chart.kind === 'combo' && chart.seriesOptions?.[si]?.kind === 'line', pointY = yOfSeries(si, v), baseY = isLine ? pointY : yOfSeries(si, 0);
-                out += tag(x, labelY(v, pointY, baseY), labelText(v, si, i));
+                const x = (chart.kind === 'column' || chart.kind === 'combo') ? px + (i + .1) * pw / n + si * (pw / n * .7 / series.length) : xAt(i) - 12, isLine = chart.kind === 'combo' && chart.seriesOptions?.[si]?.kind === 'line', pointY = yOfSeries(si, v), baseY = isLine ? pointY : yOfSeries(si, 0), placedX = position === 'left' ? x - 24 : position === 'right' ? x + 7 : x;
+                out += tag(placedX, labelY(v, pointY, baseY), labelText(v, si, i));
             } }));
     }
     if (series.length > 1 && chart.legend !== 'none') {
-        series.forEach((s, i) => { const x = L + i * Math.min(145, pw / series.length), y = chart.legend === 'top' ? 56 : H - 20, ty = chart.legend === 'top' ? 65 : H - 11; out += `<rect x="${x}" y="${y}" width="10" height="10" fill="${chart.seriesOptions?.[i]?.color ?? palette[i % palette.length]}"/>${tag(x + 15, ty, s.name.slice(0, 17))}`; });
+        series.forEach((s, i) => { const x = chart.legend === 'left' ? 14 : L + i * Math.min(145, pw / series.length), y = chart.legend === 'left' ? 44 + i * 20 : chart.legend === 'top' ? 56 : H - 20, ty = chart.legend === 'left' ? 53 + i * 20 : chart.legend === 'top' ? 65 : H - 11; out += `<rect x="${x}" y="${y}" width="10" height="10" fill="${chart.seriesOptions?.[i]?.color ?? palette[i % palette.length]}"/>${tag(x + 15, ty, s.name.slice(0, 17))}`; });
     }
     return svgStart + title + out + '</svg>';
 }
@@ -610,7 +698,7 @@ function paretoSvg(chart, data, palette, W, H, svgStart, title) {
     out += `<line x1="${px}" x2="${px}" y1="${py}" y2="${py + ph}" stroke="#9bacbf"/><line x1="${px + pw}" x2="${px + pw}" y1="${py}" y2="${py + ph}" stroke="#9bacbf"/><line x1="${px}" x2="${px + pw}" y1="${py + ph}" y2="${py + ph}" stroke="#9bacbf"/>`;
     const points = [];
     bars.forEach((value, index) => { const x = px + index * step + (step - barWidth) / 2, y = yOf(value); out += `<rect x="${x}" y="${y}" width="${barWidth}" height="${Math.max(1, py + ph - y)}" fill="${palette[0]}"/>`; points.push({ x: px + (index + .5) * step, y: py + ph - cumulative[index] * ph }); if (chart.dataLabels && count <= 30)
-        out += tag(x, y - 5, fmt(value)); if (index % Math.max(1, Math.ceil(count / 9)) === 0)
+        out += tag(x, y - 5, chartDataLabelFmt(chart, value)); if (index % Math.max(1, Math.ceil(count / 9)) === 0)
         out += tag(x - 7, py + ph + 21, (data.labels[index] ?? '').slice(0, 10)); });
     if (points.length > 1)
         out += `<polyline fill="none" stroke="${palette[1]}" stroke-width="2.5" stroke-linejoin="round" points="${points.map(point => `${point.x},${point.y}`).join(' ')}"/>`;
@@ -627,8 +715,9 @@ function boxWhiskerSvg(chart, data, palette, W, H, svgStart, title) {
     const samples = data.series.map(series => ({ name: series.name, values: series.values.filter((value) => value !== null && Number.isFinite(value)).sort((a, b) => a - b) })).filter(sample => sample.values.length > 0);
     if (!samples.length)
         return svgStart + title + tag(23, 85, 'Box and whisker charts need numeric samples in at least one series.') + '</svg>';
-    const quantile = (values, p) => { const position = (values.length - 1) * p, lower = Math.floor(position), fraction = position - lower; return values[lower] + (values[Math.min(values.length - 1, lower + 1)] - values[lower]) * fraction; };
-    const all = samples.flatMap(sample => sample.values), minimum = Math.min(...all), maximum = Math.max(...all), scale = resolveScale(all), L = 62, T = 54, R = 24, B = 70, px = L, py = T, pw = W - L - R, ph = H - T - B, yOf = (value) => py + ph - (value - scale.min) / (scale.max - scale.min) * ph, step = pw / samples.length, boxWidth = Math.min(56, step * .48);
+    const quantile = (values, p, exclusive = false) => { const position = exclusive ? p * (values.length + 1) - 1 : (values.length - 1) * p, clamped = Math.max(0, Math.min(values.length - 1, position)), lower = Math.floor(clamped), fraction = clamped - lower; return values[lower] + (values[Math.min(values.length - 1, lower + 1)] - values[lower]) * fraction; }, median = (values) => values.length % 2 ? values[Math.floor(values.length / 2)] : (values[values.length / 2 - 1] + values[values.length / 2]) / 2;
+    const quartiles = (values) => ({ q1: quantile(values, .25, chart.boxQuartileMethod === 'exclusive'), q3: quantile(values, .75, chart.boxQuartileMethod === 'exclusive') });
+    const all = samples.flatMap(sample => sample.values), scale = resolveScale(all), L = 62, T = 54, R = 24, B = 70, px = L, py = T, pw = W - L - R, ph = H - T - B, yOf = (value) => py + ph - (value - scale.min) / (scale.max - scale.min) * ph, step = pw / samples.length, boxWidth = Math.min(56, step * .48), stats = samples.map((sample, index) => { const { q1, q3 } = quartiles(sample.values), medianValue = median(sample.values), spread = q3 - q1, lowFence = q1 - 1.5 * spread, highFence = q3 + 1.5 * spread, low = sample.values.find(value => value >= lowFence), high = [...sample.values].reverse().find(value => value <= highFence), mean = sample.values.reduce((sum, value) => sum + value, 0) / sample.values.length; return { sample, index, q1, q3, median: medianValue, low, high, lowFence, highFence, mean, cx: px + (index + .5) * step }; });
     let out = '';
     for (let tick = 0; tick <= 4; tick++) {
         const value = scale.min + (scale.max - scale.min) * tick / 4, y = yOf(value);
@@ -637,10 +726,15 @@ function boxWhiskerSvg(chart, data, palette, W, H, svgStart, title) {
         out += tag(3, y + 4, axisFmt(value, chart.yAxisNumberFormat, chart.yAxisFormatCode));
     }
     out += `<line x1="${px}" x2="${px}" y1="${py}" y2="${py + ph}" stroke="#9bacbf"/><line x1="${px}" x2="${px + pw}" y1="${py + ph}" y2="${py + ph}" stroke="#9bacbf"/>`;
-    samples.forEach((sample, index) => {
-        const q1 = quantile(sample.values, .25), median = quantile(sample.values, .5), q3 = quantile(sample.values, .75), spread = q3 - q1, lowFence = q1 - 1.5 * spread, highFence = q3 + 1.5 * spread, low = sample.values.find(value => value >= lowFence), high = [...sample.values].reverse().find(value => value <= highFence), cx = px + (index + .5) * step, color = palette[index % palette.length];
-        out += `<line x1="${cx}" x2="${cx}" y1="${yOf(high)}" y2="${yOf(q3)}" stroke="${color}" stroke-width="2"/><line x1="${cx}" x2="${cx}" y1="${yOf(q1)}" y2="${yOf(low)}" stroke="${color}" stroke-width="2"/><line x1="${cx - boxWidth * .28}" x2="${cx + boxWidth * .28}" y1="${yOf(high)}" y2="${yOf(high)}" stroke="${color}" stroke-width="2"/><line x1="${cx - boxWidth * .28}" x2="${cx + boxWidth * .28}" y1="${yOf(low)}" y2="${yOf(low)}" stroke="${color}" stroke-width="2"/><rect x="${cx - boxWidth / 2}" y="${yOf(q3)}" width="${boxWidth}" height="${Math.max(1, yOf(q1) - yOf(q3))}" fill="${color}" fill-opacity=".3" stroke="${color}" stroke-width="2"/><line x1="${cx - boxWidth / 2}" x2="${cx + boxWidth / 2}" y1="${yOf(median)}" y2="${yOf(median)}" stroke="${color}" stroke-width="3"/>`;
-        sample.values.filter(value => value < lowFence || value > highFence).forEach(value => { out += `<circle cx="${cx}" cy="${yOf(value)}" r="3" fill="white" stroke="${color}" stroke-width="1.5"/>`; });
+    if (chart.boxShowMeanLine)
+        out += `<polyline points="${stats.map(item => `${item.cx},${yOf(item.mean)}`).join(' ')}" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    stats.forEach(({ sample, index, q1, q3, median: medianValue, low, high, lowFence, highFence, mean, cx }) => {
+        const color = palette[index % palette.length];
+        out += `<line x1="${cx}" x2="${cx}" y1="${yOf(high)}" y2="${yOf(q3)}" stroke="${color}" stroke-width="2"/><line x1="${cx}" x2="${cx}" y1="${yOf(q1)}" y2="${yOf(low)}" stroke="${color}" stroke-width="2"/><line x1="${cx - boxWidth * .28}" x2="${cx + boxWidth * .28}" y1="${yOf(high)}" y2="${yOf(high)}" stroke="${color}" stroke-width="2"/><line x1="${cx - boxWidth * .28}" x2="${cx + boxWidth * .28}" y1="${yOf(low)}" y2="${yOf(low)}" stroke="${color}" stroke-width="2"/><rect x="${cx - boxWidth / 2}" y="${yOf(q3)}" width="${boxWidth}" height="${Math.max(1, yOf(q1) - yOf(q3))}" fill="${color}" fill-opacity=".3" stroke="${color}" stroke-width="2"/><line x1="${cx - boxWidth / 2}" x2="${cx + boxWidth / 2}" y1="${yOf(medianValue)}" y2="${yOf(medianValue)}" stroke="${color}" stroke-width="3"/>`;
+        sample.values.forEach((value, pointIndex) => { const outlier = value < lowFence || value > highFence; if (outlier ? !chart.boxShowOutliers : !chart.boxShowInnerPoints)
+            return; const jitter = ((pointIndex % 7) - 3) * 3; out += `<circle cx="${cx + jitter}" cy="${yOf(value)}" r="${outlier ? 3 : 2.4}" fill="${outlier ? 'white' : color}" fill-opacity="${outlier ? 1 : .55}" stroke="${color}" stroke-width="1.3"/>`; });
+        if (chart.boxShowMeanMarker)
+            out += `<circle cx="${cx}" cy="${yOf(mean)}" r="4" fill="#ffffff" stroke="#172b4d" stroke-width="2"/>`;
         out += tag(cx - 28, py + ph + 21, sample.name.slice(0, 12));
     });
     if (chart.xAxisTitle)
@@ -666,7 +760,7 @@ function funnelSvg(chart, data, palette, W, H, svgStart, title) {
     return svgStart + title + out + '</svg>';
 }
 function treemapSvg(chart, data, palette, W, H, svgStart, title) {
-    const entries = data.labels.map((label, index) => ({ label, parent: label.split(' › ')[0] ?? '', value: data.series[0]?.values[index] ?? 0 })).filter(item => item.value > 0);
+    const entries = data.labels.map((label, index) => ({ label, parent: data.hierarchy?.[index]?.[0] ?? label.split(' › ')[0] ?? '', value: data.series[0]?.values[index] ?? 0 })).filter(item => item.value > 0);
     if (!entries.length)
         return svgStart + title + tag(23, 85, 'Treemap needs positive values and category labels.') + '</svg>';
     const L = 16, T = 48, R = 16, B = 20, plot = { x: L, y: T, w: W - L - R, h: H - T - B }, total = entries.reduce((sum, item) => sum + item.value, 0);
@@ -706,7 +800,7 @@ function treemapSvg(chart, data, palette, W, H, svgStart, title) {
         if (w > 50 && h > 24)
             out += tag(x + 5, y + Math.min(17, h - 5), item.label.slice(0, Math.max(4, Math.floor(w / 7))));
         if (chart.dataLabels && w > 48 && h > 38)
-            out += tag(x + 5, y + Math.min(33, h - 5), fmt(item.value));
+            out += tag(x + 5, y + Math.min(33, h - 5), chartDataLabelFmt(chart, item.value));
     }
     return svgStart + title + out + '</svg>';
 }
@@ -734,7 +828,7 @@ function stockSvg(chart, data, palette, W, H, svgStart, title) {
         else
             out += `<line x1="${cx}" x2="${cx + bodyWidth / 2}" y1="${closeY}" y2="${closeY}" stroke="${color}" stroke-width="1.5"/>`;
         if (chart.dataLabels && count <= 40)
-            out += tag(cx - 10, top - 5, fmt(c));
+            out += tag(cx - 10, top - 5, chartDataLabelFmt(chart, c));
         if (index % Math.max(1, Math.ceil(count / 9)) === 0)
             out += tag(cx - 18, py + ph + 21, (data.labels[index] ?? '').slice(0, 12));
     }
@@ -746,8 +840,8 @@ function stockSvg(chart, data, palette, W, H, svgStart, title) {
 }
 function sunburstSvg(chart, data, palette, W, H, svgStart, title) {
     const root = { name: '', value: 0, children: new Map() };
-    data.labels.forEach((path, index) => { const value = data.series[0]?.values[index] ?? 0; if (value <= 0)
-        return; let parent = root; for (const name of path.split(' › ')) {
+    data.labels.forEach((label, index) => { const value = data.series[0]?.values[index] ?? 0; if (value <= 0)
+        return; let parent = root; for (const name of data.hierarchy?.[index] ?? label.split(' › ')) {
         let child = parent.children.get(name);
         if (!child) {
             child = { name, value: 0, children: new Map() };
@@ -839,7 +933,7 @@ function waterfallSvg(chart, data, palette, W, H, svgStart, title) {
             const color = totals.has(index) ? '#4472c4' : point.delta >= 0 ? '#18865b' : '#d45d47', top = yOf(Math.max(point.start, point.end)), bottom = yOf(Math.min(point.start, point.end));
             out += `<rect x="${x}" y="${top}" width="${barWidth}" height="${Math.max(1, bottom - top)}" rx="1" fill="${color}"/>`;
             if (chart.dataLabels)
-                out += tag(x - 6, top - 5, fmt(point.delta));
+                out += tag(x - 6, top - 5, chartDataLabelFmt(chart, point.delta));
         }
         if (index % Math.max(1, Math.ceil(count / 9)) === 0)
             out += tag(x - 8, py + ph + 21, point.label.slice(0, 10));

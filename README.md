@@ -1,6 +1,43 @@
-# GridForge v11.26 — Standalone Excel-style Spreadsheet Workspace
+# GridForge v12.0.126 — A flexible Excel-style spreadsheet workspace
 
-GridForge is an offline-first spreadsheet application with its own worksheet grid, formula engine and Excel-inspired ribbon; Microsoft Excel is not required. Version 11.26 improves Excel-compatible date calculations, including U.S. and European 30/360 methods, Actual/Actual year fractions, and Excel date-range checks.
+See [v12.0.95 formula compatibility notes](docs/RELEASE_NOTES_V12_0_95.md), [v12.0.96 currency text notes](docs/RELEASE_NOTES_V12_0_96.md), [v12.0.97 time parsing notes](docs/RELEASE_NOTES_V12_0_97.md), [v12.0.98 TIME behavior notes](docs/RELEASE_NOTES_V12_0_98.md), [v12.0.99 time-component notes](docs/RELEASE_NOTES_V12_0_99.md), [v12.0.100 chart accessibility notes](docs/RELEASE_NOTES_V12_0_100.md), [v12.0.101 locale time parsing notes](docs/RELEASE_NOTES_V12_0_101.md), [v12.0.102 Draw selection notes](docs/RELEASE_NOTES_V12_0_102.md), [v12.0.103 compatibility improvements](docs/RELEASE_NOTES_V12_0_103.md), [v12.0.104 financial iteration notes](docs/RELEASE_NOTES_V12_0_104.md), [v12.0.105 NPV reference behavior](docs/RELEASE_NOTES_V12_0_105.md), [v12.0.106 counting and date parsing notes](docs/RELEASE_NOTES_V12_0_106.md), [v12.0.107 conditional aggregation updates](docs/RELEASE_NOTES_V12_0_107.md), [v12.0.108 date/time criteria notes](docs/RELEASE_NOTES_V12_0_108.md), [v12.0.109 MAXIFS/MINIFS notes](docs/RELEASE_NOTES_V12_0_109.md), [v12.0.110 named hyperlink navigation](docs/RELEASE_NOTES_V12_0_110.md), [v12.0.111 sparse count ranges](docs/RELEASE_NOTES_V12_0_111.md), [v12.0.112 sparse COUNTIF ranges](docs/RELEASE_NOTES_V12_0_112.md), [v12.0.113 sparse COUNTIFS ranges](docs/RELEASE_NOTES_V12_0_113.md), [v12.0.114 sparse SUMIFS/AVERAGEIFS ranges](docs/RELEASE_NOTES_V12_0_114.md), and [v12.0.115 sparse MAXIFS/MINIFS ranges](docs/RELEASE_NOTES_V12_0_115.md), and [v12.0.116 sparse criteria-range error handling](docs/RELEASE_NOTES_V12_0_116.md), and [v12.0.117 compact range dependencies](docs/RELEASE_NOTES_V12_0_117.md), and [v12.0.118 range-aware formula tracing](docs/RELEASE_NOTES_V12_0_118.md), and [v12.0.119 range dependency safeguards](docs/RELEASE_NOTES_V12_0_119.md), and [v12.0.120 larger sparse aggregation ranges](docs/RELEASE_NOTES_V12_0_120.md), and [v12.0.121 sparse basic aggregations](docs/RELEASE_NOTES_V12_0_121.md), and [v12.0.122 sparse range index](docs/RELEASE_NOTES_V12_0_122.md), and [v12.0.123 sparse order statistics](docs/RELEASE_NOTES_V12_0_123.md), and [v12.0.124 sparse aggregate family](docs/RELEASE_NOTES_V12_0_124.md), [v12.0.125 Excel variance aliases](docs/RELEASE_NOTES_V12_0_125.md), and [v12.0.126 safer ChartEx imports](docs/RELEASE_NOTES_V12_0_126.md).
+
+GridForge is an offline-first spreadsheet application with its own worksheet grid, formula engine and Excel-inspired ribbon; Microsoft Excel is not required. Version 12.0 makes the interface easier to adapt to different work styles and accessibility needs while carrying forward the cloud workbook connector. Version 12.0.55 renders numbers to 15 significant digits for Excel-like general text output; v12.0.49 corrects the formula reference and compatibility counts to match the 506 local and 10 connected names, documents scoped LAMBDA and dynamic spilling accurately, and rejects oversized spill outputs before populating neighboring cells; v12.0.48 keeps Treemap and Sunburst hierarchy tuples distinct even when category labels contain the display separator; v12.0.47 flattens nested JSON records into bounded worksheet columns; v12.0.46 moves CUBESETCOUNT from a misleading offline text counter to the connected-function list; v12.0.45 indexes PIVOTBY row and column prefix groups to reduce repeated full-group scans; v12.0.44 lets public JSON refresh queries extract a nested array through a JSON Pointer before loading and transformation; v12.0.43 adds nested GROUPBY row subtotals with top or bottom totals, hierarchy-safe ordering, and an output-size preflight; v12.0.42 adds nested PIVOTBY row and column subtotals with matching safeguards; v12.0.41 separates PIVOTBY field captions from hierarchy values in multi-level headers; v12.0.40 moves routine workbook autosaves to IndexedDB, with migration and fallback for existing local-storage saves; v12.0.39 supports vector sort-order arrays for multi-field PIVOTBY; v12.0.38 adds PIVOTBY parent-row and parent-column aggregation bases; v12.0.37 extends formula-based PIVOTBY to multiple row and column field levels with hierarchy output; v12.0.36 lets the Name Box navigate cross-sheet cells and ranges, including quoted sheet names; v12.0.35 updates the Help panel with the added navigation, selection, sheet, filter, and fill shortcuts; v12.0.34 adds Ctrl+Arrow navigation through populated regions and Home row navigation; v12.0.33 adds Ctrl+R fill-right with formula reference adjustment; v12.0.32 expands the Name Box to select ranges and supported defined names; v12.0.31 adds keyboard selection for worksheet rows, columns, and the full sheet; v12.0.30 adds Ctrl+Home/Ctrl+End navigation to the workbook used area; v12.0.29 adds Excel-style worksheet navigation shortcuts and remembers each sheet’s selection and scroll position; v12.0.28 adds multi-measure PIVOTBY output and defers formula recalculation during workbook restore to avoid repeating worker-side calculations on the interface thread; v12.0.27 adds worksheet-local named LAMBDA formulas; v12.0.26 expands formula-based GROUPBY and PIVOTBY summaries with filtering, sorting, grand totals, multiple grouped fields in GROUPBY, and LAMBDA aggregators; v12.0.25 adds Excel-style LAMBDA evaluation to MAP, BYROW, BYCOL, MAKEARRAY, REDUCE, and SCAN; v12.0.24 keeps the Draw and Page Layout ribbons compact; v12.0.23 adds `_xlfn.` serialization for PERCENTOF, ISOMITTED, and service-backed DETECTLANGUAGE; v12.0.22 added FIELDVALUE and STOCKHISTORY; v12.0.21 expands REGEXEXTRACT to first-match, all-match, and capture-group modes; v12.0.20 fixes XLSX `_xlfn.` prefixes for newer functions; v12.0.19 fixes Excel 1900 date serial conversion in date validation and Pivot dates; v12.0.18 improves explicit @ implicit intersection for computed arrays; v12.0.17 fixes the Draw and Page Layout ribbon height; v12.0.16 reduces peak memory during CSV import; v12.0.15 moves GridForge JSON import work off the interface thread; v12.0.14 does the same for CSV import; v12.0.13 adds export size safeguards; v12.0.12 moves CSV and JSON export work into a background worker, complementing v12.0.11's XLSX export worker; v12.0.10 added Box workbook access.
+
+## v12.0 highlights
+
+- Choose among four persistent visual presets: Excel 2019, Modern, Compact, and High Contrast. The choice changes presentation only and does not alter workbooks.
+- Combine a visual preset with independent light/dark color mode and Excel-style or Guided workspace. Guided mode keeps its beginner actions available regardless of the visual preset.
+- Added a high contrast palette with stronger focus outlines and clearer active ribbon and cell selections, plus a compact layout for smaller displays and reduced scrolling.
+- Existing Excel-style command groups, worksheet tools, cloud open/save actions, printing, charts, and PivotTable subset remain available from the same app.
+- GridForge remains a separate spreadsheet engine; the redesign does not establish complete Excel feature or file-format parity.
+
+See [v12 feature matrix](docs/FEATURE_VERIFICATION_V12.md), [v12 release notes](docs/RELEASE_NOTES_V12.md), [12.0.1 responsiveness notes](docs/RELEASE_NOTES_V12_0_1.md), [12.0.2 ChartEx notes](docs/RELEASE_NOTES_V12_0_2.md), and [12.0.3 notes](docs/RELEASE_NOTES_V12_0_3.md) and [12.0.4 import responsiveness notes](docs/RELEASE_NOTES_V12_0_4.md) and [12.0.5 chart error-bar notes](docs/RELEASE_NOTES_V12_0_5.md) and [12.0.6 ribbon and locale notes](docs/RELEASE_NOTES_V12_0_6.md), [12.0.9 chart notes](docs/RELEASE_NOTES_V12_0_9.md), [12.0.10 Box cloud notes](docs/RELEASE_NOTES_V12_0_10.md), [12.0.11 XLSX export responsiveness notes](docs/RELEASE_NOTES_V12_0_11.md), [12.0.12 CSV and JSON export responsiveness notes](docs/RELEASE_NOTES_V12_0_12.md), [12.0.13 export safety notes](docs/RELEASE_NOTES_V12_0_13.md), [12.0.14 CSV import responsiveness notes](docs/RELEASE_NOTES_V12_0_14.md), [12.0.15 JSON import responsiveness notes](docs/RELEASE_NOTES_V12_0_15.md), [12.0.16 CSV memory notes](docs/RELEASE_NOTES_V12_0_16.md), and [12.0.17 ribbon layout notes](docs/RELEASE_NOTES_V12_0_17.md), [12.0.18 formula compatibility notes](docs/RELEASE_NOTES_V12_0_18.md), [12.0.19 date compatibility notes](docs/RELEASE_NOTES_V12_0_19.md), [12.0.20 XLSX formula compatibility notes](docs/RELEASE_NOTES_V12_0_20.md), [12.0.21 REGEXEXTRACT notes](docs/RELEASE_NOTES_V12_0_21.md), and [12.0.22 connected formula serialization notes](docs/RELEASE_NOTES_V12_0_22.md), and [12.0.23 function serialization notes](docs/RELEASE_NOTES_V12_0_23.md), and [12.0.24 ribbon sizing notes](docs/RELEASE_NOTES_V12_0_24.md), [12.0.25 LAMBDA notes](docs/RELEASE_NOTES_V12_0_25.md), and [12.0.26 GROUPBY/PIVOTBY notes](docs/RELEASE_NOTES_V12_0_26.md), plus [12.0.27 named LAMBDA notes](docs/RELEASE_NOTES_V12_0_27.md), [12.0.28 responsiveness notes](docs/RELEASE_NOTES_V12_0_28.md), [12.0.49 function/spill limits](docs/RELEASE_NOTES_V12_0_49.md), and [12.0.55 numeric precision](docs/RELEASE_NOTES_V12_0_50.md).
+
+## v11.30 highlights (incremental release)
+
+- Connect user-configured OneDrive, Google Drive, Dropbox, or Box desktop OAuth apps to browse, open, save a workbook, or save a new copy. Refresh credentials are protected with Windows DPAPI; Box also stores its app secret using DPAPI. Cloud save is explicit and checks cloud revisions before overwriting. See [cloud storage setup](docs/CLOUD_STORAGE_SETUP.md).
+- Local spreadsheet use remains offline. Provider app registration is required; cloud listing is root-only, Google Drive uses `drive.file`, Box simple uploads are limited to 50 MB, and native Google Sheets import and continuous sync are not supported.
+
+See [v11.30 feature matrix](docs/FEATURE_VERIFICATION_V11_30.md) and [release notes](docs/RELEASE_NOTES_V11_30.md).
+
+## v11.29 highlights
+
+- Added persistent Draw tools for pen/highlighter, shapes, arrows, text boxes, selection/move, erasing, undo, and replay. GridForge-only drawings remain stored in its JSON format; XLSX export warns before omitting them.
+- Added six header/footer positions to Page Setup with `&P`, `&N`, `&A`, and `&D` tokens, browser-print rendering, and supported XLSX OOXML round-tripping.
+- Retained page setup, print area, repeated titles, margins, fit-to-page, print options, and page-break preview.
+- Preserved the broad existing PivotTable subset and native metadata support; Excel timelines, Data Model, DAX, OLAP, and complete PivotChart controls remain unavailable.
+
+See [v11.29 feature matrix](docs/FEATURE_VERIFICATION_V11_29.md) and [release notes](docs/RELEASE_NOTES_V11_29.md).
+
+## v11.27 highlights
+
+- Polynomial trendlines now fit in a centered, scaled domain with QR factorization, reducing instability when X values are large (such as date serials). The displayed equation identifies the normalized X variable used by the fit.
+- Moving-average chart trendlines retain the actual X positions for irregularly spaced scatter data instead of drawing averages at inferred evenly spaced positions.
+- Multi-criteria formulas now reject ranges with mismatched row/column shapes, even when their flattened cell counts match. Chart series can use calculated Standard Error bars, with supported native XLSX metadata round-tripping.
+- Added 12 Excel Engineering conversions between binary, octal, decimal, and hexadecimal, including Excel's signed two's-complement ranges, optional zero-padding, and input/output limits.
+- `FLOOR` rejects mixed-sign number/significance inputs with Excel's `#NUM!` result and uses a small floating-point tolerance around exact multiples to prevent values such as `FLOOR(1.1,0.1)` from falling a full increment early. `CEILING` uses the same boundary handling.
+- These are targeted compatibility improvements. They do not establish full formula or chart parity with Excel.
 
 ## v11.26 highlights
 - `DAYS360` now distinguishes Excel's U.S. (NASD) and European methods, including month-end adjustments. `YEARFRAC` basis 0 and 4 use their matching conventions; basis 1 accumulates actual days against each year's serial-day length.
@@ -16,7 +53,7 @@ GridForge is an offline-first spreadsheet application with its own worksheet gri
 - Native XLSX PivotTable import, summary calculation, and export support a separate Top/Bottom value filter on each selected row or column field. The Pivot Summary dialog can add, edit, and remove multiple filters, each with its own field, Values calculation, direction, and item count.
 - Pivot item filters distinguish no filter from an explicit empty selection, preserving imported Excel states where no items are visible. Slicer items toggle independently while multi-selecting, and clearing a slicer restores all items.
 - XLSX PivotTable import resolves workbook-scoped names that point directly to worksheet cell ranges, in addition to supported tables and local names. Formula-based and external-workbook names remain unsupported.
-- Compatibility follow-up: supported Excel date/time number formats now round-trip through XLSX, and 1904-system date literals normalize on import. Histogram bin width, underflow, and overflow settings round-trip through native ChartEx; ChartEx legends preserve placement; Waterfall can round-trip a final total point. Formula adjustments cover XLOOKUP row/column arrays, selected date/time and blank/count behavior, NUMBERVALUE separators/percent signs, ASCII-space TRIM, DATEDIF boundaries, and XNPV validation; these remain targeted fixes rather than full Excel equivalence.
+- Compatibility follow-up: supported Excel date/time number formats now round-trip through XLSX, and 1904-system date literals normalize on import. Histogram bin width, underflow, and overflow settings round-trip through native ChartEx; ChartEx legends preserve placement; Waterfall can round-trip a final total point. Formula adjustments cover XLOOKUP row/column arrays, selected date/time and blank/count behavior, VALUE and NUMBERVALUE current-locale separators and localized digits, NUMBERVALUE percent signs, ASCII-space TRIM, DATEDIF boundaries, and XNPV validation; these remain targeted fixes rather than full Excel equivalence.
 - Lookup compatibility now includes `MATCH` exact and sorted approximate modes, `XMATCH` and `XLOOKUP` forward/reverse and sorted binary searches, plus XLOOKUP wildcard and next-smaller/next-larger modes. Binary search validates ordering; broad Excel comparison across coercion and locale edge cases remains outstanding.
 - Waterfall charts accept multiple total/subtotal point indexes in their editor and persist supported indexes using native ChartEx subtotal metadata. Page Setup now imports/exports Print Titles; repeated rows also repeat in browser print, while repeated columns are retained for Excel.
 - Combo chart XLSX import/export now retains mixed column/line series and their primary/secondary axis assignments. Validation rules now preserve Excel input prompts and stop/warning/information alerts, with matching controls in the editor.
@@ -33,9 +70,9 @@ GridForge is an offline-first spreadsheet application with its own worksheet gri
 - Dynamic-array `TAKE` and `DROP` distinguish omitted arguments from explicit zero counts and return `#CALC!` for an empty result.
 - Imported PivotTables retain manually ordered field items during refresh and XLSX export. Choose “Manual” in the Pivot Summary dialog to reorder items with Move Up/Move Down controls; manually grouped fields list their group captions, and date or numeric grouping lists the displayed group labels instead of raw source values. Opening an existing Pivot after source data changes, or changing its source range, reconciles added and removed categories while retaining the relative order of existing items; new values follow source order. “Manual (starts in source order)” retains the original encounter order until you reorder items.
 - Source release includes the TypeScript source, compiled browser app (`dist/`), desktop wrapper, installer recipe, GitHub Actions workflow, and complete dependency/build instructions.
-- Compiled release artifacts: `build/release/GridForge-Setup-11.26.0-win64.exe` (installer), `GridForge-Portable-win64.zip` (portable app), and `GridForge-v11.26.0-source.zip` (GitHub-ready source with compiled `dist/`). SHA-256 values are in `build/release/SHA256SUMS.txt`.
+- Compiled release artifacts: `build/release/GridForge-Setup-12.0.126-win64.exe` (installer), `GridForge-Portable-win64.zip` (portable app), `GridForge-v12.0.126-source.zip` (source with compiled `dist/`), and `GridForge-v12.0.126-GitHub-Repository.zip` (source plus installer). SHA-256 values are in `build/release/SHA256SUMS.txt`.
 
-See [v11.26 feature matrix](docs/FEATURE_VERIFICATION_V11_26.md), [release notes](docs/RELEASE_NOTES_V11_26.md), and [desktop build guide](docs/DESKTOP_BUILD_AND_RELEASE.md).
+See [v11.28 feature matrix](docs/FEATURE_VERIFICATION_V11_28.md), [release notes](docs/RELEASE_NOTES_V11_28.md), [v11.27 feature matrix](docs/FEATURE_VERIFICATION_V11_27.md), and [desktop build guide](docs/DESKTOP_BUILD_AND_RELEASE.md).
 
 ## v11.22 highlights
 
@@ -47,7 +84,7 @@ See [v11.26 feature matrix](docs/FEATURE_VERIFICATION_V11_26.md), [release notes
 
 - Create stock charts from Open, High, Low and Close columns in any order, with an optional date/label column.
 - Invalid high/low bounds show a chart message, and incomplete rows are skipped.
-- The Inno Setup installer and desktop metadata are updated to version 11.15.0; the installer was compiled without running Windows test phases.
+- The Inno Setup installer and desktop metadata are updated to version 12.0.0; the installer was compiled without running Windows test phases.
 - Stock chart XLSX export currently uses a clustered-column fallback.
 - See the [v11.15 feature matrix](docs/FEATURE_VERIFICATION_V11_15.md) and [release notes](docs/RELEASE_NOTES_V11_15.md).
 
@@ -77,7 +114,7 @@ See the [v11.13 feature matrix](docs/FEATURE_VERIFICATION_V11_13.md), [release n
 - Refresh saved summaries manually or after ordinary edits, paste, undo and redo. Reports are generated as standard worksheet cells and can use existing chart features.
 - GridForge provides persistent on-sheet slicer cards for ungrouped PivotTable row and column fields; slicer selections refresh the summary and export as PivotField item filters. Native Excel slicer objects and timelines, multi-level date hierarchies, calculated fields, Power Query M, Data Model, Power Pivot, DAX, OLAP and full Excel PivotTable editing remain unsupported. Summary-linked standard DrawingML charts export with native PivotChart links, although GridForge edits them as regular charts; specialized ChartEx charts do not carry native PivotChart links. A selected date field can be grouped by one interval (year, quarter, month, or day), and a numeric field can be grouped into custom intervals; both round-trip through supported native XLSX PivotTable cache metadata. GridForge query refresh is limited to worksheet transformations and public HTTPS CSV/JSON sources.
 
-See the [v11.12 feature matrix](docs/FEATURE_VERIFICATION_V11_12.md), [release notes](docs/RELEASE_NOTES_V11_12.md) and [continuation guide](docs/CONTINUATION_GUIDE_V11_12.md). The 507 local or workbook-context function names do not establish exact Excel behavior, and 9 service-dependent names are not fully available offline.
+See the [v11.12 feature matrix](docs/FEATURE_VERIFICATION_V11_12.md), [release notes](docs/RELEASE_NOTES_V11_12.md) and [continuation guide](docs/CONTINUATION_GUIDE_V11_12.md). The 506 local function names do not establish exact Excel behavior, and 10 service-dependent names are not fully available offline.
 
 ## v11.11 highlights
 
@@ -123,18 +160,18 @@ The compiled browser application is checked into `dist/`. To run it without buil
 python run_gridforge.py
 ```
 
-Then open the local address printed in the terminal. On Windows, `START_HERE_WINDOWS.bat` starts the same precompiled app. The built native Windows installer is `build/release/GridForge-Setup-11.26.0-win64.exe` after the Windows build finishes; it contains the compiled desktop app and optional VBA bridge. End users need Windows 10/11 x64 and Microsoft Edge WebView2 Runtime. They do not need Node.js, npm, or Python when using the installer.
+Then open the local address printed in the terminal. On Windows, `START_HERE_WINDOWS.bat` starts the same precompiled app. The built native Windows installer is `build/release/GridForge-Setup-12.0.126-win64.exe` after the Windows build finishes; it contains the compiled desktop app and optional VBA bridge. End users need Windows 10/11 x64 and Microsoft Edge WebView2 Runtime. They do not need Node.js, npm, or Python when using the installer.
 
 ### Install using the included Windows installer
 
-In the GitHub repository ZIP, open the `release/` folder and run `GridForge-Setup-11.26.0-win64.exe`. Follow the setup prompts and launch GridForge from the Start menu or its desktop shortcut. Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required. The installer includes the compiled application and optional Excel VBA bridge; Node.js, npm, and Python are not needed to install or run it. The installer does not install Microsoft Excel.
+In the GitHub repository ZIP, open the `release/` folder and run `GridForge-Setup-12.0.126-win64.exe`. Follow the setup prompts and launch GridForge from the Start menu or its desktop shortcut. Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required. The installer includes the compiled application and optional Excel VBA bridge; Node.js, npm, and Python are not needed to install or run it. The installer does not install Microsoft Excel.
 
 ## Software dependencies
 
 | Task | Required software |
 |---|---|
 | Run the precompiled browser app | Python 3.10+ (standard library only) and a current browser; no packages are installed by `run_gridforge.py`. |
-| Edit and compile the frontend | Node.js 20+ with npm; dependencies are pinned through `package-lock.json` (`typescript` and `@xmldom/xmldom`). |
+| Edit and compile the frontend | Node.js 20+ with npm; dependencies are pinned through `package-lock.json` (`typescript`, `esbuild`, and `@xmldom/xmldom`). |
 | Build Windows desktop binaries | Windows 10/11 x64, Node.js 20+, Python 3.12 x64 recommended, pip/network access for the pinned requirements in `desktop/requirements-windows.txt`, and Inno Setup 6. |
 | Run the installed desktop app | Windows 10/11 x64 and Microsoft Edge WebView2 Runtime. |
 | Run optional VBA bridge | Desktop Microsoft Excel and the bridge executable. GridForge itself does not require Excel. |
@@ -164,7 +201,7 @@ The `-SkipTests` option builds the frontend, portable desktop app, VBA bridge, a
 
 ### GitHub source and releases
 
-The GitHub repository ZIP is `build/release/GridForge-v11.26.0-GitHub-Repository.zip`. It contains the project source, compiled `dist/`, lockfile, license, build files, GitHub Actions workflows, this README, and the Windows installer under `release/`. Extract it to start from a complete repository snapshot, or copy its root contents into a GitHub repository. The `Windows desktop release` workflow can build a Windows installer and portable ZIP from a `desktop-v*` tag or manual Actions run. The workflow performs its configured Windows checks; the local build command below does not run tests. The installer and archive SHA-256 checksums are listed in `build/release/SHA256SUMS.txt` next to the download files. No GitHub repository URL is configured in this working copy.
+The GitHub repository ZIP is `build/release/GridForge-v12.0.126-GitHub-Repository.zip`. It contains the project source, compiled `dist/`, lockfile, license, build files, GitHub Actions workflows, this README, and the Windows installer under `release/`. Extract it to start from a complete repository snapshot, or copy its root contents into a GitHub repository. The `Windows desktop release` workflow can build a Windows installer and portable ZIP from a `desktop-v*` tag or manual Actions run. The workflow performs its configured Windows checks; the local build command below does not run tests. The installer and archive SHA-256 checksums are listed in `build/release/SHA256SUMS.txt` next to the download files. No GitHub repository URL is configured in this working copy.
 
 After the Windows desktop builder has created the installer and portable app folder, regenerate the portable ZIP, clean source archive, GitHub repository ZIP (including the installer), and checksums with:
 
@@ -193,6 +230,26 @@ python desktop/gridforge_desktop.py --check
 ```
 
 Previous versions: [v11.10 feature matrix](docs/FEATURE_VERIFICATION_V11_10.md), [v11.10 release notes](docs/RELEASE_NOTES_V11_10.md), [v11.9 feature matrix](docs/FEATURE_VERIFICATION_V11_9.md), and [v11.9 release notes](docs/RELEASE_NOTES_V11_9.md).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -114,11 +114,24 @@ export async function exportEditedXlsm(original:Uint8Array,before:SpreadsheetDoc
       if(!container){container=workbook.createElementNS(MAIN,'definedNames');const calc=nodeList(workbook,'calcPr')[0];workbook.documentElement.insertBefore(container,calc??null);}
       for(const node of nodeList(container,'definedName'))if(getAttribute(node,'localSheetId')!==''&&Number(getAttribute(node,'localSheetId'))===sheetIndex&&changedKeys.has(getAttribute(node,'name').toLowerCase()))container.removeChild(node);
       for(const item of newNames){if(!changedKeys.has(item.name.toLowerCase()))continue;
-        const node=workbook.createElementNS(MAIN,'definedName');node.setAttribute('name',item.name);node.setAttribute('localSheetId',String(sheetIndex));if(item.comment)node.setAttribute('comment',item.comment);
-        const range=item.ref.split(':').map(ref=>{const p=parseRef(ref)!;return `$${colToName(p.col)}$${p.row+1}`;}).join(':');node.textContent=`'${sheet.name.replace(/'/g,"''")}'!${range}`;container.appendChild(node);editedNames++;
+        const node=workbook.createElementNS(MAIN,'definedName');node.setAttribute('name',item.name);node.setAttribute('localSheetId',String(sheetIndex));if(item.comment)node.setAttribute('comment',item.comment);if(item.hidden)node.setAttribute('hidden','1');
+        const range=item.ref.startsWith('=')?item.ref.slice(1):`'${sheet.name.replace(/'/g,"''")}'!${item.ref.split(':').map(ref=>{const p=parseRef(ref)!;return `$${colToName(p.col)}$${p.row+1}`;}).join(':')}`;node.textContent=range;container.appendChild(node);editedNames++;
       }
       editedNames+=oldNames.filter(item=>changedKeys.has(item.name.toLowerCase())&&!newByKey.has(item.name.toLowerCase())).length;
     }
+  }
+  const oldWorkbookNames=before.getWorkbookDefinedNames(),newWorkbookNames=after.getWorkbookDefinedNames();
+  if(JSON.stringify(oldWorkbookNames)!==JSON.stringify(newWorkbookNames)){
+    const oldByKey=new Map(oldWorkbookNames.map(item=>[item.name.toLowerCase(),item])),newByKey=new Map(newWorkbookNames.map(item=>[item.name.toLowerCase(),item]));
+    const changedKeys=new Set([...new Set([...oldByKey.keys(),...newByKey.keys()])].filter(key=>JSON.stringify(oldByKey.get(key))!==JSON.stringify(newByKey.get(key))));
+    let container=nodeList(workbook,'definedNames')[0];
+    if(!container){container=workbook.createElementNS(MAIN,'definedNames');const calc=nodeList(workbook,'calcPr')[0];workbook.documentElement.insertBefore(container,calc??null);}
+    for(const node of nodeList(container,'definedName'))if(getAttribute(node,'localSheetId')===''&&changedKeys.has(getAttribute(node,'name').toLowerCase()))container.removeChild(node);
+    for(const item of newWorkbookNames){if(!changedKeys.has(item.name.toLowerCase()))continue;
+      const node=workbook.createElementNS(MAIN,'definedName');node.setAttribute('name',item.name);if(item.comment)node.setAttribute('comment',item.comment);if(item.hidden)node.setAttribute('hidden','1');
+      node.textContent=formulaForExcel(item.ref.replace(/^=/,''));container.appendChild(node);editedNames++;
+    }
+    editedNames+=oldWorkbookNames.filter(item=>changedKeys.has(item.name.toLowerCase())&&!newByKey.has(item.name.toLowerCase())).length;
   }
   // Recalculate formula caches when Microsoft Excel opens the file again.
   if(editedCells||editedNames){

@@ -5,6 +5,9 @@
 import {type Edit,Workbook} from './workbook.js';
 import {type Rect} from './operations.js';
 import {colToName,shiftFormula} from './parser.js';
+import {parseLocaleCurrencyText,parseLocaleNumberText} from './locale_number.js';
+import {parseExcelDateValue,parseExcelTimeValue} from './functions_v5.js';
+import {splitTrailingDateTimeText} from './time_text.js';
 
 export interface ToolSpec {id:string;label:string;category:string;description:string;kind:'text'|'number'|'fill'|'range'|'cleanup'|'formula'}
 export type ToolOutcome={edits:Edit[];skipped:number;summary:string;warning?:string};
@@ -69,6 +72,9 @@ const groups:[string,string,string,string][]=[
  ['Percent & scaling','minus10pct','Decrease 10%','Multiply by 0.90'],
  ['Percent & scaling','parse-percent','Parse percent text','Convert text such as 12% to 0.12'],
  ['Percent & scaling','parse-currency','Parse currency text','Convert $1,234.50 to a number'],
+ ['Date & time','parse-date','Parse date text','Convert a supported locale date to an Excel date serial'],
+ ['Date & time','parse-time','Parse time text','Convert a supported locale time to an Excel time fraction'],
+ ['Date & time','parse-datetime','Parse date and time','Convert supported locale date-time text to an Excel serial'],
  ['Fill & series','fill-down','Fill down','Copy first row downward with formula shifts'],
  ['Fill & series','fill-up','Fill up','Copy last row upward with formula shifts'],
  ['Fill & series','fill-right','Fill right','Copy first column across with formula shifts'],
@@ -110,7 +116,7 @@ const groups:[string,string,string,string][]=[
  ['Quick aggregates','insert-stdev','STDEV.S below selection','Insert a formula below the selection'],
  ['Quick aggregates','insert-countblank','COUNTBLANK below selection','Insert a formula below the selection']
 ];
-const kindOf=(category:string):ToolSpec['kind']=>category==='Numeric calculations'||category==='Rounding & precision'||category==='Percent & scaling'?'number':category==='Fill & series'?'fill':category==='Range arrangement'?'range':category==='Data quality'?'cleanup':category==='Quick aggregates'?'formula':'text';
+const kindOf=(category:string):ToolSpec['kind']=>category==='Numeric calculations'||category==='Rounding & precision'||category==='Percent & scaling'||category==='Date & time'?'number':category==='Fill & series'?'fill':category==='Range arrangement'?'range':category==='Data quality'?'cleanup':category==='Quick aggregates'?'formula':'text';
 export const DATA_TOOLS:readonly ToolSpec[]=Object.freeze(groups.map(([category,id,label,description])=>({category,id,label,description,kind:kindOf(category)})));
 export const TOOL_CATEGORIES=Object.freeze([...new Set(DATA_TOOLS.map(x=>x.category))]);
 const addr=(r:number,c:number)=>`${colToName(c)}${r+1}`;
@@ -183,9 +189,13 @@ export function previewDataTool(book:Workbook,b:Rect,id:string):ToolOutcome {
     }else if(spec.kind==='number'){
      if(formula||!raw.trim()){skipped++;continue;}
      if(id==='parse-percent'){
-      const m=/^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*%\s*$/.exec(raw);next=m?safeNumber(Number(m[1])/100):null;
+      const trimmed=raw.trim(),value=trimmed.endsWith('%')&&!trimmed.slice(0,-1).includes('%')?parseLocaleNumberText(trimmed):null;next=value===null?null:safeNumber(value);
      }else if(id==='parse-currency'){
-      const s=raw.replace(/[,$€£₹\s]/g,'');next=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s)?safeNumber(Number(s)):null;
+      const value=parseLocaleCurrencyText(raw)??parseLocaleNumberText(raw);next=value===null?null:safeNumber(value);
+     }else if(id==='parse-date'||id==='parse-time'){
+      try{next=safeNumber(id==='parse-date'?parseExcelDateValue(raw):parseExcelTimeValue(raw));}catch{next=null;}
+     }else if(id==='parse-datetime'){
+      const parts=splitTrailingDateTimeText(raw);if(parts)try{next=safeNumber(parseExcelDateValue(parts[0]!)+parseExcelTimeValue(parts[1]!));}catch{next=null;}
      }else{
       const x=Number(raw);next=Number.isFinite(x)?(safeNumber(numberTransform(id,x)??NaN)):null;
      }

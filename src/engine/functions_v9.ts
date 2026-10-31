@@ -4,6 +4,7 @@
  */
 import {SheetError,flatten,matchCriterion,number,text,type Datum,type FunctionDefinition} from './functions.js';
 import type {Value} from './parser.js';
+import {excelDateSerial,excelSerialUtcDate} from './date_serial.js';
 const fail=(code:string,message:string):never=>{throw new SheetError(code,message);};
 const def=(description:string,example:string,run:(args:Datum[])=>Datum):FunctionDefinition=>({description,example,run});
 const check=(a:Datum[],min:number,max=min):void=>{if(a.length<min||a.length>max)fail('#ARG!',`Expected ${min}${min===max?'':`–${max}`} arguments, received ${a.length}.`);};
@@ -115,8 +116,8 @@ const database=(args:Datum[],operation:string):Datum=>{
  const n=selection.filter((x):x is number=>typeof x==='number'&&Number.isFinite(x));const statVar=(sample:boolean)=>variance(n,sample);
  switch(operation){case 'DAVERAGE':return mean(n);case 'DCOUNT':return n.length;case 'DCOUNTA':return selection.filter(x=>x!==null&&x!=='').length;case 'DMAX':return n.length?Math.max(...n):0;case 'DMIN':return n.length?Math.min(...n):0;case 'DPRODUCT':return n.reduce((acc,x)=>acc*x,1);case 'DSUM':return sum(n);case 'DSTDEV':return Math.sqrt(statVar(true));case 'DSTDEVP':return Math.sqrt(statVar(false));case 'DVAR':return statVar(true);case 'DVARP':return statVar(false);case 'DGET':if(selection.length!==1)fail(selection.length?'#NUM!':'#VALUE!','DGET requires exactly one matching row.');return selection[0]??null;default:return fail('#NAME?','Unknown database aggregate.');}
 };
-const excelDate=(serial:number)=>new Date(Date.UTC(1899,11,30)+Math.trunc(serial)*86400000);
-const excelSerial=(d:Date)=>Math.round((d.getTime()-Date.UTC(1899,11,30))/86400000);
+const excelDate=(serial:number)=>excelSerialUtcDate(serial);
+const excelSerial=(d:Date)=>excelDateSerial(d.toISOString())??NaN;
 const lastFeb=(d:Date)=>d.getUTCMonth()===1&&d.getUTCDate()===new Date(Date.UTC(d.getUTCFullYear(),2,0)).getUTCDate();
 const dayCount=(a:number,b:number,basis=0):number=>{
  if(![0,1,2,3,4].includes(basis))fail('#NUM!','Day count basis must be 0..4.');

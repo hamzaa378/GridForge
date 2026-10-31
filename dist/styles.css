@@ -503,6 +503,148 @@ html[data-theme="light"] .chart-series-options{background:#f7f9fb;border-color:#
 html[data-theme="dark"] #app,html[data-theme="dark"] .workspace{background:#24272b;color:#f1f1f1}html[data-theme="dark"] .topbar,html[data-theme="dark"] .excel-ribbon-tabs,html[data-theme="dark"] .ribbon-content,html[data-theme="dark"] .ribbon-content .toolbar,html[data-theme="dark"] .format-toolbar,html[data-theme="dark"] #insert-gallery,html[data-theme="dark"] .formula-row,html[data-theme="dark"] .sheet-tabs,html[data-theme="dark"] .statusbar{background:#303438;color:#f1f1f1;border-color:#474b4e}html[data-theme="dark"] .excel-tab{color:#d1d4d7}html[data-theme="dark"] .excel-tab.active{color:#8bd0a2}html[data-theme="dark"] .title-line,html[data-theme="dark"] .tool-btn,html[data-theme="dark"] .format-toolbar .format-btn{color:#eceeef}html[data-theme="dark"] .name-box,html[data-theme="dark"] #formula,html[data-theme="dark"] .format-toolbar select{background:#25282b;color:#f1f1f1;border-color:#555a5e}html[data-theme="dark"] .grid-scroll{background:#25282b}html[data-theme="dark"] .cell{background:#25282b;color:#f1f1f1;border-color:#414548}html[data-theme="dark"] .cell:nth-child(even){background:#25282b}html[data-theme="dark"] .row-heading,html[data-theme="dark"] .col-heading,html[data-theme="dark"] .corner{background:#34383b;color:#d1d4d6;border-color:#505558}html[data-theme="dark"] .sheet-tab.active-tab{background:#25282b;color:#a5d7b3}html[data-theme="dark"] .title-search{background:#25282b;border-color:#555a5e}html[data-theme="dark"] #command-search{color:#f1f1f1}html[data-theme="dark"] .quick-btn,html[data-theme="dark"] .ghost-btn{color:#eceeef}
 @media(max-width:1150px){.title-search{width:22vw}.quick-access{gap:0}.topbar{padding-inline:8px;gap:5px}.title-group{min-width:100px}.excel-tab{padding-inline:7px}.ribbon-content .toolbar{max-width:42vw}.format-toolbar{gap:2px;padding-inline:4px}.format-toolbar .color-field,.quick-colors{display:none}.format-command-group[aria-label="Font"]{min-width:190px}.format-command-group[aria-label="Styles"]{min-width:180px}}
 @media(max-width:760px){.title-search{position:static;transform:none;width:auto;flex:1}.title-sub,.topbar-right .ghost-btn span,.v10-preferences select,.avatar{display:none}.ribbon-content{overflow-x:auto}.ribbon-content .toolbar{max-width:100%}.format-toolbar{flex:0 0 auto}.sheet-commands{display:none}.status-right{display:none}}
+
+/* v11.28: Excel-centered workbook shell, with the worksheet as the primary surface. */
+html[data-workspace="excel"] #app{background:#fff;color:#202124}
+html[data-workspace="excel"] .topbar{height:42px;min-height:42px;padding:0 12px;gap:8px;background:#f3f3f3;border-color:#d7d7d7}
+html[data-workspace="excel"] .logo{width:24px;min-width:24px;height:24px}
+html[data-workspace="excel"] .quick-access{gap:1px;padding-right:7px}
+html[data-workspace="excel"] .title-group{min-width:130px;padding-left:3px}
+html[data-workspace="excel"] .title-line{font-size:12px}
+html[data-workspace="excel"] .title-sub{font-size:9px;color:#697177}
+html[data-workspace="excel"] .topbar .title-sub:after{content:none}
+html[data-workspace="excel"] .title-search{width:min(30vw,390px);height:29px}
+html[data-workspace="excel"] .topbar-right{gap:5px}
+html[data-workspace="excel"] .topbar-right .ghost-btn{height:29px;padding:4px 7px}
+html[data-workspace="excel"] .v10-preferences select{max-width:94px}
+html[data-workspace="excel"] .excel-ribbon-tabs{height:34px;min-height:34px;padding-inline:9px;background:#f6f6f6}
+html[data-workspace="excel"] .excel-tab{padding-inline:10px;font-size:12px}
+html[data-workspace="excel"] .excel-tab[data-ribbon="Draw"]:not(.active){color:#42484d}
+html[data-workspace="excel"] .ribbon-content{height:96px;min-height:96px;max-height:96px;background:#f8f8f8;border-bottom-color:#d0d0d0}
+html[data-workspace="excel"] .ribbon-content .toolbar{height:95px!important;min-height:95px!important;padding:2px 7px}
+html[data-workspace="excel"] .format-toolbar{height:95px;min-height:95px;padding-block:4px}
+html[data-workspace="excel"] .ribbon-content .tool-btn{min-height:54px;height:59px;color:#30363a}
+html[data-workspace="excel"] .ribbon-content .tool-btn:focus-visible,html[data-workspace="excel"] .format-toolbar .format-btn:focus-visible{outline:2px solid #217346;outline-offset:-2px}
+html[data-workspace="excel"] .format-toolbar .format-btn{color:#30363a}
+html[data-workspace="excel"] .format-toolbar select:focus,html[data-workspace="excel"] #formula:focus,html[data-workspace="excel"] .name-box:focus-within{outline:1px solid #217346;outline-offset:0}
+html[data-workspace="excel"] .workspace{min-height:0;background:#fff}
+html[data-workspace="excel"] .sheet-area{min-width:0}
+html[data-workspace="excel"] .formula-row{height:32px;min-height:32px;padding:2px 7px;background:#f6f6f6}
+html[data-workspace="excel"] .grid-scroll{overscroll-behavior:contain}
+html[data-workspace="excel"] .sheet-tabs{height:34px;min-height:34px;padding-inline:11px;gap:7px}
+html[data-workspace="excel"] .sheet-tab-list{min-width:0;max-width:72%;overflow-x:auto;scrollbar-width:thin}
+html[data-workspace="excel"] .statusbar{height:22px;min-height:22px;gap:16px;padding-inline:9px;background:#f0f0f0;color:#444b50}
+html[data-workspace="excel"] .status-left{min-width:34px;font-size:10px}
+html[data-workspace="excel"] #status-text{color:#52595e}
+html[data-workspace="excel"] .status-right{color:#666d72}
+html[data-workspace="excel"] .ribbon-hint{display:none!important}
+html[data-workspace="excel"] .guided-home{display:none!important}
+html[data-workspace="excel"] .metrics{display:none!important}
+html[data-theme="dark"][data-workspace="excel"] .topbar{background:#303438;border-color:#474b4e}
+html[data-theme="dark"][data-workspace="excel"] .excel-ribbon-tabs,html[data-theme="dark"][data-workspace="excel"] .ribbon-content{background:#303438;border-color:#474b4e}
+html[data-theme="dark"][data-workspace="excel"] .formula-row,html[data-theme="dark"][data-workspace="excel"] .sheet-tabs,html[data-theme="dark"][data-workspace="excel"] .statusbar{background:#303438;border-color:#474b4e}
+html[data-theme="dark"][data-workspace="excel"] .title-line,html[data-theme="dark"][data-workspace="excel"] .title-sub,html[data-theme="dark"][data-workspace="excel"] .excel-tab,html[data-theme="dark"][data-workspace="excel"] .ribbon-content .tool-btn,html[data-theme="dark"][data-workspace="excel"] .format-toolbar .format-btn{color:#e2e5e7}
+html[data-theme="dark"][data-workspace="excel"] .title-search,html[data-theme="dark"][data-workspace="excel"] .name-box,html[data-theme="dark"][data-workspace="excel"] #formula,html[data-theme="dark"][data-workspace="excel"] .format-toolbar select{background:#25282b;color:#f1f1f1;border-color:#555a5e}
+html[data-theme="dark"][data-workspace="excel"] #command-search{color:#f1f1f1}
+html[data-theme="dark"][data-workspace="excel"] .ribbon-content .tool-group,html[data-theme="dark"][data-workspace="excel"] .format-command-group{border-color:#4d5255}
+html[data-theme="dark"][data-workspace="excel"] .ribbon-content .tool-group[aria-label]::after,html[data-theme="dark"][data-workspace="excel"] .format-command-group::after{color:#b6babe}
+@media(max-width:1150px){html[data-workspace="excel"] .title-search{width:24vw}}
+@media(max-width:760px){html[data-workspace="excel"] .topbar{height:42px;min-height:42px}.sheet-commands{display:none}.sheet-tab-list{max-width:70%}}
+
+/* Draw and Page Layout ribbon surfaces */
+/* This is a sibling of the worksheet in the app's vertical flex layout. Do not let
+   the ribbon grow into the free workspace height when Draw/Page Layout is selected. */
+.draw-ribbon{display:flex;align-items:stretch;gap:8px;min-width:max-content;flex:0 0 95px;height:95px;min-height:95px;max-height:95px;padding:4px 10px;background:#f8f8f8;overflow-x:auto;overflow-y:hidden}
+/* These command surfaces replace the normal ribbon row. Do not leave an empty
+   second row above them; the JS class toggle mirrors this selector. */
+html[data-current-ribbon="Draw"] #ribbon-content,html[data-current-ribbon="Page Layout"] #ribbon-content{display:none!important}
+#draw-ribbon,#page-layout-ribbon{flex:0 0 95px;height:95px;min-height:95px;max-height:95px;align-self:stretch}
+/* Lock these direct children to one compact ribbon row even if another theme or
+   workspace stylesheet adds flex growth. This prevents the Draw toolbar from
+   stretching down into the free worksheet area as in the reported screenshot. */
+html[data-current-ribbon="Draw"] #app>#ribbon-content,html[data-current-ribbon="Page Layout"] #app>#ribbon-content{display:none!important}
+html[data-current-ribbon="Draw"] #app>#draw-ribbon,html[data-current-ribbon="Page Layout"] #app>#page-layout-ribbon{display:flex!important;flex:0 0 96px!important;height:96px!important;min-height:96px!important;max-height:96px!important;align-self:stretch!important;justify-content:flex-start;overflow-x:auto;overflow-y:hidden}
+html[data-current-ribbon="Draw"] #app>#page-layout-ribbon,html[data-current-ribbon="Page Layout"] #app>#draw-ribbon{display:none!important}
+.draw-ribbon-group{display:flex;align-items:center;gap:4px;padding:2px 10px 14px 2px;border-right:1px solid #dadde0;position:relative;flex:0 0 auto}
+.draw-ribbon-group::after{content:attr(aria-label);position:absolute;left:0;right:8px;bottom:2px;text-align:center;color:#60666b;font-size:9px;line-height:11px}
+.draw-ribbon-group label{display:flex;flex-direction:column;gap:3px;align-items:center;color:#50575d;font-size:9px}
+.draw-ribbon-group input[type="color"]{width:34px;height:28px;padding:1px;border:1px solid #c5cbd0;background:#fff}
+.draw-ribbon-group select{height:28px;min-width:76px;padding:3px 5px;border:1px solid #bfc5cb;background:#fff;color:#343a40;font-size:10px}
+.draw-tool{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;min-width:45px;height:60px;padding:5px 7px;border:1px solid transparent;border-radius:3px;background:transparent;color:#30373d;font-size:20px}
+.draw-tool span{font-size:9px;line-height:1.1;white-space:nowrap}
+.draw-tool:hover{background:#e5eaee;color:#17643e}
+.draw-tool.active{background:#dcebe1;border-color:#6eaa82;color:#175b35}
+.draw-state{align-self:center;max-width:220px;color:#59656c;font-size:10px;white-space:normal}
+#grid-scroll.draw-mode{cursor:crosshair;touch-action:none}
+#grid-scroll.draw-mode .cell{cursor:crosshair}
+#grid-scroll.draw-select-mode .worksheet-ink-layer [data-ink-id]{pointer-events:visiblePainted;cursor:move}
+.worksheet-ink-layer [data-selected="true"]{filter:drop-shadow(0 0 2px #1c6cc6);}
+.worksheet-ink-layer [data-ink-id]:focus-visible{filter:drop-shadow(0 0 3px #1675d1);outline:none;}
+.draw-fill-option input{accent-color:#217346}
+.worksheet-ink-layer,.page-break-overlay{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.worksheet-ink-layer{z-index:14}
+.worksheet-ink-layer path{vector-effect:non-scaling-stroke}
+.page-break-overlay{z-index:16}
+.page-break-overlay path{fill:none;stroke:#3184d3;stroke-width:2;stroke-dasharray:8 5;vector-effect:non-scaling-stroke}
+html[data-theme="dark"] .draw-ribbon{background:#303438}
+html[data-theme="dark"] .draw-ribbon-group{border-color:#4d5255}
+html[data-theme="dark"] .draw-ribbon-group::after,html[data-theme="dark"] .draw-ribbon-group label,html[data-theme="dark"] .draw-state{color:#c2c6c9}
+html[data-theme="dark"] .draw-tool{color:#e2e5e7}
+html[data-theme="dark"] .draw-tool:hover{background:#3c4246}
+html[data-theme="dark"] .draw-tool.active{background:#31513d;border-color:#639274;color:#bfe4ca}
+html[data-theme="dark"] .draw-ribbon-group select,html[data-theme="dark"] .draw-ribbon-group input[type="color"]{background:#25282b;color:#f1f1f1;border-color:#555a5e}
+
+/* Compact ribbons get fixed grid rows so flex sizing from any workspace preset
+   cannot stretch Draw or Page Layout into the worksheet area. */
+html[data-current-ribbon="Draw"] #app,html[data-current-ribbon="Page Layout"] #app{display:grid!important;grid-template-rows:auto auto 96px minmax(0,1fr) auto;align-content:stretch}
+html[data-current-ribbon="Draw"] #app>.topbar,html[data-current-ribbon="Page Layout"] #app>.topbar{grid-row:1}
+html[data-current-ribbon="Draw"] #app>.excel-ribbon-tabs,html[data-current-ribbon="Page Layout"] #app>.excel-ribbon-tabs{grid-row:2}
+html[data-current-ribbon="Draw"] #app>#draw-ribbon,html[data-current-ribbon="Page Layout"] #app>#page-layout-ribbon{grid-row:3;min-height:0!important;max-height:96px!important;height:96px!important;align-self:stretch;overflow-y:hidden}
+html[data-current-ribbon="Draw"] #app>.workspace,html[data-current-ribbon="Page Layout"] #app>.workspace{grid-row:4;min-height:0;overflow:hidden}
+html[data-current-ribbon="Draw"] #app>.statusbar,html[data-current-ribbon="Page Layout"] #app>.statusbar{grid-row:5}
+html[data-current-ribbon="Draw"] #ribbon-hint,html[data-current-ribbon="Page Layout"] #ribbon-hint,html[data-current-ribbon="Draw"] #guided-home,html[data-current-ribbon="Page Layout"] #guided-home,html[data-current-ribbon="Draw"] #ribbon-content,html[data-current-ribbon="Page Layout"] #ribbon-content,html[data-current-ribbon="Draw"] #insert-gallery,html[data-current-ribbon="Page Layout"] #insert-gallery,html[data-current-ribbon="Draw"] #formula-ribbon,html[data-current-ribbon="Page Layout"] #formula-ribbon{display:none!important}
+html[data-current-ribbon="Draw"] #app>#page-layout-ribbon,html[data-current-ribbon="Page Layout"] #app>#draw-ribbon{display:none!important}
+.cloud-dialog{width:min(760px,94vw);max-height:88vh;overflow:auto}.cloud-dialog [hidden]{display:none!important}.cloud-actions{flex-wrap:wrap;gap:8px}.cloud-files{display:grid;gap:6px;max-height:260px;overflow:auto;margin:12px 0;padding:6px;border:1px solid var(--border,#293149);border-radius:8px}.cloud-file-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;text-align:left;padding:10px 12px;background:var(--panel,#11172a);border:1px solid var(--border,#293149);border-radius:6px;color:var(--text);cursor:pointer}.cloud-file-row:hover,.cloud-file-row[aria-selected=true]{border-color:var(--accent);background:var(--panel2,#151d33)}.cloud-file-name{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cloud-file-meta{font-size:12px;color:var(--muted);white-space:nowrap}.cloud-dialog #cloud-open-file{margin-top:8px}
+
+/* v12 appearance presets are presentation-only and never modify workbook data. */
+html[data-appearance="modern"]{--accent:#0b8f87;--accent2:#2563eb}
+html[data-appearance="modern"][data-theme="dark"] .excel-ribbon-tabs{background:#11292b;border-color:#275052}
+html[data-appearance="modern"][data-theme="dark"] .excel-tab.active{color:#71e0d3;background:#1a3a3c;border-bottom-color:#22b8a9}
+html[data-appearance="modern"][data-theme="dark"] .topbar{background:#101e28}
+html[data-appearance="modern"][data-theme="light"]{--accent:#087f78;--accent2:#2563eb}
+html[data-appearance="modern"][data-theme="light"] .excel-ribbon-tabs{background:#eef8f7;border-color:#cbe3df}
+html[data-appearance="modern"][data-theme="light"] .excel-tab.active{color:#075d59;background:#dff3ef;border-bottom-color:#0b8f87}
+html[data-appearance="modern"] .primary-button{background:linear-gradient(135deg,#0b8f87,#2563eb);border-color:#51bdb3}
+html[data-appearance="compact"]{font-size:12px}
+html[data-appearance="compact"] .topbar{height:58px;padding-left:17px;padding-right:17px}
+html[data-appearance="compact"] .excel-ribbon-tabs{min-height:35px;padding-top:2px;padding-bottom:2px}
+html[data-appearance="compact"] .excel-tab{padding-top:6px;padding-bottom:6px}
+html[data-appearance="compact"] .toolbar{height:47px;gap:8px;padding-left:13px;padding-right:13px}
+html[data-appearance="compact"] .tool-btn{padding:6px 7px}
+html[data-appearance="compact"] .format-toolbar{min-height:43px}
+html[data-appearance="compact"] .formula-row{height:47px;padding-top:5px;padding-bottom:5px}
+html[data-appearance="compact"] .cell{font-size:10px;padding-left:7px;padding-right:7px}
+html[data-appearance="compact"] .sheet-tabs{height:36px}
+html[data-appearance="compact"] .statusbar{height:28px}
+html[data-appearance="contrast"]{--accent:#ffe500;--accent2:#00ffff;--muted:#e9e9e9}
+html[data-appearance="contrast"][data-theme="dark"]{--bg:#000;--panel:#000;--panel2:#111;--border:#fff;--border2:#fff;--text:#fff;color:#fff;background:#000}
+html[data-appearance="contrast"][data-theme="dark"] #app,
+html[data-appearance="contrast"][data-theme="dark"] .topbar,
+html[data-appearance="contrast"][data-theme="dark"] .toolbar,
+html[data-appearance="contrast"][data-theme="dark"] .formula-row,
+html[data-appearance="contrast"][data-theme="dark"] .sheet-tabs,
+html[data-appearance="contrast"][data-theme="dark"] .excel-ribbon-tabs,
+html[data-appearance="contrast"][data-theme="dark"] .statusbar{background:#000!important;color:#fff!important;border-color:#fff!important}
+html[data-appearance="contrast"][data-theme="dark"] .excel-tab,
+html[data-appearance="contrast"][data-theme="dark"] .tool-btn,
+html[data-appearance="contrast"][data-theme="dark"] .ghost-btn{color:#fff}
+html[data-appearance="contrast"][data-theme="dark"] .excel-tab.active,
+html[data-appearance="contrast"][data-theme="dark"] .cell.primary{background:#343000!important;color:#fff!important;box-shadow:inset 0 0 0 2px #ffe500}
+html[data-appearance="contrast"][data-theme="light"]{--bg:#fff;--panel:#fff;--panel2:#f2f2f2;--border:#111;--border2:#111;--text:#000;--muted:#222;--accent:#0000a8;--accent2:#005a5a;color:#000;background:#fff}
+html[data-appearance="contrast"][data-theme="light"] .excel-tab.active{background:#fff;color:#0000a8;border-bottom:3px solid #0000a8}
+html[data-appearance="contrast"] :focus-visible{outline:3px solid #ffe500!important;outline-offset:2px}
+html[data-appearance="contrast"] .v10-preferences select{font-weight:700;border-width:2px}
+@media(max-width:1150px){.v10-preferences #appearance-switch{max-width:106px}}
 /* v11.5 Formula ribbon: familiar Excel groups with native working commands. */
 .formula-ribbon{display:flex;align-items:stretch;gap:9px;min-width:max-content;height:100%;}
 .formula-ribbon-group{display:flex;align-items:center;gap:5px;padding:3px 9px 13px 0;border-right:1px solid #e2e9e5;position:relative;}
@@ -596,3 +738,11 @@ html[data-theme="dark"] .worksheet-pivot-slicer{background:#1d2c3b;border-color:
 
 .pivot-value-filter-row{display:grid;grid-template-columns:minmax(95px,1fr) minmax(135px,1.4fr) 78px 78px auto;gap:6px;align-items:center;width:100%;}
 @media(max-width:640px){.pivot-value-filter-row{grid-template-columns:1fr 1fr;}}
+
+.cloud-breadcrumbs{display:flex;align-items:center;gap:6px;min-height:32px;overflow:auto;white-space:nowrap;padding:3px 2px;color:var(--muted,#637568)}
+.cloud-breadcrumb{border:0;background:transparent;color:var(--accent,#167c49);cursor:pointer;font:inherit;padding:4px 5px;border-radius:4px}
+.cloud-breadcrumb:hover{background:var(--panel2,#151d33)}
+.cloud-folder-row .cloud-file-name{font-weight:700}
+
+
+.chart-option-group{display:grid;gap:2px;margin:12px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px}.chart-option-group legend{padding:0 6px;font-weight:700;font-size:12px;color:var(--text)}.chart-option-group .chart-option{margin:4px 0 0}

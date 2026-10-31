@@ -3,9 +3,10 @@ import { parseRef, colToName, nameToCol } from './parser.js';
 import { validateChart } from './charts.js';
 import { validateTable, tableRange, intersectTables } from './tables.js';
 import { validatePivotSummary } from './pivot.js';
+import { excelDateSerial } from './date_serial.js';
 import { validateQuerySpec } from './power_query.js';
-export const defaultPageSetup = () => ({ orientation: 'portrait', paper: 'letter', fitWidth: 1, fitHeight: 0, printGridlines: false, printHeadings: false, marginTop: 0.75, marginBottom: 0.75, marginLeft: 0.7, marginRight: 0.7 });
-export const freshTools = () => ({ freezeRows: 0, freezeCols: 0, filter: null, conditional: [], dataValidations: [], hyperlinks: [], charts: [], tables: [], pivotTables: [], pivotSlicers: [], queries: [], pageSetup: defaultPageSetup(), columnWidths: {}, rowHeights: {}, hiddenRows: [], hiddenColumns: [] });
+export const defaultPageSetup = () => ({ orientation: 'portrait', paper: 'letter', pageOrder: 'downThenOver', centerHorizontally: false, centerVertically: false, fitWidth: 1, fitHeight: 0, printGridlines: false, printHeadings: false, marginTop: 0.75, marginBottom: 0.75, marginLeft: 0.7, marginRight: 0.7 });
+export const freshTools = () => ({ freezeRows: 0, freezeCols: 0, filter: null, conditional: [], dataValidations: [], hyperlinks: [], charts: [], drawings: [], tables: [], pivotTables: [], pivotSlicers: [], queries: [], pageSetup: defaultPageSetup(), columnWidths: {}, rowHeights: {}, hiddenRows: [], hiddenColumns: [] });
 export function validateTools(data, rows, cols) {
     const t = freshTools();
     if (!data || typeof data !== 'object')
@@ -13,8 +14,11 @@ export function validateTools(data, rows, cols) {
     const obj = data;
     if (obj.pageSetup !== undefined) {
         const p = obj.pageSetup;
-        if (!p || typeof p !== 'object' || !['portrait', 'landscape'].includes(p.orientation) || !['letter', 'legal', 'a3', 'a4', 'tabloid'].includes(p.paper) || ![p.fitWidth, p.fitHeight].every(v => Number.isInteger(v) && v >= 0 && v <= 4) || ![p.printGridlines, p.printHeadings].every(v => typeof v === 'boolean') || ![p.marginTop, p.marginBottom, p.marginLeft, p.marginRight].every(v => Number.isFinite(v) && v >= 0 && v <= 2))
+        if (!p || typeof p !== 'object' || !['portrait', 'landscape'].includes(p.orientation) || !['letter', 'legal', 'a3', 'a4', 'tabloid'].includes(p.paper) || (p.pageOrder !== undefined && !['downThenOver', 'overThenDown'].includes(p.pageOrder)) || ![p.fitWidth, p.fitHeight].every(v => Number.isInteger(v) && v >= 0 && v <= 4) || ![p.printGridlines, p.printHeadings].every(v => typeof v === 'boolean') || [p.centerHorizontally, p.centerVertically].some(v => v !== undefined && typeof v !== 'boolean') || ![p.marginTop, p.marginBottom, p.marginLeft, p.marginRight].every(v => Number.isFinite(v) && v >= 0 && v <= 2))
             throw Error('Invalid worksheet page setup.');
+        for (const key of ['headerLeft', 'headerCenter', 'headerRight', 'footerLeft', 'footerCenter', 'footerRight'])
+            if (p[key] !== undefined && (typeof p[key] !== 'string' || p[key].length > 255))
+                throw Error(`${key} must be text with no more than 255 characters.`);
         const printArea = p.printArea?.replace(/\$/g, '').toUpperCase();
         if (p.printArea !== undefined) {
             const parts = printArea.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? '');
@@ -36,7 +40,7 @@ export function validateTools(data, rows, cols) {
                 throw Error('Print title columns must be a whole-column range such as A:B.');
             repeatColumns = `${colToName(start)}:${colToName(end)}`;
         }
-        t.pageSetup = { ...p, ...(printArea ? { printArea: `${colToName(parseRef(printArea.split(':')[0]).col)}${parseRef(printArea.split(':')[0]).row + 1}:${colToName(parseRef(printArea.split(':')[1] ?? printArea.split(':')[0]).col)}${parseRef(printArea.split(':')[1] ?? printArea.split(':')[0]).row + 1}` } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}) };
+        t.pageSetup = { ...p, pageOrder: p.pageOrder ?? 'downThenOver', centerHorizontally: p.centerHorizontally ?? false, centerVertically: p.centerVertically ?? false, ...(printArea ? { printArea: `${colToName(parseRef(printArea.split(':')[0]).col)}${parseRef(printArea.split(':')[0]).row + 1}:${colToName(parseRef(printArea.split(':')[1] ?? printArea.split(':')[0]).col)}${parseRef(printArea.split(':')[1] ?? printArea.split(':')[0]).row + 1}` } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}) };
     }
     for (const [key, max, limit] of [['columnWidths', 8, 600], ['rowHeights', 12, 400]]) {
         const values = obj[key];
@@ -173,6 +177,27 @@ export function validateTools(data, rows, cols) {
             t.charts.push(chart);
         }
     }
+    if (obj.drawings !== undefined) {
+        if (!Array.isArray(obj.drawings) || obj.drawings.length > 300)
+            throw Error('A worksheet can contain at most 300 ink strokes.');
+        const ids = new Set();
+        let totalPoints = 0;
+        for (const raw of obj.drawings) {
+            if (!raw || typeof raw !== 'object')
+                throw Error('Invalid ink stroke.');
+            const stroke = raw;
+            if (typeof stroke.id !== 'string' || !/^ink-[A-Za-z0-9_-]{1,64}$/.test(stroke.id) || ids.has(stroke.id) || !['pen', 'highlighter', 'line', 'arrow', 'rectangle', 'ellipse', 'text'].includes(stroke.tool) || typeof stroke.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(stroke.color) || !Number.isFinite(stroke.width) || stroke.width < 1 || stroke.width > 40 || !Array.isArray(stroke.points) || stroke.points.length < (stroke.tool === 'text' ? 1 : 2) || stroke.points.length > (stroke.tool === 'pen' || stroke.tool === 'highlighter' ? 1200 : 2) || stroke.text !== undefined && (typeof stroke.text !== 'string' || stroke.text.length > 500) || stroke.tool === 'text' && typeof stroke.text !== 'string' || stroke.fill !== undefined && typeof stroke.fill !== 'boolean' || stroke.fill && !['rectangle', 'ellipse'].includes(stroke.tool))
+                throw Error('Invalid drawing object settings.');
+            ids.add(stroke.id);
+            totalPoints += stroke.points.length;
+            for (const point of stroke.points)
+                if (!Array.isArray(point) || point.length !== 2 || !point.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 30000))
+                    throw Error('Drawing coordinates must be finite worksheet coordinates.');
+            t.drawings.push({ id: stroke.id, tool: stroke.tool, color: stroke.color.toLowerCase(), width: stroke.width, points: stroke.points.map(point => [point[0], point[1]]), ...(stroke.text !== undefined ? { text: stroke.text } : {}), ...(stroke.fill ? { fill: true } : {}) });
+        }
+        if (totalPoints > 75000)
+            throw Error('The worksheet ink data exceeds the supported point limit.');
+    }
     if (obj.tables !== undefined) {
         if (!Array.isArray(obj.tables) || obj.tables.length > 32)
             throw Error('Too many tables.');
@@ -281,10 +306,10 @@ export function dataValidationError(raw, rule, values = dataValidationValues(rul
     if (rule.type === 'date') {
         const input = raw.startsWith("'") ? raw.slice(1) : raw, iso = /^\d{4}-\d{2}-\d{2}$/.test(input) ? input : null;
         if (iso) {
-            const parsed = new Date(`${iso}T00:00:00Z`);
-            if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso)
+            const serial = excelDateSerial(iso);
+            if (serial === null)
                 return 'Enter a valid date.';
-            value = Math.floor(parsed.getTime() / 86400000) + 25569;
+            value = serial;
         }
         else
             value = Number(input);

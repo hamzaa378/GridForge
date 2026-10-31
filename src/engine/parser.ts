@@ -55,7 +55,7 @@ export function tokenize(input: string): Token[] {
       if (!complete) throw new FormulaSyntaxError('Unterminated text string.', start, 'Add a closing double quotation mark.');
       result.push({ kind: 'string', text: input.slice(start, i), start, end: i }); continue;
     }
-    const errorToken=/^#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|CYCLE!)/i.exec(tail);
+    const errorToken=/^#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|DATA!|CYCLE!|FIELD!|BLOCKED!|CONNECT!|UNKNOWN!|BUSY!|PYTHON!)/i.exec(tail);
     if(errorToken){i+=errorToken[0].length;result.push({kind:'error',text:errorToken[0].toUpperCase(),start,end:i});continue;}
     const sheet = /^(?:'((?:[^']|'')+)'|([A-Za-z_][A-Za-z0-9_.]*))!/.exec(tail);
     if (sheet) {
@@ -79,11 +79,27 @@ export function tokenize(input: string): Token[] {
     }
     const identifier = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(tail);
     if (identifier) { i += identifier[0].length; result.push({ kind: 'name', text: identifier[0].toUpperCase(), start, end: i }); continue; }
-    const op = /^(<=|>=|<>|!=|[+\-*/^&=<>(),:%@])/.exec(tail);
+    const op = /^(<=|>=|<>|!=|[+\-*/^&=<>(),:;%@])/.exec(tail);
     if (op) { i += op[0].length; result.push({ kind: 'operator', text: op[0], start, end: i }); continue; }
     throw new FormulaSyntaxError(`Unexpected character '${input[i]}'.`, i, 'Remove or replace this character.');
   }
   result.push({ kind: 'eof', text: '', start: i, end: i }); return result;
+}
+/** Normalize decimal commas when the formula uses semicolons as its list separator. */
+export function normalizeFormulaLocale(source:string):string {
+  let quoted=false,hasSemicolon=false;
+  for(let i=0;i<source.length;i++){
+    if(source[i]==='"'){if(quoted&&source[i+1]==='"'){i++;continue;}quoted=!quoted;continue;}
+    if(!quoted&&source[i]===';'){hasSemicolon=true;break;}
+  }
+  if(!hasSemicolon)return source;
+  quoted=false;let out='';
+  for(let i=0;i<source.length;i++){
+    const character=source[i]!;
+    if(character==='"'){out+=character;if(quoted&&source[i+1]==='"'){out+='"';i++;continue;}quoted=!quoted;continue;}
+    out+=!quoted&&character===','&&/\d/.test(source[i-1]??'')&&/\d/.test(source[i+1]??'')?'.':character;
+  }
+  return out;
 }
 const precedence: Record<string, number> = { '=': 1, '<>': 1, '!=': 1, '<': 1, '>': 1, '<=': 1, '>=': 1, '&': 2, '+': 3, '-': 3, '*': 4, '/': 4, '^': 6 };
 class Parser {
@@ -92,6 +108,19 @@ class Parser {
   private peek(): Token { return this.tokens[this.index]!; }
   private take(): Token { return this.tokens[this.index++]!; }
   private consume(value: string): boolean { if (this.peek().text === value) { this.take(); return true; } return false; }
+  private callArguments():Node[]{
+    const args:Node[]=[];let separator:','|';'|undefined;
+    if(this.consume(')'))return args;
+    while(true){
+      if(this.peek().text===','||this.peek().text===')')args.push({type:'literal',value:null,start:this.peek().start,end:this.peek().start});
+      else args.push(this.expr(0));
+      if(this.consume(')'))break;
+      const next=this.peek();if(next.text!==','&&next.text!==';')throw new FormulaSyntaxError("Expected ',' or ';' between function arguments.",next.start,"Separate arguments with one consistent list separator and close with ')'.");
+      if(separator&&separator!==next.text)throw new FormulaSyntaxError('Do not mix comma and semicolon argument separators in one function call.',next.start,'Use either commas or semicolons throughout this function call.');
+      separator=next.text as ','|';';this.take();
+    }
+    return args;
+  }
   parse(): Node {
     if (this.peek().kind === 'eof') throw new FormulaSyntaxError('Formula is empty.', 0, 'Enter an expression after =.');
     const node = this.expr(0); const extra = this.peek();
@@ -139,25 +168,18 @@ class Parser {
     if (t.kind === 'name') {
       if ((t.text === 'TRUE' || t.text === 'FALSE') && this.peek().text !== '(') return { type: 'literal', value: t.text === 'TRUE', start: t.start, end: t.end };
       if (!this.consume('(')) return { type: 'definedName', name:t.text, start:t.start, end:t.end };
-      const args: Node[] = [];
-      if (!this.consume(')')) {
-        while (true) {
-          if (this.peek().kind === 'eof') throw new FormulaSyntaxError('Missing closing parenthesis.', this.peek().start, "Add ')' at the end of the formula.");
-          args.push(this.expr(0));
-          if (this.consume(')')) break;
-          if (!this.consume(',')) {
-            if (this.peek().kind === 'eof') throw new FormulaSyntaxError('Missing closing parenthesis.', this.peek().start, "Add ')' at the end of the formula.");
-            throw new FormulaSyntaxError("Expected ',' or ')' between function arguments.", this.peek().start, "Separate arguments with ',' and close with ')'.");
-          }
-        }
+      const args=this.callArguments(),callee:Node={ type: 'call', name: t.text, args, start: t.start, end: this.tokens[this.index - 1]!.end };
+      if(t.text==='LAMBDA'&&this.consume('(')){
+        const invocationArgs=this.callArguments();
+        return {type:'call',name:'__INVOKE_LAMBDA__',args:[callee,...invocationArgs],start:t.start,end:this.tokens[this.index-1]!.end};
       }
-      return { type: 'call', name: t.text, args, start: t.start, end: this.tokens[this.index - 1]!.end };
+      return callee;
     }
     if (t.kind === 'eof') throw new FormulaSyntaxError('Incomplete expression.', t.start, 'Add a value, reference, or function.');
     throw new FormulaSyntaxError(`Unexpected '${t.text}'.`, t.start, 'Enter a number, cell reference, or function here.');
   }
 }
-export const parseFormula = (source: string): Node => new Parser(tokenize(source.startsWith('=') ? source.slice(1) : source), source).parse();
+export const parseFormula = (source: string): Node => {const normalized=normalizeFormulaLocale(source);return new Parser(tokenize(normalized.startsWith('=') ? normalized.slice(1) : normalized), source).parse();};
 export function references(ast: Node, rows: number, cols: number): Set<string> {
   const refs = new Set<string>();
   const visit = (n: Node): void => {

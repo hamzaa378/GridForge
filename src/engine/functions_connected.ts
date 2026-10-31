@@ -11,6 +11,7 @@ export const connectedFunctionRequirements: Record<string,string> = {
   CUBEMEMBERPROPERTY: "OLAP cube connection",
   CUBERANKEDMEMBER: "OLAP cube connection",
   CUBESET: "OLAP cube connection",
+  CUBESETCOUNT: "OLAP cube connection",
   CUBEVALUE: "OLAP cube connection",
   RTD: "Windows RTD COM server",
   STOCKHISTORY: "licensed market-data provider",
@@ -37,6 +38,10 @@ export const connectedFunctionDefinitions: Record<string,FunctionDefinition> = {
   CUBESET: {description:"Connected Excel function \u2014 requires OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine.",example:"=CUBESET(\"Sales\",\"[Products].Members\",\"Products\")",run:(args:Datum[])=>{
     if(args.length<2||args.length>5) throw new SheetError('#VALUE!',"CUBESET expects 2\u20135 arguments.");
     throw new SheetError('#NAME?',"CUBESET requires OLAP cube connection; use an appropriately connected copy of Microsoft Excel to evaluate it.");
+  }},
+  CUBESETCOUNT: {description:"Connected Excel function \u2014 counts members of a set returned by an OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine.",example:"=CUBESETCOUNT(CUBESET(\"Sales\",\"[Products].Members\"))",run:(args:Datum[])=>{
+    if(args.length!==1) throw new SheetError('#VALUE!',"CUBESETCOUNT expects exactly 1 argument.");
+    throw new SheetError('#N/A',"CUBESETCOUNT needs a set object from an OLAP cube connection; plain delimited text is not a cube set.");
   }},
   CUBEVALUE: {description:"Connected Excel function \u2014 requires OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine.",example:"=CUBEVALUE(\"Sales\",\"[Measures].[Revenue]\")",run:(args:Datum[])=>{
     if(args.length<1||args.length>99) throw new SheetError('#VALUE!',"CUBEVALUE expects 1 or more arguments.");

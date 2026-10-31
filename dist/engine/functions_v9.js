@@ -3,6 +3,7 @@
  * Array-returning functions return rectangular results to the workbook spill engine.
  */
 import { SheetError, flatten, matchCriterion, number, text } from './functions.js';
+import { excelDateSerial, excelSerialUtcDate } from './date_serial.js';
 const fail = (code, message) => { throw new SheetError(code, message); };
 const def = (description, example, run) => ({ description, example, run });
 const check = (a, min, max = min) => { if (a.length < min || a.length > max)
@@ -302,8 +303,8 @@ const database = (args, operation) => {
         default: return fail('#NAME?', 'Unknown database aggregate.');
     }
 };
-const excelDate = (serial) => new Date(Date.UTC(1899, 11, 30) + Math.trunc(serial) * 86400000);
-const excelSerial = (d) => Math.round((d.getTime() - Date.UTC(1899, 11, 30)) / 86400000);
+const excelDate = (serial) => excelSerialUtcDate(serial);
+const excelSerial = (d) => excelDateSerial(d.toISOString()) ?? NaN;
 const lastFeb = (d) => d.getUTCMonth() === 1 && d.getUTCDate() === new Date(Date.UTC(d.getUTCFullYear(), 2, 0)).getUTCDate();
 const dayCount = (a, b, basis = 0) => {
     if (![0, 1, 2, 3, 4].includes(basis))

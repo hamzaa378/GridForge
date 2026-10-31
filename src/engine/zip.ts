@@ -4,6 +4,7 @@ const LIMIT_FILE = 25 * 1024 * 1024, LIMIT_TOTAL = 80 * 1024 * 1024;
 const crcTable = new Uint32Array(256);
 for (let n=0;n<256;n++) {let x=n;for(let i=0;i<8;i++)x=(x&1)?0xedb88320^(x>>>1):x>>>1;crcTable[n]=x>>>0;}
 function crc(data:Uint8Array):number {let n=0xffffffff;for(const b of data)n=crcTable[(n^b)&255]!^(n>>>8);return (n^0xffffffff)>>>0;}
+async function crcAsync(data:Uint8Array,onProgress?:(processed:number,total:number)=>void):Promise<number>{let value=0xffffffff;const chunkSize=1_048_576;for(let offset=0;offset<data.length;offset+=chunkSize){const end=Math.min(data.length,offset+chunkSize);for(let index=offset;index<end;index++){const byte=data[index]!;value=crcTable[(value^byte)&255]!^(value>>>8);}onProgress?.(end,data.length);if(end<data.length)await new Promise<void>(resolve=>setTimeout(resolve,0));}return (value^0xffffffff)>>>0;}
 function u16(buf:Uint8Array,offset:number):number{return (buf[offset]??0)|((buf[offset+1]??0)<<8);}
 function u32(buf:Uint8Array,offset:number):number{return (u16(buf,offset)+(u16(buf,offset+2)*65536))>>>0;}
 function set16(b:Uint8Array,o:number,v:number){b[o]=v&255;b[o+1]=(v>>>8)&255;}
@@ -32,15 +33,15 @@ export function zipWriteBytes(entries:Record<string,Uint8Array>):Uint8Array {
   set32(end,0,0x06054b50);set16(end,8,directory.length);set16(end,10,directory.length);set32(end,12,dirSize);set32(end,16,offset);
   return join([...chunks,...directory,end]);
 }
-export async function zipRead(data:Uint8Array):Promise<Map<string,string>> {
-  const entries=await zipReadBytes(data),out=new Map<string,string>();
+export async function zipRead(data:Uint8Array,onProgress?:(message:string)=>void):Promise<Map<string,string>> {
+  const entries=await zipReadBytes(data,(name,processed,total)=>onProgress?.(`Verifying XLSX ${name}: ${Math.round(processed/total*100)}%`)),out=new Map<string,string>();
   for(const [name,bytes] of entries){
     if(name.endsWith('.xml')||name.endsWith('.rels'))out.set(name,td.decode(bytes));
   }
   return out;
 }
 /** Read and verify binary and XML entries without discarding VBA and unrelated features. */
-export async function zipReadBytes(data:Uint8Array):Promise<Map<string,Uint8Array>> {
+export async function zipReadBytes(data:Uint8Array,onProgress?:(name:string,processed:number,total:number)=>void):Promise<Map<string,Uint8Array>> {
   let end=-1;for(let p=data.length-22;p>=Math.max(0,data.length-65557);p--)if(u32(data,p)===0x06054b50){end=p;break;}
   if(end<0)throw Error('Not a ZIP / XLSX file.');const count=u16(data,end+10),directoryOffset=u32(data,end+16);
   if(count>3000||directoryOffset>=data.length)throw Error('Invalid or oversized XLSX archive.');
@@ -62,7 +63,7 @@ export async function zipReadBytes(data:Uint8Array):Promise<Map<string,Uint8Arra
       const stream=new Blob([new Uint8Array(src)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
       bytes=new Uint8Array(await new Response(stream).arrayBuffer());
     } else throw Error('Unsupported ZIP compression method '+method);
-    if(bytes.length!==uncompressed||crc(bytes)!==expectedCrc)throw Error(`Invalid XLSX ZIP checksum in ${name}`);
+    if(bytes.length!==uncompressed||await crcAsync(bytes,(processed,total)=>onProgress?.(name,processed,total))!==expectedCrc)throw Error(`Invalid XLSX ZIP checksum in ${name}`);
     if(out.has(name))throw Error('Duplicate OOXML ZIP entry.');
     out.set(name,new Uint8Array(bytes));
   }

@@ -1,22 +1,23 @@
 import { Workbook, display } from './engine/workbook.js';
-import { parseCSV, encodeCSV } from './engine/csv.js';
+import { parseCSVAsync } from './engine/csv.js';
 import { colToName, parseRef, shiftFormula } from './engine/parser.js';
 import { functions, functionNames, v10FunctionNames } from './engine/functions.js';
 import { functionCategory, categoryNames } from './engine/categories.js';
 import { connectedFunctionNames } from './engine/functions_connected.js';
 import { validateMacro, runActionMacro } from './engine/macros.js';
 import { SpreadsheetDocument } from './engine/document.js';
+import { excelDateSerial, excelSerialDateIso } from './engine/date_serial.js';
 import { runPivotJobs } from './engine/pivot_job.js';
 import { buildPrintHtml } from './engine/print.js';
 import { buildExternalQueryRefresh, buildQueryRefresh } from './engine/power_query.js';
 import { styledDisplay, isExcelDateNumberFormat } from './engine/format.js';
 import { analyzeSelection, findCells, findAcrossSheets, replaceCells, sortRangeTransaction } from './engine/operations.js';
-import { snapshotCells, pasteSnapshot } from './engine/clipboard.js';
+import { snapshotCells, pasteSnapshot, MAX_CLIPBOARD_CELLS } from './engine/clipboard.js';
 import { exportXlsx, importXlsx, xlsxFileName } from './engine/xlsx.js';
 import { exportEditedXlsm } from './engine/xlsm.js';
 import { filterVisibleRows, ruleColor, validateTools, dataBarFill, dataValidationAt, dataValidationError, dataValidationValues } from './engine/sheettools.js';
 import { DATA_TOOLS, TOOL_CATEGORIES, previewDataTool } from './engine/tools_v8.js';
-import { CHART_PALETTES, chartRange, chartSvg, extractChartData, validateChart } from './engine/charts.js';
+import { CHART_DATA_TABLE_KINDS, CHART_HIDDEN_DATA_KINDS, CHART_PALETTES, chartRange, chartSvg, extractChartData, validateChart } from './engine/charts.js';
 import { TABLE_STYLES, validateTable, tableRange, tableAt, tableAppearance } from './engine/tables.js';
 import { expandTablesAfterEdit } from './engine/table_growth.js';
 import { propagateCalculatedColumns, fillCalculatedRows, reconcileCalculatedColumns } from './engine/table_calculations.js';
@@ -24,6 +25,8 @@ import { splitDelimitedText, textToColumnsEdits } from './engine/text_to_columns
 import { buildPivotSummary, MAX_PIVOT_SOURCE_CELLS, pivotChartRange, pivotDateGroupLabel, pivotDateSerial, pivotSerialDateIso, pivotNumberGroupLabel, pivotNumberGroupSortValue, pivotNumberGroupUsesIntegerLabels, pivotSourceFieldHeaders, resolvePivotNumberGroupRange, validatePivotSummary } from './engine/pivot.js';
 import { solveGoalSeek } from './engine/goal_seek.js';
 import { buildDescriptiveStatistics } from './engine/descriptive_stats.js';
+import { listCloudFiles, downloadCloudFile, uploadCloudFile } from './engine/cloud.js';
+import { MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_POPULATED_CELLS, MAX_WORKSHEET_ROWS } from './engine/limits.js';
 const ROW_H = 30, COL_W = 126, HEAD_W = 54, HEAD_H = 34;
 const STORAGE = 'gridforge:document:v2';
 const LEGACY_STORAGE = 'gridforge:greeting:workbook:v1';
@@ -33,6 +36,254 @@ const el = (id) => { const node = document.getElementById(id); if (!node)
 const escapeHtml = (s) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const asRef = (r, c) => `${colToName(c)}${r + 1}`;
 const bounds = (a, b) => ({ r1: Math.min(a.r, b.r), r2: Math.max(a.r, b.r), c1: Math.min(a.c, b.c), c2: Math.max(a.c, b.c) });
+let xlsxImportWorkerSequence = 0;
+let xlsxExportWorkerSequence = 0;
+let dataExportWorkerSequence = 0;
+let csvImportWorkerSequence = 0;
+let jsonImportWorkerSequence = 0;
+function importXlsxOffThread(bytes, onProgress, preserveInput = false) {
+    if (typeof Worker === 'undefined')
+        return importXlsx(bytes, { onProgress });
+    const requestId = `xlsx-import-${++xlsxImportWorkerSequence}`;
+    return new Promise((resolve, reject) => {
+        let worker;
+        try {
+            worker = new Worker(new URL('./engine/xlsx_worker.js', import.meta.url), { type: 'module' });
+        }
+        catch (error) {
+            reject(error instanceof Error ? error : new Error('Unable to start the XLSX import worker.'));
+            return;
+        }
+        const finish = (callback) => { worker.terminate(); callback(); };
+        worker.onmessage = (event) => {
+            const response = event.data;
+            if (response.requestId !== requestId)
+                return;
+            if (response.kind === 'progress') {
+                if (response.message)
+                    onProgress?.(response.message);
+                return;
+            }
+            if (response.kind === 'error') {
+                finish(() => reject(new Error(response.message ?? 'XLSX import failed.')));
+                return;
+            }
+            try {
+                finish(() => resolve({ document: SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true }), warnings: Array.isArray(response.warnings) ? response.warnings : [] }));
+            }
+            catch (error) {
+                finish(() => reject(error instanceof Error ? error : new Error('The imported workbook could not be restored.')));
+            }
+        };
+        worker.onerror = () => finish(() => reject(new Error('XLSX import stopped unexpectedly.')));
+        try {
+            const payload = preserveInput || bytes.byteOffset !== 0 || bytes.byteLength !== bytes.buffer.byteLength ? bytes.slice() : bytes, buffer = payload.buffer;
+            worker.postMessage({ requestId, bytes: buffer }, [buffer]);
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Unable to send the workbook to the XLSX import worker.')));
+        }
+    });
+}
+function importCsvOffThread(bytes, onProgress) {
+    if (typeof Worker === 'undefined')
+        return (async () => { if (bytes.byteLength > 64 * 1024 * 1024)
+            throw Error('CSV files are limited to 64 MB. Split the file into smaller parts and import them separately.'); const rows = await parseCSVAsync(new TextDecoder().decode(bytes), onProgress), longest = rows.reduce((width, row) => Math.max(width, row.length), 0), sourceCells = rows.reduce((total, row) => total + row.length, 0), nonempty = rows.reduce((total, row) => total + row.filter(value => value !== '').length, 0); if (sourceCells > 5_000_000 || nonempty > MAX_WORKSHEET_POPULATED_CELLS)
+            throw Error('This CSV exceeds the import limit of 5,000,000 fields or the configured populated-cell limit. Split it into smaller files before importing.'); const workbook = new Workbook(Math.max(400, Math.min(MAX_WORKSHEET_ROWS, rows.length)), Math.max(52, Math.min(MAX_WORKSHEET_COLUMNS, longest))), edits = []; for (let row = 0; row < Math.min(rows.length, workbook.rows); row++)
+            for (let column = 0; column < Math.min(rows[row].length, workbook.cols); column++) {
+                const raw = rows[row][column];
+                if (raw !== '')
+                    edits.push({ ref: asRef(row, column), raw });
+            } for (let offset = 0; offset < edits.length; offset += 1024)
+            workbook.applyEdits(edits.slice(offset, offset + 1024), false, false); for (const edit of edits)
+            if (edit.raw.startsWith('='))
+                workbook.getValue(edit.ref); return { document: new SpreadsheetDocument(workbook), ...(rows.length > workbook.rows || longest > workbook.cols ? { clipped: { rows: rows.length, columns: longest } } : {}) }; })();
+    const requestId = `csv-import-${++csvImportWorkerSequence}`;
+    return new Promise((resolve, reject) => {
+        let worker;
+        try {
+            worker = new Worker(new URL('./engine/csv_import_worker.js', import.meta.url), { type: 'module' });
+        }
+        catch (error) {
+            reject(error instanceof Error ? error : new Error('Unable to start the CSV import worker.'));
+            return;
+        }
+        const finish = (callback) => { worker.terminate(); callback(); };
+        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
+            return; if (response.kind === 'progress') {
+            if (response.message)
+                onProgress?.(response.message);
+            return;
+        } if (response.kind === 'error') {
+            finish(() => reject(new Error(response.message ?? 'CSV import failed.')));
+            return;
+        } try {
+            const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
+            finish(() => resolve({ document, ...(response.clipped ? { clipped: response.clipped } : {}) }));
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Imported CSV data could not be restored.')));
+        } };
+        worker.onerror = () => finish(() => reject(new Error('CSV import stopped unexpectedly.')));
+        try {
+            const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice(), buffer = payload.buffer;
+            worker.postMessage({ requestId, bytes: buffer }, [buffer]);
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Unable to send CSV data to the import worker.')));
+        }
+    });
+}
+function importJsonOffThread(bytes, onProgress) {
+    if (typeof Worker === 'undefined') {
+        if (bytes.byteLength > 64 * 1024 * 1024)
+            throw Error('GridForge JSON files are limited to 64 MB. Export a smaller workbook or remove unused data.');
+        return Promise.resolve(SpreadsheetDocument.fromJSON(JSON.parse(new TextDecoder().decode(bytes)), { deferCalculation: true }));
+    }
+    const requestId = `json-import-${++jsonImportWorkerSequence}`;
+    return new Promise((resolve, reject) => {
+        let worker;
+        try {
+            worker = new Worker(new URL('./engine/json_import_worker.js', import.meta.url), { type: 'module' });
+        }
+        catch (error) {
+            reject(error instanceof Error ? error : new Error('Unable to start the JSON import worker.'));
+            return;
+        }
+        const finish = (callback) => { worker.terminate(); callback(); };
+        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
+            return; if (response.kind === 'progress') {
+            if (response.message)
+                onProgress?.(response.message);
+            return;
+        } if (response.kind === 'error') {
+            finish(() => reject(new Error(response.message ?? 'GridForge JSON import failed.')));
+            return;
+        } try {
+            const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
+            finish(() => resolve(document));
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('GridForge JSON data could not be restored.')));
+        } };
+        worker.onerror = () => finish(() => reject(new Error('GridForge JSON import stopped unexpectedly.')));
+        try {
+            if (bytes.byteLength > 64 * 1024 * 1024)
+                throw Error('GridForge JSON files are limited to 64 MB. Export a smaller workbook or remove unused data.');
+            const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice(), buffer = payload.buffer;
+            worker.postMessage({ requestId, bytes: buffer }, [buffer]);
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Unable to send JSON workbook data to the import worker.')));
+        }
+    });
+}
+function exportXlsxOffThread(document) {
+    if (typeof Worker === 'undefined')
+        return Promise.resolve(exportXlsx(document));
+    const requestId = `xlsx-export-${++xlsxExportWorkerSequence}`;
+    return new Promise((resolve, reject) => {
+        let worker;
+        try {
+            worker = new Worker(new URL('./engine/xlsx_export_worker.js', import.meta.url), { type: 'module' });
+        }
+        catch (error) {
+            reject(error instanceof Error ? error : new Error('Unable to start the XLSX export worker.'));
+            return;
+        }
+        const finish = (callback) => { worker.terminate(); callback(); };
+        worker.onmessage = (event) => {
+            const response = event.data;
+            if (response.requestId !== requestId)
+                return;
+            if (response.kind === 'error') {
+                finish(() => reject(new Error(response.message ?? 'XLSX export failed.')));
+                return;
+            }
+            const bytes = response.bytes;
+            if (!(bytes instanceof ArrayBuffer)) {
+                finish(() => reject(new Error('XLSX export worker returned invalid workbook data.')));
+                return;
+            }
+            finish(() => resolve(new Uint8Array(bytes)));
+        };
+        worker.onerror = () => finish(() => reject(new Error('XLSX export stopped unexpectedly.')));
+        try {
+            worker.postMessage({ requestId, document: document.toJSON() });
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Unable to send workbook data to the XLSX export worker.')));
+        }
+    });
+}
+function exportDataOffThread(document, format) {
+    const snapshot = document.toJSON();
+    if (typeof Worker === 'undefined') {
+        let output;
+        if (format === 'json') {
+            output = JSON.stringify(snapshot, null, 2);
+            if (output.length > 64 * 1024 * 1024)
+                throw Error('This workbook JSON is larger than the 64 MB export limit. Remove unused data or split the workbook before exporting.');
+        }
+        else {
+            const workbook = SpreadsheetDocument.fromJSON(snapshot).active.book, entries = workbook.allEntries();
+            let maxRow = 0, maxColumn = 0;
+            for (const entry of entries) {
+                const point = parseRef(entry.ref);
+                if (point) {
+                    maxRow = Math.max(maxRow, point.row);
+                    maxColumn = Math.max(maxColumn, point.col);
+                }
+            }
+            const cellCount = (maxRow + 1) * (maxColumn + 1);
+            if (!Number.isSafeInteger(cellCount) || cellCount > 2_000_000)
+                throw Error(`This sheet's CSV area is ${cellCount.toLocaleString()} cells, above the 2,000,000-cell export limit. Move or remove distant data, or export a smaller sheet.`);
+            const rows = [];
+            let characters = 0;
+            for (let row = 0; row <= maxRow; row++) {
+                const values = [];
+                for (let column = 0; column <= maxColumn; column++) {
+                    const value = workbook.getValue(asRef(row, column)), shown = display(value), safe = typeof value.value === 'string' && /^[\t\r\n ]*[=+\-@]/.test(shown) ? `'${shown}` : shown;
+                    values.push(/[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe);
+                }
+                const line = values.join(',');
+                characters += line.length + (row ? 2 : 0);
+                if (characters > 64 * 1024 * 1024)
+                    throw Error('This CSV is larger than the 64 MB export limit. Export a smaller range or split the sheet.');
+                rows.push(line);
+            }
+            output = rows.join('\r\n');
+        }
+        return Promise.resolve(new TextEncoder().encode(output));
+    }
+    const requestId = `data-export-${++dataExportWorkerSequence}`;
+    return new Promise((resolve, reject) => {
+        let worker;
+        try {
+            worker = new Worker(new URL('./engine/data_export_worker.js', import.meta.url), { type: 'module' });
+        }
+        catch (error) {
+            reject(error instanceof Error ? error : new Error('Unable to start the data export worker.'));
+            return;
+        }
+        const finish = (callback) => { worker.terminate(); callback(); };
+        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
+            return; if (response.kind === 'error') {
+            finish(() => reject(new Error(response.message ?? 'Data export failed.')));
+            return;
+        } const output = response.bytes; if (!(output instanceof ArrayBuffer)) {
+            finish(() => reject(new Error('Data export worker returned invalid data.')));
+            return;
+        } finish(() => resolve(new Uint8Array(output))); };
+        worker.onerror = () => finish(() => reject(new Error('Data export stopped unexpectedly.')));
+        try {
+            worker.postMessage({ requestId, format, document: snapshot });
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Unable to send workbook data to the export worker.')));
+        }
+    });
+}
 const sample = () => {
     const w = new Workbook(400, 52);
     const edits = [
@@ -49,6 +300,18 @@ const sample = () => {
 };
 let book;
 let doc;
+let workspaceDatabase = null;
+function openWorkspaceDatabase() {
+    if (typeof indexedDB === 'undefined')
+        return Promise.reject(new Error('IndexedDB is unavailable.'));
+    if (workspaceDatabase)
+        return workspaceDatabase;
+    workspaceDatabase = new Promise((resolve, reject) => { const request = indexedDB.open('GridForgeWorkspace', 1); request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains('workspace'))
+        request.result.createObjectStore('workspace'); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error ?? new Error('Unable to open local workbook storage.')); request.onblocked = () => reject(new Error('Local workbook storage is busy in another app window.')); });
+    return workspaceDatabase;
+}
+async function readStoredWorkspace() { const database = await openWorkspaceDatabase(); return new Promise((resolve, reject) => { const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current'); request.onsuccess = () => resolve(request.result && typeof request.result === 'object' ? request.result : null); request.onerror = () => reject(request.error ?? new Error('Unable to read local workbook storage.')); }); }
+async function writeStoredWorkspace(value) { const database = await openWorkspaceDatabase(); await new Promise((resolve, reject) => { const transaction = database.transaction('workspace', 'readwrite'); transaction.objectStore('workspace').put({ ...value, updatedAt: Date.now() }, 'current'); transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error ?? new Error('Unable to save local workbook storage.')); transaction.onabort = () => reject(transaction.error ?? new Error('Local workbook save was cancelled.')); }); }
 let pivotWorkerSequence = 0, pivotDialogJobSequence = 0;
 function buildPivotSummaryInWorker(spec, destinationId = doc.activeId, requireActiveDestination = true, requireUnchangedSavedSpec = false, detailRef) {
     const requestId = `pivot-${++pivotWorkerSequence}`, snapshot = doc.toJSON(), revisions = doc.sheets.map(sheet => ({ id: sheet.id, name: sheet.name, revision: sheet.book.valueRevision })), destination = doc.sheets.find(sheet => sheet.id === destinationId), specSnapshot = JSON.stringify(spec);
@@ -151,16 +414,33 @@ try {
     workbookTitle = localStorage.getItem(TITLE_STORAGE) ?? workbookTitle;
 }
 catch { /* storage is optional */ }
+let migrateLocalStorage = false;
 try {
-    const previous = localStorage.getItem(STORAGE);
-    const old = localStorage.getItem(LEGACY_STORAGE);
-    doc = previous ? SpreadsheetDocument.fromJSON(JSON.parse(previous)) : new SpreadsheetDocument(old ? Workbook.fromJSON(JSON.parse(old)) : new Workbook());
+    const saved = await readStoredWorkspace();
+    if (saved?.document) {
+        doc = SpreadsheetDocument.fromJSON(saved.document, { deferCalculation: true });
+        if (typeof saved.title === 'string' && saved.title.trim())
+            workbookTitle = saved.title;
+    }
+    else {
+        const previous = localStorage.getItem(STORAGE), old = localStorage.getItem(LEGACY_STORAGE);
+        migrateLocalStorage = Boolean(previous || old);
+        doc = previous ? SpreadsheetDocument.fromJSON(JSON.parse(previous), { deferCalculation: true }) : new SpreadsheetDocument(old ? Workbook.fromJSON(JSON.parse(old)) : new Workbook());
+    }
 }
 catch {
-    doc = new SpreadsheetDocument(sample());
+    try {
+        const previous = localStorage.getItem(STORAGE), old = localStorage.getItem(LEGACY_STORAGE);
+        migrateLocalStorage = Boolean(previous || old);
+        doc = previous ? SpreadsheetDocument.fromJSON(JSON.parse(previous), { deferCalculation: true }) : new SpreadsheetDocument(old ? Workbook.fromJSON(JSON.parse(old)) : new Workbook());
+    }
+    catch {
+        doc = new SpreadsheetDocument(sample());
+    }
 }
 book = doc.active.book;
 let active = { r: 0, c: 0 }, anchor = { ...active }, end = { ...active };
+const sheetViewState = new Map();
 const colWidth = (c) => doc.active.tools.hiddenColumns.includes(c) ? 0 : doc.active.tools.columnWidths[c] ?? COL_W;
 const rowHeight = (r) => doc.active.tools.rowHeights[r] ?? ROW_H;
 const colOffset = (c) => { let x = 0; for (let i = 0; i < c; i++)
@@ -179,7 +459,7 @@ let mode = 'inspector';
 let clipboardCache = null;
 let fillDrag = false, rangeDrag = false, dragTarget = { ...active };
 let lastPointerDown = { ref: '', at: 0 };
-let storeTimeout = 0, scrollFrame = 0;
+let storeTimeout = 0, scrollFrame = 0, saveRevision = 0;
 let functionFilter = '';
 let functionCategoryFilter = 'All functions';
 let formulaTrace = null;
@@ -213,10 +493,10 @@ root.innerHTML = `
     <div class="quick-access" aria-label="Quick Access Toolbar"><button id="btn-new" class="quick-btn" title="New workbook" aria-label="New workbook">＋</button><button id="btn-undo" class="quick-btn" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button><button id="btn-redo" class="quick-btn" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button><button id="btn-xlsx" class="quick-btn quick-save" title="Save Excel workbook (Ctrl+S)" aria-label="Save Excel workbook">▣</button></div>
     <div class="title-group"><div class="title-line"><span id="book-title">${escapeHtml(workbookTitle)}</span> <span class="tiny-caret">⌄</span></div><div class="title-sub"><span id="save-state">Saved locally</span></div></div>
     <label class="command-search-label title-search" for="command-search">⌕ <input id="command-search" type="search" placeholder="Search" autocomplete="off" aria-label="Search commands and help"/></label>
-    <div class="topbar-right"><button id="btn-insights" class="ghost-btn" title="Show or hide formula insights">☷ <span>Insights</span></button><button id="btn-shortcuts" class="ghost-btn" title="Keyboard shortcuts and help">⌨ <span>Help</span></button><button id="btn-first-steps" class="ghost-btn first-steps-btn" title="Getting started with GridForge" aria-label="Getting started">?</button><div class="v10-preferences" aria-label="Display preferences"><select id="workspace-switch" aria-label="Switch workspace"><option value="excel">Excel-style</option><option value="guided">Guided</option></select><button type="button" id="theme-switch" aria-label="Switch light and dark theme" title="Change color theme">☾</button></div><span class="avatar" aria-label="GridForge account">G</span></div>
+    <div class="topbar-right"><button id="btn-insights" class="ghost-btn" title="Show or hide formula insights">☷ <span>Insights</span></button><button id="btn-shortcuts" class="ghost-btn" title="Keyboard shortcuts and help">⌨ <span>Help</span></button><button id="btn-first-steps" class="ghost-btn first-steps-btn" title="Getting started with GridForge" aria-label="Getting started">?</button><div class="v10-preferences" aria-label="Display preferences"><label class="sr-only" for="workspace-switch">Workspace</label><select id="workspace-switch" aria-label="Switch workspace"><option value="excel">Excel-style</option><option value="guided">Guided</option></select><label class="sr-only" for="appearance-switch">Visual style</label><select id="appearance-switch" aria-label="Choose visual style" title="Choose a visual style"><option value="excel">Excel 2019</option><option value="modern">Modern</option><option value="compact">Compact</option><option value="contrast">High contrast</option></select><button type="button" id="theme-switch" aria-label="Switch light and dark theme" title="Change color theme">☾</button></div><span class="avatar" aria-label="GridForge account">G</span></div>
   </header>
   <div class="excel-ribbon-tabs" role="tablist" aria-label="Spreadsheet command groups">
-    <button type="button" class="excel-tab file-tab" data-ribbon="File">File</button><button type="button" class="excel-tab active" data-ribbon="Home">Home</button><button type="button" class="excel-tab" data-ribbon="Insert">Insert</button><button type="button" class="excel-tab" data-ribbon="Page Layout">Page Layout</button><button type="button" class="excel-tab" data-ribbon="Formulas">Formulas</button><button type="button" class="excel-tab" data-ribbon="Data">Data</button><button type="button" class="excel-tab" data-ribbon="Review">Review</button><button type="button" class="excel-tab" data-ribbon="View">View</button><button type="button" class="excel-tab" data-ribbon="Help">Help</button><button type="button" class="excel-tab" data-ribbon="Automate" aria-label="Developer">Developer</button><button type="button" class="excel-tab table-context-tab ribbon-hidden" data-ribbon="Table Design">Table Design</button><button type="button" class="excel-tab chart-context-tab ribbon-hidden" data-ribbon="Chart Design">Chart Design</button><button type="button" class="excel-tab chart-context-tab ribbon-hidden" data-ribbon="Format">Format</button><button type="button" class="excel-tab more-tab" data-ribbon="All">More ▾</button>
+    <button type="button" class="excel-tab file-tab" data-ribbon="File">File</button><button type="button" class="excel-tab active" data-ribbon="Home">Home</button><button type="button" class="excel-tab" data-ribbon="Insert">Insert</button><button type="button" class="excel-tab" data-ribbon="Draw">Draw</button><button type="button" class="excel-tab" data-ribbon="Page Layout">Page Layout</button><button type="button" class="excel-tab" data-ribbon="Formulas">Formulas</button><button type="button" class="excel-tab" data-ribbon="Data">Data</button><button type="button" class="excel-tab" data-ribbon="Review">Review</button><button type="button" class="excel-tab" data-ribbon="View">View</button><button type="button" class="excel-tab" data-ribbon="Help">Help</button><button type="button" class="excel-tab" data-ribbon="Automate" aria-label="Developer">Developer</button><button type="button" class="excel-tab table-context-tab ribbon-hidden" data-ribbon="Table Design">Table Design</button><button type="button" class="excel-tab chart-context-tab ribbon-hidden" data-ribbon="Chart Design">Chart Design</button><button type="button" class="excel-tab chart-context-tab ribbon-hidden" data-ribbon="Format">Format</button><button type="button" class="excel-tab more-tab" data-ribbon="All">More ▾</button>
     <button id="btn-collapse-ribbon" class="ribbon-collapse-btn" title="Collapse/expand ribbon (Ctrl+F1)" aria-label="Collapse ribbon" aria-expanded="true">⌃</button>
   </div>
   <div id="ribbon-hint" class="ribbon-hint" role="status">Ready</div>
@@ -224,11 +504,11 @@ root.innerHTML = `
   <div id="ribbon-content" class="ribbon-content" role="region" aria-label="Selected ribbon commands">
   <nav class="toolbar" aria-label="Workbook toolbar">
     <div class="tool-group" aria-label="Clipboard"><button id="btn-paste" class="tool-btn" title="Paste cells copied in GridForge (Ctrl+V)">▤ <span>Paste</span></button><button id="btn-cut" class="tool-btn" title="Cut selected cells (Ctrl+X)">✂ <span>Cut</span></button><button id="btn-copy" class="tool-btn" title="Copy selected cells (Ctrl+C)">▢ <span>Copy</span></button></div>
-    <div class="tool-group" aria-label="Open and save"><button id="btn-import" class="tool-btn" title="Open Excel XLSX/XLSM, CSV or JSON (Ctrl+O)">↧ <span>Open</span></button><button id="btn-sample" class="tool-btn" title="Load example workbook">▧ <span>Example</span></button><button id="btn-save-xlsm" class="tool-btn" title="Save edits into a new macro-enabled XLSM (VBA preserved)" hidden>▣ <span>Save XLSM</span></button><button id="btn-original-xlsm" class="tool-btn" title="Download unchanged original macro-enabled workbook" hidden>⇩ <span>Original XLSM</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
+    <div class="tool-group" aria-label="Open and save"><button id="btn-import" class="tool-btn" title="Open Excel XLSX/XLSM, CSV or JSON (Ctrl+O)">↧ <span>Open</span></button><button id="btn-cloud" class="tool-btn" title="Open or save workbooks in OneDrive, Google Drive, Dropbox or Box">☁ <span>Cloud</span></button><button id="btn-sample" class="tool-btn" title="Load example workbook">▧ <span>Example</span></button><button id="btn-save-xlsm" class="tool-btn" title="Save edits into a new macro-enabled XLSM (VBA preserved)" hidden>▣ <span>Save XLSM</span></button><button id="btn-original-xlsm" class="tool-btn" title="Download unchanged original macro-enabled workbook" hidden>⇩ <span>Original XLSM</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
     <span class="separator"></span><div class="tool-group" aria-label="Editing"><button id="btn-sort-asc" class="tool-btn" title="Sort selected rows ascending by first selected column">↑ <span>Sort A–Z</span></button><button id="btn-sort-desc" class="tool-btn" title="Sort selected rows descending by first selected column">↓ <span>Sort Z–A</span></button><button id="btn-sort-custom" class="tool-btn" title="Sort by up to three columns, each with its own order">▤ <span>Custom sort</span></button><button id="btn-find" class="tool-btn" title="Find and replace (Ctrl+F)">⌕ <span>Find</span></button><button id="btn-filter" class="tool-btn" title="Filter selected table rows">⛃ <span>Filter</span></button><button id="btn-clear-filter" class="tool-btn" title="Show all filtered rows">◯ <span>Show all</span></button><button id="btn-data-validation" class="tool-btn" title="Restrict entries or add an in-cell dropdown">✓ <span>Data Validation</span></button><button id="btn-text-to-columns" class="tool-btn" title="Split delimited text into adjacent columns">↔ <span>Text to Columns</span></button><button id="btn-pivot-summary" class="tool-btn" title="Create a GridForge pivot summary from a headered range">▦ <span>Pivot Summary</span></button><button id="btn-query" class="tool-btn" title="Create a saved offline query from selected rows">⟳ <span>New Query</span></button><button id="btn-refresh-queries" class="tool-btn" title="Refresh saved queries and Pivot Summaries">↻ <span>Refresh All</span></button><button id="btn-descriptive-stats" class="tool-btn" title="Create mean, spread and distribution statistics for a range">Σ <span>Descriptive Stats</span></button><button id="btn-goal-seek" class="tool-btn" title="Find an input that makes a formula reach a target">⌖ <span>Goal Seek</span></button><button id="btn-refresh-pivots" class="tool-btn" title="Refresh every saved pivot summary across the workbook">⟳ <span>Refresh Summaries</span></button></div>
     <span class="separator"></span><div class="tool-group" aria-label="Cell size"><button id="btn-column-width" class="tool-btn" title="Set selected column width">↔ <span>Column Width</span></button><button id="btn-row-height" class="tool-btn" title="Set selected row height">↕ <span>Row Height</span></button><button id="btn-hide-rows" class="tool-btn" title="Hide selected rows">◌ <span>Hide Rows</span></button><button id="btn-unhide-rows" class="tool-btn" title="Unhide all rows">◉ <span>Unhide Rows</span></button><button id="btn-hide-columns" class="tool-btn" title="Hide selected columns">◌ <span>Hide Columns</span></button><button id="btn-unhide-columns" class="tool-btn" title="Unhide all columns">◉ <span>Unhide Columns</span></button><button id="btn-sheet-gridlines" class="tool-btn" title="Show or hide worksheet gridlines" aria-pressed="true">▦ <span>Gridlines</span></button></div>
     <div class="tool-group feature-command-group ribbon-hidden" id="missing-data-features" aria-label="Unavailable Excel data features"><button type="button" class="tool-btn missing-feature-button partial-feature-button" data-feature-notice="power-query" title="Power Query M is only partially available in GridForge">⟳ <span>Power Query</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="data-model" title="The Excel Data Model is not available in GridForge">▧ <span>Data Model</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="power-pivot" title="Power Pivot and DAX are not available in GridForge">∑ <span>Power Pivot / DAX</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="olap" title="OLAP connections are not available in GridForge">◇ <span>OLAP</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="timeline" title="Native Excel Timelines are not available in GridForge">◷ <span>Timeline</span></button><button type="button" class="tool-btn missing-feature-button partial-feature-button" data-feature-notice="pivot-chart-fields" title="Full Excel PivotChart field buttons are not implemented">▥ <span>PivotChart fields</span></button></div>
-    <div id="chart-design-ribbon" class="tool-group ribbon-hidden chart-command-group"><label class="chart-ribbon-label">Chart type <select id="chart-context-kind" aria-label="Chart type"><option value="column">Column</option><option value="bar">Bar</option><option value="line">Line</option><option value="area">Area</option><option value="pie">Pie</option><option value="scatter">XY Scatter</option><option value="stacked-column">Stacked column</option><option value="stacked-bar">Stacked bar</option><option value="doughnut">Doughnut</option><option value="percent-column">100% column</option><option value="percent-bar">100% bar</option><option value="combo">Combo</option><option value="radar">Radar</option><option value="histogram">Histogram</option><option value="waterfall">Waterfall</option><option value="pareto">Pareto</option><option value="box-whisker">Box and whisker</option><option value="funnel">Funnel</option><option value="treemap">Treemap</option><option value="stock">Stock (OHLC)</option><option value="sunburst">Sunburst</option></select></label><label class="chart-ribbon-label">Chart style <select id="chart-context-theme" aria-label="Chart style"><option value="office">Office</option><option value="colorful">Colorful</option><option value="forest">Forest</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="monochrome">Monochrome</option></select></label><label class="chart-ribbon-label">Legend position <select id="chart-legend-position" aria-label="Legend position"><option value="bottom">Bottom</option><option value="top">Top</option><option value="right">Right</option><option value="none">Hidden</option></select></label><button type="button" id="chart-switch-data" class="tool-btn" title="Switch chart series orientation">⇄ <span>Switch Row/Column</span></button><button type="button" id="chart-toggle-legend" class="tool-btn" title="Show or hide chart legend">☷ <span>Legend</span></button><button type="button" id="chart-toggle-labels" class="tool-btn" title="Show or hide data labels"># <span>Data Labels</span></button><button type="button" id="chart-toggle-gridlines" class="tool-btn" title="Show or hide major value-axis gridlines">▤ <span>Gridlines</span></button><button type="button" id="chart-toggle-minor-gridlines" class="tool-btn" title="Show or hide minor value-axis gridlines">┄ <span>Minor Lines</span></button><button type="button" id="chart-toggle-error-bars" class="tool-btn" title="Toggle 5% error bars for plotted series">± <span>Error Bars</span></button><button type="button" id="chart-edit-data" class="tool-btn" title="Change the source range and series settings">▤ <span>Select Data</span></button><button type="button" id="chart-more-options" class="tool-btn" title="Open detailed series and axis options">⚙ <span>Series Options</span></button></div>
+    <div id="chart-design-ribbon" class="tool-group ribbon-hidden chart-command-group"><label class="chart-ribbon-label">Chart type <select id="chart-context-kind" aria-label="Chart type"><option value="column">Column</option><option value="bar">Bar</option><option value="line">Line</option><option value="area">Area</option><option value="pie">Pie</option><option value="scatter">XY Scatter</option><option value="stacked-column">Stacked column</option><option value="stacked-bar">Stacked bar</option><option value="doughnut">Doughnut</option><option value="percent-column">100% column</option><option value="percent-bar">100% bar</option><option value="combo">Combo</option><option value="radar">Radar</option><option value="histogram">Histogram</option><option value="waterfall">Waterfall</option><option value="pareto">Pareto</option><option value="box-whisker">Box and whisker</option><option value="funnel">Funnel</option><option value="treemap">Treemap</option><option value="stock">Stock (OHLC)</option><option value="sunburst">Sunburst</option></select></label><label class="chart-ribbon-label">Chart style <select id="chart-context-theme" aria-label="Chart style"><option value="office">Office</option><option value="colorful">Colorful</option><option value="forest">Forest</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="monochrome">Monochrome</option></select></label><label class="chart-ribbon-label">Legend position <select id="chart-legend-position" aria-label="Legend position"><option value="bottom">Bottom</option><option value="top">Top</option><option value="right">Right</option><option value="left">Left</option><option value="none">Hidden</option></select></label><button type="button" id="chart-switch-data" class="tool-btn" title="Switch chart series orientation">⇄ <span>Switch Row/Column</span></button><button type="button" id="chart-toggle-legend" class="tool-btn" title="Show or hide chart legend">☷ <span>Legend</span></button><button type="button" id="chart-toggle-labels" class="tool-btn" title="Show or hide data labels"># <span>Data Labels</span></button><button type="button" id="chart-toggle-gridlines" class="tool-btn" title="Show or hide major value-axis gridlines">▤ <span>Gridlines</span></button><button type="button" id="chart-toggle-minor-gridlines" class="tool-btn" title="Show or hide minor value-axis gridlines">┄ <span>Minor Lines</span></button><button type="button" id="chart-toggle-error-bars" class="tool-btn" title="Toggle 5% error bars for plotted series">± <span>Error Bars</span></button><button type="button" id="chart-toggle-data-table" class="tool-btn" title="Show or hide a data table beneath the chart">▦ <span>Data Table</span></button><button type="button" id="chart-toggle-data-table-keys" class="tool-btn" title="Show or hide series keys in the chart data table">▧ <span>Table Keys</span></button><button type="button" id="chart-toggle-hidden-data" class="tool-btn" title="Include filtered or manually hidden rows and columns in the chart">▤ <span>Hidden Data</span></button><button type="button" id="chart-edit-data" class="tool-btn" title="Change the source range and series settings">▤ <span>Select Data</span></button><button type="button" id="chart-more-options" class="tool-btn" title="Open detailed series and axis options">⚙ <span>Series Options</span></button></div>
     <div id="chart-format-ribbon" class="tool-group ribbon-hidden chart-command-group"><label class="chart-ribbon-label">Chart title <input id="chart-format-title" aria-label="Chart title" maxlength="100"/></label><label class="chart-ribbon-label">Horizontal axis <input id="chart-format-x-title" aria-label="Horizontal axis title" maxlength="70"/></label><label class="chart-ribbon-label">Category angle <input id="chart-format-x-angle" type="number" min="-90" max="90" step="15" placeholder="0°" aria-label="Category axis label angle in degrees"/></label><label class="chart-ribbon-label">Label interval <input id="chart-format-x-interval" type="number" min="1" max="250" step="1" placeholder="Auto" aria-label="Category axis label interval"/></label><label class="chart-ribbon-label" id="chart-format-x-min-label">X min <input id="chart-format-x-min" type="number" step="any" placeholder="Auto" aria-label="Scatter horizontal axis minimum"/></label><label class="chart-ribbon-label" id="chart-format-x-max-label">X max <input id="chart-format-x-max" type="number" step="any" placeholder="Auto" aria-label="Scatter horizontal axis maximum"/></label><label class="chart-ribbon-label" id="chart-format-x-major-label">X major unit <input id="chart-format-x-major-unit" type="number" min="0" step="any" placeholder="Auto" aria-label="Scatter horizontal axis major unit"/></label><label class="chart-ribbon-label" id="chart-format-x-format-label">X format <select id="chart-format-x-format" aria-label="Scatter horizontal axis number format"><option value="general">General</option><option value="number">Number</option><option value="currency">Currency</option><option value="percent">Percent</option></select></label><label class="chart-ribbon-label" id="chart-format-x-code-label">X custom format <input id="chart-format-x-format-code" maxlength="100" placeholder="e.g. #,##0.00" aria-label="Scatter horizontal axis custom number format code"/></label><label class="chart-ribbon-label">Vertical axis <input id="chart-format-y-title" aria-label="Vertical axis title" maxlength="70"/></label><label class="chart-ribbon-label">Min <input id="chart-format-y-min" type="number" step="any" placeholder="Auto" aria-label="Vertical axis minimum"/></label><label class="chart-ribbon-label">Max <input id="chart-format-y-max" type="number" step="any" placeholder="Auto" aria-label="Vertical axis maximum"/></label><label class="chart-ribbon-label">Major unit <input id="chart-format-y-major-unit" type="number" min="0" step="any" placeholder="Auto" aria-label="Vertical axis major unit"/></label><label class="chart-ribbon-label">Secondary min <input id="chart-format-secondary-y-min" type="number" step="any" placeholder="Auto" aria-label="Secondary vertical axis minimum"/></label><label class="chart-ribbon-label">Secondary max <input id="chart-format-secondary-y-max" type="number" step="any" placeholder="Auto" aria-label="Secondary vertical axis maximum"/></label><label class="chart-ribbon-label">Secondary major unit <input id="chart-format-secondary-y-major-unit" type="number" min="0" step="any" placeholder="Auto" aria-label="Secondary vertical axis major unit"/></label><label class="chart-ribbon-label">Axis format <select id="chart-format-y-format" aria-label="Vertical axis number format"><option value="general">General</option><option value="number">Number</option><option value="currency">Currency</option><option value="percent">Percent</option></select></label><label class="chart-ribbon-label">Custom format <input id="chart-format-y-format-code" maxlength="100" placeholder="e.g. #,##0.00" aria-label="Custom vertical axis number format code"/></label><label class="chart-ribbon-label">Secondary format <select id="chart-format-secondary-y-format" aria-label="Secondary vertical axis number format"><option value="general">General</option><option value="number">Number</option><option value="currency">Currency</option><option value="percent">Percent</option></select></label><label class="chart-ribbon-label">Secondary custom format <input id="chart-format-secondary-y-format-code" maxlength="100" placeholder="Same as primary" aria-label="Custom secondary vertical axis number format code"/></label><label class="chart-ribbon-label">Doughnut hole % <input id="chart-format-doughnut-hole" type="number" min="10" max="90" step="1" placeholder="57" aria-label="Doughnut hole size percent"/></label><label class="chart-ribbon-label">First slice ° <input id="chart-format-first-slice-angle" type="number" min="0" max="360" step="1" placeholder="0" aria-label="First slice angle in degrees"/></label><label class="chart-ribbon-label">Width <input id="chart-format-width" type="number" min="300" max="900" aria-label="Chart width in pixels"/></label><label class="chart-ribbon-label">Height <input id="chart-format-height" type="number" min="210" max="650" aria-label="Chart height in pixels"/></label><button type="button" id="chart-remove-selected" class="tool-btn" title="Delete selected chart">✕ <span>Delete Chart</span></button></div>
     <span class="separator"></span><div class="tool-group" aria-label="Automation"><button id="btn-data-studio" class="tool-btn" title="100 spreadsheet tools for cleanup, transformations and analysis">▦ <span>Data tools</span></button><button id="btn-automate" class="tool-btn" title="Record and replay safe GridForge actions">⚙ <span>Automate</span></button><button id="btn-feature-status" class="tool-btn" title="See which Excel features are supported or unavailable">ⓘ <span>Feature availability</span></button></div><span id="grid-size" class="cell-counter"></span>
   </nav>
@@ -239,7 +519,7 @@ root.innerHTML = `
     <label class="color-field">Text <input id="fmt-color" type="color" value="#d4dbef" title="Font color" aria-label="Font color"/></label>
     <label class="color-field">Fill <input id="fmt-fill" type="color" value="#131b2d" title="Cell background" aria-label="Background color"/></label><div class="quick-colors" aria-label="Quick font colors"><span>A</span><button type="button" data-color-swatch="#172b4d" data-color-target="font" title="Dark text" style="--swatch:#172b4d"></button><button type="button" data-color-swatch="#c0392b" data-color-target="font" title="Red text" style="--swatch:#c0392b"></button><button type="button" data-color-swatch="#187a58" data-color-target="font" title="Green text" style="--swatch:#187a58"></button><button type="button" data-color-swatch="#2563eb" data-color-target="font" title="Blue text" style="--swatch:#2563eb"></button></div><div class="quick-colors" aria-label="Quick cell highlight colors"><span>▣</span><button type="button" data-color-swatch="#fff2ba" data-color-target="fill" title="Yellow highlight" style="--swatch:#fff2ba"></button><button type="button" data-color-swatch="#d9eafa" data-color-target="fill" title="Blue highlight" style="--swatch:#d9eafa"></button><button type="button" data-color-swatch="#d9f3e7" data-color-target="fill" title="Green highlight" style="--swatch:#d9f3e7"></button><button type="button" data-color-swatch="#f8dce3" data-color-target="fill" title="Red highlight" style="--swatch:#f8dce3"></button></div>
     <button id="fmt-wrap" class="format-btn" title="Wrap text into the available cell space">↩ Wrap</button><button id="fmt-strike" class="format-btn" title="Strikethrough selection">S̶</button><label class="fmt-selector-label">Borders <select id="fmt-border" aria-label="Cell borders"><option value="none">No border</option><option value="all">All borders</option><option value="bottom">Bottom border</option><option value="top">Top border</option><option value="left">Left border</option><option value="right">Right border</option></select></label><label class="fmt-selector-label">Cell styles <select id="fmt-preset" aria-label="Apply Excel-style cell style"><option value="">Choose style…</option><option value="header">Header</option><option value="title">Title</option><option value="total">Total</option><option value="highlight">Accent</option><option value="warning">Attention</option><option value="success">Success</option><option value="note">Note</option><option value="input">Input</option><option value="neutral">Neutral</option></select></label><button id="btn-format-table" class="format-btn format-table-action" title="Create or style an Excel-compatible table from your selection">▦ Format as Table</button><button id="btn-table-to-chart" class="format-btn" title="Create chart from the active table">▥ Chart from table</button><button id="btn-table-edit" class="format-btn" title="Change table style, name and banding">Table options</button><button id="fmt-clear" class="format-btn reset-format" title="Remove formatting from selected cells">Clear style</button>
-    <button id="btn-autosum" class="format-btn reset-format" title="Insert a SUM formula for the cells above the selection (Alt+=)">∑ AutoSum</button><button id="btn-freeze-row" class="format-btn reset-format" title="Freeze or unfreeze top row">Freeze row</button><button id="btn-freeze-col" class="format-btn reset-format" title="Freeze or unfreeze first column">Freeze col</button><button id="btn-conditional" class="format-btn reset-format" title="Highlight cells by numeric rule">Conditional</button><button id="btn-paste-values" class="format-btn reset-format" title="Paste values from the most recent copied grid range">Paste values</button><button id="btn-page-setup" class="format-btn reset-format" title="Set print area, paper, orientation, scale, margins and print headings">▤ Page Setup</button><button id="btn-print-sheet" class="format-btn reset-format" title="Open a print-ready view of this worksheet">⎙ Print Sheet</button>
+    <button id="btn-autosum" class="format-btn reset-format" title="Insert a SUM formula for the cells above the selection (Alt+=)">∑ AutoSum</button><button id="btn-freeze-row" class="format-btn reset-format" title="Freeze or unfreeze top row">Freeze row</button><button id="btn-freeze-col" class="format-btn reset-format" title="Freeze or unfreeze first column">Freeze col</button><button id="btn-freeze-panes" class="format-btn reset-format" title="Freeze rows above and columns left of the active cell">Freeze Panes</button><button id="btn-unfreeze-panes" class="format-btn reset-format" title="Unfreeze frozen rows and columns">Unfreeze Panes</button><button id="btn-conditional" class="format-btn reset-format" title="Highlight cells by numeric rule">Conditional</button><button id="btn-paste-values" class="format-btn reset-format" title="Paste values from the most recent copied grid range">Paste values</button>
   </div>
   <div id="insert-gallery" class="insert-gallery ribbon-hidden" aria-label="Insert charts from selected data">
     <div class="insert-intro"><strong>Charts</strong><small>Select your table, then choose a chart type</small></div>
@@ -259,9 +539,20 @@ root.innerHTML = `
     <span class="insert-divider"></span><button id="btn-insert-table" class="chart-manage-btn">▦ Table</button><button id="btn-manage-charts" class="chart-manage-btn">Manage charts <span id="chart-count">0</span></button>
   </div>
   </div>
+  <div id="draw-ribbon" class="draw-ribbon ribbon-hidden" role="toolbar" aria-label="Drawing tools">
+    <div class="draw-ribbon-group" aria-label="Pens"><button type="button" id="draw-pen" class="draw-tool active" title="Draw with a pen">✎<span>Pen</span></button><button type="button" id="draw-highlighter" class="draw-tool" title="Draw a translucent highlight">▰<span>Highlighter</span></button><label>Color <input id="draw-color" type="color" value="#217346" aria-label="Ink or shape color"/></label><label>Width <select id="draw-width" aria-label="Pen or shape width"><option value="2">Fine</option><option value="4" selected>Medium</option><option value="7">Broad</option><option value="12">Extra broad</option></select></label><label class="draw-fill-option"><input id="draw-fill" type="checkbox" aria-label="Fill drawn rectangle and oval shapes"/> Fill shapes</label></div>
+    <div class="draw-ribbon-group" aria-label="Shapes"><button type="button" data-draw-tool="line" class="draw-tool" title="Draw a straight line">／<span>Line</span></button><button type="button" data-draw-tool="arrow" class="draw-tool" title="Draw an arrow">➜<span>Arrow</span></button><button type="button" data-draw-tool="rectangle" class="draw-tool" title="Draw a rectangle">▱<span>Rectangle</span></button><button type="button" data-draw-tool="ellipse" class="draw-tool" title="Draw an ellipse">◯<span>Oval</span></button><button type="button" data-draw-tool="text" class="draw-tool" title="Place a text box">T<span>Text Box</span></button></div>
+    <div class="draw-ribbon-group" aria-label="Ink editing"><button type="button" id="draw-eraser" class="draw-tool" title="Erase strokes you touch">⌫<span>Eraser</span></button><button type="button" id="draw-select" class="draw-tool" title="Select and move one or more ink strokes or shapes">↖<span>Select Objects</span></button><button type="button" id="draw-duplicate-selected" class="draw-tool" title="Duplicate selected drawings (Ctrl+D)">⧉<span>Duplicate</span></button><button type="button" id="draw-delete-selected" class="draw-tool" title="Delete all selected drawing objects">✕<span>Delete</span></button><button type="button" id="draw-undo" class="draw-tool" title="Undo last drawing object">↶<span>Undo</span></button><button type="button" id="draw-replay" class="draw-tool" title="Replay ink strokes">▶<span>Replay</span></button><button type="button" id="draw-clear" class="draw-tool" title="Remove every drawing object">⌫<span>Clear</span></button><button type="button" id="draw-exit" class="draw-tool" title="Return to cell selection">↖<span>Cell Select</span></button></div>
+    <span id="draw-state" class="draw-state" role="status">Select a pen, then drag on the sheet.</span>
+  </div>
+  <div id="page-layout-ribbon" class="draw-ribbon ribbon-hidden" role="toolbar" aria-label="Page layout tools">
+    <div class="draw-ribbon-group" aria-label="Page setup"><button type="button" id="page-margins-normal" class="draw-tool" title="Set normal print margins">▤<span>Normal Margins</span></button><button type="button" id="page-margins-narrow" class="draw-tool" title="Set narrow print margins">▤<span>Narrow</span></button><button type="button" id="page-margins-wide" class="draw-tool" title="Set wide print margins">▤<span>Wide</span></button><label>Orientation <select id="page-layout-orientation" aria-label="Page orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Paper <select id="page-layout-paper" aria-label="Paper size"><option value="letter">Letter</option><option value="legal">Legal</option><option value="a4">A4</option><option value="a3">A3</option><option value="tabloid">Tabloid</option></select></label></div>
+    <div class="draw-ribbon-group" aria-label="Print area"><button type="button" id="page-set-print-area" class="draw-tool" title="Use the selected cells as the print area">▣<span>Set Print Area</span></button><button type="button" id="page-clear-print-area" class="draw-tool" title="Clear the print area">⌫<span>Clear Area</span></button><button type="button" id="btn-page-setup" class="draw-tool" title="Margins, scaling, print titles, and headings">⚙<span>Page Setup</span></button><button type="button" id="btn-print-sheet" class="draw-tool" title="Open a print-ready view of this worksheet">⎙<span>Print</span></button></div>
+    <div class="draw-ribbon-group" aria-label="Page view"><button type="button" id="page-break-preview" class="draw-tool" aria-pressed="false" title="Show page-break boundaries on the worksheet">▧<span>Page Break Preview</span></button></div>
+  </div>
   <div class="workspace">
     <section class="sheet-area" aria-label="Spreadsheet">
-      <div class="formula-row"><label class="name-box"><span class="sr-only">Cell address</span><input id="name-box" value="D4" spellcheck="false" aria-label="Go to cell"/></label><span class="formula-divider">⋮</span><button id="btn-cancel-formula" class="formula-action" title="Cancel formula edit" aria-label="Cancel formula edit">×</button><button id="btn-commit" class="apply-formula" title="Apply formula" aria-label="Apply formula">✓</button><span class="fx-icon">ƒ<span>x</span></span><input id="formula" placeholder="Select a cell, or type a formula beginning with =" spellcheck="false" aria-label="Formula bar"/></div>
+      <div class="formula-row"><label class="name-box"><span class="sr-only">Cell address or range</span><input id="name-box" value="D4" spellcheck="false" aria-label="Go to cell or range"/></label><span class="formula-divider">⋮</span><button id="btn-cancel-formula" class="formula-action" title="Cancel formula edit" aria-label="Cancel formula edit">×</button><button id="btn-commit" class="apply-formula" title="Apply formula" aria-label="Apply formula">✓</button><span class="fx-icon">ƒ<span>x</span></span><input id="formula" placeholder="Select a cell, or type a formula beginning with =" spellcheck="false" aria-label="Formula bar"/></div>
       <div id="grid-scroll" class="grid-scroll" tabindex="0" role="grid" aria-label="Spreadsheet grid" aria-rowcount="400" aria-colcount="52"><div id="grid-surface" class="grid-surface"></div></div>
       <div class="sheet-tabs"><div id="sheet-tab-list" class="sheet-tab-list"></div><button id="btn-add-sheet" class="sheet-action" title="Add worksheet">＋</button><span class="tab-divider"></span><div class="sheet-commands"><button id="btn-rename-sheet" class="sheet-action" title="Rename selected sheet">Rename</button><button id="btn-duplicate-sheet" class="sheet-action" title="Duplicate selected sheet">Duplicate</button><button id="btn-sheet-left" class="sheet-action" title="Move worksheet left">←</button><button id="btn-sheet-right" class="sheet-action" title="Move worksheet right">→</button><label class="sheet-color-control" title="Set tab color">Tab <select id="sheet-tab-color" aria-label="Worksheet tab color"><option value="">Color</option><option value="#c00000">Red</option><option value="#ed7d31">Orange</option><option value="#ffc000">Yellow</option><option value="#70ad47">Green</option><option value="#00b0f0">Cyan</option><option value="#4472c4">Blue</option><option value="#7030a0">Purple</option><option value="#a5a5a5">Gray</option></select></label><button id="btn-hide-sheet" class="sheet-action" title="Hide selected worksheet">Hide</button><button id="btn-show-hidden" class="sheet-action" title="Unhide a worksheet">Unhide</button><button id="btn-delete-sheet" class="sheet-action" title="Delete selected sheet">Delete</button></div><span class="grow"></span><span id="selection-status">Ready</span></div>
       <div class="metrics"><div class="metric"><span class="metric-icon">◉</span><div><span class="metric-label">Cells recalculated</span><strong id="metric-count">0</strong></div></div><div class="metric"><span class="metric-icon">◷</span><div><span class="metric-label">Recalculation time</span><strong id="metric-time">0 ms</strong></div></div><div class="metric"><span class="metric-icon">⌘</span><div><span class="metric-label">Populated cells</span><strong id="metric-populated">0</strong></div></div><div class="metric"><span class="metric-icon">▤</span><div><span class="metric-label">Rendered cells</span><strong id="metric-rendered">0</strong></div></div></div>
@@ -271,7 +562,7 @@ root.innerHTML = `
       <div class="sidebar-body" id="sidebar-body"></div><div class="sidebar-footer"><span class="mini-spark">✦</span> Formula details · Optional <span class="side-version">v10.4</span></div>
     </aside>
   </div>
-  <footer class="statusbar"><span class="status-left"><span class="green-dot"></span> Auto-saved in this browser</span><span id="status-text">Custom formula engine · No external spreadsheet library</span><span id="selection-aggregate"></span><span class="status-right">Up to 12 sheets <span class="dot">•</span> ${functionNames.length - connectedFunctionNames.length} offline functions · ${connectedFunctionNames.length} connected names</span></footer>
+  <footer class="statusbar"><span class="status-left">Ready</span><span id="status-text">${escapeHtml(workbookTitle)} · Saved locally</span><span id="selection-aggregate"></span><span class="status-right">${functionNames.length - connectedFunctionNames.length} local functions <span class="dot">•</span> ${connectedFunctionNames.length} connected names</span></footer>
   <input type="file" id="file-picker" accept=".csv,.json,.xlsx,.xlsm,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden/>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="cell-context-menu" class="cell-context-menu" role="menu" aria-label="Cell actions" hidden>
@@ -303,14 +594,14 @@ root.innerHTML = `
   <dialog id="chart-dialog" class="help-dialog chart-dialog" aria-label="Insert or edit spreadsheet chart">
     <div class="dialog-top"><h2 id="chart-dialog-title">Insert chart</h2><button id="close-chart" class="tool-btn" aria-label="Close chart editor">✕</button></div>
     <div class="chart-editor-grid"><div class="chart-editor-form"><label class="field-label" for="chart-kind">Chart type</label><select id="chart-kind" class="context-select"><option value="column">Clustered columns</option><option value="bar">Horizontal bars</option><option value="line">Line</option><option value="area">Area</option><option value="pie">Pie</option><option value="scatter">XY scatter</option><option value="stacked-column">Stacked columns</option><option value="stacked-bar">Stacked bars</option><option value="doughnut">Doughnut</option><option value="percent-column">100% stacked column</option><option value="percent-bar">100% stacked bar</option><option value="combo">Column and line combo</option><option value="radar">Radar</option><option value="histogram">Histogram</option><option value="waterfall">Waterfall</option><option value="pareto">Pareto</option><option value="box-whisker">Box and whisker</option><option value="funnel">Funnel</option><option value="treemap">Treemap</option><option value="stock">Stock (OHLC)</option><option value="sunburst">Sunburst</option></select>
-    <label class="field-label" for="chart-histogram-bins">Histogram bin count (0 = automatic)</label><input id="chart-histogram-bins" class="scenario-input" type="number" min="0" max="50" step="1" value="0"/><label class="field-label" for="chart-histogram-bin-width">Histogram bin width (0 = automatic)</label><input id="chart-histogram-bin-width" class="scenario-input" type="number" min="0" step="any" value="0"/><label class="field-label" for="chart-histogram-underflow">Underflow threshold (blank = off)</label><input id="chart-histogram-underflow" class="scenario-input" type="number" step="any" placeholder="e.g. 5"/><label class="field-label" for="chart-histogram-overflow">Overflow threshold (blank = off)</label><input id="chart-histogram-overflow" class="scenario-input" type="number" step="any" placeholder="e.g. 100"/><label class="field-label" for="chart-theme">Chart color theme</label><select id="chart-theme" class="context-select"><option value="office">Office</option><option value="colorful">Colorful</option><option value="forest">Forest</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="monochrome">Monochrome</option></select><label class="field-label" for="chart-range">Data range</label><input id="chart-range" class="scenario-input" placeholder="A3:D11" aria-label="Source cell range"/>
-    <label class="field-label" for="chart-title">Chart title</label><input id="chart-title" class="scenario-input" maxlength="100" placeholder="Revenue by product"/>
-    <div class="chart-editor-details"><label class="field-label" for="chart-legend">Legend</label><select id="chart-legend" class="context-select"><option value="bottom">Bottom</option><option value="top">Top</option><option value="right">Right</option><option value="none">Hidden</option></select>
-    <label class="field-label" for="chart-xaxis">Horizontal axis title</label><input id="chart-xaxis" class="scenario-input" maxlength="70" placeholder="e.g. Month"/>
+    <label class="field-label" for="chart-histogram-bins">Histogram bin count (0 = automatic)</label><input id="chart-histogram-bins" class="scenario-input" type="number" min="0" max="50" step="1" value="0"/><label class="field-label" for="chart-histogram-bin-width">Histogram bin width (0 = automatic)</label><input id="chart-histogram-bin-width" class="scenario-input" type="number" min="0" step="any" value="0"/><label class="field-label" for="chart-histogram-underflow">Underflow threshold (blank = off)</label><input id="chart-histogram-underflow" class="scenario-input" type="number" step="any" placeholder="e.g. 5"/><label class="field-label" for="chart-histogram-overflow">Overflow threshold (blank = off)</label><input id="chart-histogram-overflow" class="scenario-input" type="number" step="any" placeholder="e.g. 100"/><fieldset id="chart-box-whisker-options" class="chart-option-group" hidden><legend>Box &amp; Whisker options</legend><label class="field-label" for="chart-box-quartiles">Quartile calculation</label><select id="chart-box-quartiles" class="context-select"><option value="inclusive">Inclusive median</option><option value="exclusive">Exclusive median</option></select><label class="chart-option"><input id="chart-box-inner" type="checkbox"/> Show inner points</label><label class="chart-option"><input id="chart-box-outliers" type="checkbox" checked/> Show outlier points</label><label class="chart-option"><input id="chart-box-mean-marker" type="checkbox"/> Show mean markers</label><label class="chart-option"><input id="chart-box-mean-line" type="checkbox"/> Connect mean values</label></fieldset><label class="field-label" for="chart-theme">Chart color theme</label><select id="chart-theme" class="context-select"><option value="office">Office</option><option value="colorful">Colorful</option><option value="forest">Forest</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="monochrome">Monochrome</option></select><label class="field-label" for="chart-range">Data range</label><input id="chart-range" class="scenario-input" placeholder="A3:D11" aria-label="Source cell range"/>
+    <label class="field-label" for="chart-title">Chart title</label><input id="chart-title" class="scenario-input" maxlength="100" placeholder="Revenue by product"/><label class="field-label" for="chart-accessibility-description">Accessibility description</label><textarea id="chart-accessibility-description" class="scenario-input" maxlength="500" rows="2" placeholder="Describe the main finding and how to read this chart"></textarea>
+    <div class="chart-editor-details"><label class="field-label" for="chart-legend">Legend</label><select id="chart-legend" class="context-select"><option value="bottom">Bottom</option><option value="top">Top</option><option value="right">Right</option><option value="left">Left</option><option value="none">Hidden</option></select>
+    <label class="chart-option"><input id="chart-reverse-categories" type="checkbox"/> Reverse category order</label><label class="field-label" for="chart-xaxis">Horizontal axis title</label><input id="chart-xaxis" class="scenario-input" maxlength="70" placeholder="e.g. Month"/>
     <label class="field-label" for="chart-yaxis">Vertical axis title</label><input id="chart-yaxis" class="scenario-input" maxlength="70" placeholder="e.g. Revenue ($)"/>
     <label class="field-label" for="chart-yaxis-secondary">Right vertical axis title</label><input id="chart-yaxis-secondary" class="scenario-input" maxlength="70" placeholder="e.g. Margin (%)"/>
     <div id="chart-series-options" class="chart-series-options" aria-label="Series options"></div><div id="chart-point-colors" class="chart-series-options" aria-label="Pie and doughnut slice colors"></div>
-    <label class="chart-option"><input id="chart-labels" type="checkbox"/> Show values on chart</label><label class="chart-option"><input id="chart-label-category" type="checkbox"/> Show category name</label><label class="chart-option"><input id="chart-label-series" type="checkbox"/> Show series name</label><label class="chart-option"><input id="chart-label-percent" type="checkbox"/> Show percentage (pie/doughnut)</label><label class="field-label" for="chart-data-label-position">Data label position</label><select id="chart-data-label-position" class="context-select"><option value="outsideEnd">Outside end</option><option value="insideEnd">Inside end</option><option value="center">Center</option><option value="bestFit">Best fit</option></select><label class="field-label" for="chart-label-separator">Data label separator (optional)</label><input id="chart-label-separator" class="scenario-input" maxlength="20" placeholder="Default space"/><label class="field-label" for="chart-waterfall-total-points">Total item indexes (comma-separated, 1-based)</label><input id="chart-waterfall-total-points" class="scenario-input" type="text" placeholder="e.g. 1, 4, 8" aria-describedby="chart-waterfall-total-hint"/><small id="chart-waterfall-total-hint" class="chart-hint">Select subtotal or total items by their position in the data rows.</small></div>
+    <label class="chart-option"><input id="chart-labels" type="checkbox"/> Show values on chart</label><label class="chart-option"><input id="chart-label-category" type="checkbox"/> Show category name</label><label class="chart-option"><input id="chart-label-series" type="checkbox"/> Show series name</label><label class="chart-option"><input id="chart-label-percent" type="checkbox"/> Show percentage (pie/doughnut)</label><label class="field-label" for="chart-blanks">Empty cells</label><select id="chart-blanks" class="context-select"><option value="gap">Show as gaps</option><option value="zero">Plot as zero</option><option value="span">Connect data points</option></select><label class="field-label" for="chart-data-label-position">Data label position</label><select id="chart-data-label-position" class="context-select"><option value="outsideEnd">Outside end</option><option value="insideEnd">Inside end</option><option value="insideBase">Inside base</option><option value="center">Center</option><option value="bestFit">Best fit</option><option value="above">Above</option><option value="below">Below</option><option value="left">Left</option><option value="right">Right</option></select><label class="field-label" for="chart-label-separator">Data label separator (optional)</label><input id="chart-label-separator" class="scenario-input" maxlength="20" placeholder="Default space"/><label class="field-label" for="chart-data-label-format">Data label number format (optional)</label><input id="chart-data-label-format" class="scenario-input" maxlength="100" placeholder="0.00;[Red](0.00)"/><label class="field-label" for="chart-waterfall-total-points">Total item indexes (comma-separated, 1-based)</label><input id="chart-waterfall-total-points" class="scenario-input" type="text" placeholder="e.g. 1, 4, 8" aria-describedby="chart-waterfall-total-hint"/><small id="chart-waterfall-total-hint" class="chart-hint">Select subtotal or total items by their position in the data rows.</small></div>
     <p class="chart-hint">For standard charts, the first column supplies labels and adjacent numeric columns supply series. Treemaps and sunbursts use all leading columns as hierarchy labels and the final column as values. Stock charts need Open, High, Low and Close headers, with an optional date column. Use the first row for headers. Charts refresh when formulas change.</p>
     <p id="chart-validation" class="chart-hint" aria-live="polite"></p>
     <div class="find-actions"><button id="chart-submit" class="primary-button">Insert chart</button><button id="chart-cancel" class="secondary-button">Cancel</button></div></div>
@@ -372,21 +663,22 @@ root.innerHTML = `
   <dialog id="descriptive-stats-dialog" class="help-dialog"><div class="dialog-top"><h2>Descriptive Statistics</h2><button type="button" class="tool-btn" id="close-descriptive-stats" aria-label="Close">✕</button></div><p>Create an Excel ToolPak-style summary from numeric cells in the selected range. Text, blanks and formula errors are ignored; the source cells are not changed.</p><label class="field-label" for="stats-source-range">Input range</label><input id="stats-source-range" class="scenario-input" placeholder="A1:B20"/><label class="field-label" for="stats-destination">Output starts at</label><input id="stats-destination" class="scenario-input" placeholder="D1"/><p id="stats-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-descriptive-stats">Cancel</button><button type="button" class="primary-button" id="create-descriptive-stats">Create report</button></div></dialog>
   <dialog id="pivot-summary-dialog" class="help-dialog"><div class="dialog-top"><h2>Pivot Summary</h2><button type="button" class="tool-btn" id="close-pivot-summary" aria-label="Close">✕</button></div><p>Rows are optional; arrange multiple fields in Rows and Columns, choose separate value calculations, and filter a report. Field counts are limited by the source and worksheet space. GridForge recalculates the report and exports supported native PivotTable metadata. Date fields can be grouped by year, quarter, month, ISO week, or day; numeric fields can be grouped into custom intervals. Add a GridForge slicer to an ungrouped row or column field to filter the summary from the worksheet. Native Excel slicer cache and view parts now import and export for supported worksheet PivotTables. Timelines and the Data Model are not supported yet.</p><label class="field-label" for="pivot-source-sheet">Source worksheet</label><select id="pivot-source-sheet" class="context-select"></select><label class="field-label" for="pivot-source-table">Source table (optional)</label><select id="pivot-source-table" class="context-select"><option value="">Cell range</option></select><small class="name-scope-note">Choose a formatted table to include rows added to it on refresh.</small><label class="field-label" for="pivot-source-range">Source range (include headers)</label><input id="pivot-source-range" class="scenario-input" placeholder="A1:C100"/><label class="field-label" for="pivot-row-field">Rows (Ctrl-click for multiple)</label><select id="pivot-row-field" class="context-select" multiple size="4"></select><div id="pivot-row-order" class="tool-group" aria-label="Rows field order"></div><label class="field-label" for="pivot-column-field">Columns (Ctrl-click for multiple)</label><select id="pivot-column-field" class="context-select" multiple size="4"></select><div id="pivot-column-order" class="tool-group" aria-label="Columns field order"></div><label class="field-label" for="pivot-item-filter-field">Row/Column item filters</label><select id="pivot-item-filter-field" class="context-select" multiple size="3"></select><div id="pivot-item-filter-options"></div><label class="field-label" for="pivot-date-filter-field">Date range filter · ungrouped row/column field</label><div class="tool-group"><select id="pivot-date-filter-field" class="context-select"><option value="">Off</option></select><input id="pivot-date-filter-start" type="date" class="scenario-input" aria-label="Start date inclusive"/><span>through</span><input id="pivot-date-filter-end" type="date" class="scenario-input" aria-label="End date inclusive"/></div><p class="chart-hint">Filters source dates inclusively. The saved GridForge date control exports as visible PivotTable item selections; native Excel timeline objects are not embedded.</p><label class="field-label" for="pivot-filter-field">Report filters (Ctrl-click for multiple)</label><select id="pivot-filter-field" class="context-select" multiple size="3"></select><div id="pivot-filter-options"></div><label class="field-label" for="pivot-value-field">Values (Ctrl-click for multiple)</label><select id="pivot-value-field" class="context-select" multiple size="5"></select><div id="pivot-value-order" class="tool-group" aria-label="Values calculation order"></div><div id="pivot-measure-options"></div><button id="btn-pivot-add-measure" type="button" class="secondary-button">Add another calculation</button><div id="pivot-extra-measures"></div><label class="field-label">Top or Bottom value filters</label><div id="pivot-value-filter-editors"></div><button type="button" id="btn-pivot-add-value-filter" class="secondary-button">Add value filter</button><p class="chart-hint">Ranks items by the selected Values calculation within each parent group. Add one filter per selected row or column field; filters are applied sequentially.</p><label class="field-label" for="pivot-sort-order">Default sort order · override each selected field below</label><select id="pivot-sort-order" class="context-select"><option value="ascending">Ascending</option><option value="descending">Descending</option><option value="manual">Source order</option></select><label class="field-label" for="pivot-layout">Report layout</label><select id="pivot-layout" class="context-select"><option value="tabular">Tabular (separate columns)</option><option value="compact">Compact (indented labels)</option><option value="outline">Outline (grouped fields)</option></select><label class="field-label" for="pivot-missing-caption">For empty data cells, show</label><input id="pivot-missing-caption" class="scenario-input" maxlength="255" placeholder="Leave blank for empty cells"/><label class="field-label" for="pivot-grand-total-caption">Grand totals caption</label><input id="pivot-grand-total-caption" class="scenario-input" maxlength="255" placeholder="Grand Total"/><label class="field-label" for="pivot-values-caption">Values field caption</label><input id="pivot-values-caption" class="scenario-input" maxlength="255" placeholder="Values"/><label class="field-label" for="pivot-row-header-caption">Row header caption</label><input id="pivot-row-header-caption" class="scenario-input" maxlength="255" placeholder="Use the first field name"/><div class="tool-group"><label><input id="pivot-subtotals" type="checkbox" checked/> Row subtotals</label><label><input id="pivot-subtotals-top" type="checkbox"/> Show subtotals at top of each group</label><label><input id="pivot-blank-rows" type="checkbox"/> Add a blank row after each parent group</label><label><input id="pivot-column-subtotals" type="checkbox"/> Column subtotals</label><label><input id="pivot-row-grand-totals" type="checkbox" checked/> Grand total rows</label><label><input id="pivot-column-grand-totals" type="checkbox" checked/> Grand total columns</label></div><div id="pivot-subtotal-options" class="tool-group" aria-label="Subtotals by row field"></div><div id="pivot-column-subtotal-options" class="tool-group" aria-label="Subtotals by column field"></div><label class="field-label" for="pivot-slicer-field">Add a slicer to this PivotTable</label><div class="tool-group"><select id="pivot-slicer-field" class="context-select" aria-label="Slicer field"></select><button type="button" id="btn-pivot-add-slicer" class="secondary-button">Add slicer</button></div><label class="field-label" for="pivot-slicer-connections">Connect other compatible Pivot Summaries</label><select id="pivot-slicer-connections" class="context-select" multiple size="3" aria-label="Pivot Summaries controlled by this slicer"></select><p class="chart-hint">One GridForge slicer can filter summaries on this worksheet when they use the same source and ungrouped field. XLSX export embeds native Excel slicers for PivotTables sharing a compatible cache; connections that need different cache definitions may be limited to the primary PivotTable.</p><label class="field-label" for="pivot-destination">Place summary at</label><input id="pivot-destination" class="scenario-input" placeholder="E1"/><p id="pivot-summary-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="pivot-chart" hidden>Chart this summary</button><button type="button" class="secondary-button" id="pivot-refresh" hidden>Refresh</button><button type="button" class="secondary-button" id="pivot-collapse-all" hidden>Collapse all</button><button type="button" class="secondary-button" id="pivot-expand-all" hidden>Expand all</button><button type="button" class="secondary-button" id="delete-pivot-summary" hidden>Delete</button><button type="button" class="secondary-button" id="cancel-pivot-summary">Cancel</button><button type="button" class="primary-button" id="create-pivot-summary">Create summary</button></div></dialog>
   <dialog id="pivot-slicer-connections-dialog" class="help-dialog"><div class="dialog-top"><h2>Pivot Slicer Connections</h2><button type="button" class="tool-btn" id="close-pivot-slicer-connections" aria-label="Close">✕</button></div><p>Choose the compatible Pivot Summaries controlled by this slicer. Connected summaries share its current item selection; disconnected summaries regain their saved field filters.</p><label class="field-label" for="pivot-slicer-connection-list">Connected summaries</label><select id="pivot-slicer-connection-list" class="context-select" multiple size="7"></select><p id="pivot-slicer-connection-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-pivot-slicer-connections">Cancel</button><button type="button" class="primary-button" id="save-pivot-slicer-connections">Apply connections</button></div></dialog>
-  <dialog id="page-setup-dialog" class="help-dialog"><div class="dialog-top"><h2>Page Setup</h2><button type="button" class="tool-btn" id="close-page-setup" aria-label="Close">✕</button></div><p>Set worksheet print options for the browser print dialog and exported Excel workbooks. Repeated rows appear at the top of each printed page; repeated columns are saved for Excel.</p><label class="field-label" for="page-orientation">Orientation</label><select class="context-select" id="page-orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><label class="field-label" for="page-paper">Paper size</label><select class="context-select" id="page-paper"><option value="letter">Letter</option><option value="legal">Legal</option><option value="a4">A4</option><option value="a3">A3</option><option value="tabloid">Tabloid</option></select><label class="field-label" for="page-area">Print area (optional)</label><input id="page-area" class="scenario-input" placeholder="A1:H40; blank prints used cells"/><label class="field-label" for="page-repeat-rows">Rows to repeat at top</label><input id="page-repeat-rows" class="scenario-input" placeholder="1:3"/><label class="field-label" for="page-repeat-columns">Columns to repeat at left</label><input id="page-repeat-columns" class="scenario-input" placeholder="A:B"/><label class="field-label" for="page-fit-width">Fit to pages wide (0 = automatic)</label><input id="page-fit-width" class="scenario-input" type="number" min="0" max="4" step="1"/><label class="field-label" for="page-fit-height">Fit to pages tall (0 = automatic)</label><input id="page-fit-height" class="scenario-input" type="number" min="0" max="4" step="1"/><div class="page-setup-checks"><label><input id="page-gridlines" type="checkbox"/> Print gridlines</label><label><input id="page-headings" type="checkbox"/> Print row and column headings</label></div><div class="page-margin-grid"><label class="field-label">Top margin (in)<input id="page-margin-top" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Bottom margin (in)<input id="page-margin-bottom" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Left margin (in)<input id="page-margin-left" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Right margin (in)<input id="page-margin-right" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label></div><p id="page-setup-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-page-setup">Cancel</button><button type="button" class="primary-button" id="save-page-setup">Save setup</button></div></dialog>
+  <dialog id="page-setup-dialog" class="help-dialog"><div class="dialog-top"><h2>Page Setup</h2><button type="button" class="tool-btn" id="close-page-setup" aria-label="Close">✕</button></div><p>Set worksheet print options for the browser print dialog and exported Excel workbooks. Repeated rows appear at the top of each printed page; repeated columns are saved for Excel.</p><label class="field-label" for="page-orientation">Orientation</label><select class="context-select" id="page-orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><label class="field-label" for="page-paper">Paper size</label><select class="context-select" id="page-paper"><option value="letter">Letter</option><option value="legal">Legal</option><option value="a4">A4</option><option value="a3">A3</option><option value="tabloid">Tabloid</option></select><label class="field-label" for="page-area">Print area (optional)</label><input id="page-area" class="scenario-input" placeholder="A1:H40; blank prints used cells"/><label class="field-label" for="page-repeat-rows">Rows to repeat at top</label><input id="page-repeat-rows" class="scenario-input" placeholder="1:3"/><label class="field-label" for="page-repeat-columns">Columns to repeat at left</label><input id="page-repeat-columns" class="scenario-input" placeholder="A:B"/><label class="field-label" for="page-fit-width">Fit to pages wide (0 = automatic)</label><input id="page-fit-width" class="scenario-input" type="number" min="0" max="4" step="1"/><label class="field-label" for="page-fit-height">Fit to pages tall (0 = automatic)</label><input id="page-fit-height" class="scenario-input" type="number" min="0" max="4" step="1"/><div class="page-setup-checks"><label><input id="page-gridlines" type="checkbox"/> Print gridlines</label><label><input id="page-headings" type="checkbox"/> Print row and column headings</label></div><div class="page-margin-grid"><label class="field-label">Top margin (in)<input id="page-margin-top" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Bottom margin (in)<input id="page-margin-bottom" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Left margin (in)<input id="page-margin-left" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Right margin (in)<input id="page-margin-right" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label></div><h3>Headers and footers</h3><p class="chart-hint">Use &amp;P for page number, &amp;N for total pages, &amp;A for sheet name, and &amp;D for date.</p><div class="page-margin-grid"><label class="field-label">Header left<input id="page-header-left" class="scenario-input" maxlength="255"/></label><label class="field-label">Header center<input id="page-header-center" class="scenario-input" maxlength="255"/></label><label class="field-label">Header right<input id="page-header-right" class="scenario-input" maxlength="255"/></label><label class="field-label">Footer left<input id="page-footer-left" class="scenario-input" maxlength="255"/></label><label class="field-label">Footer center<input id="page-footer-center" class="scenario-input" maxlength="255"/></label><label class="field-label">Footer right<input id="page-footer-right" class="scenario-input" maxlength="255"/></label></div><p id="page-setup-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-page-setup">Cancel</button><button type="button" class="primary-button" id="save-page-setup">Save setup</button></div></dialog>
+  <dialog id="cloud-dialog" class="help-dialog cloud-dialog"><div class="dialog-top"><h2>Cloud workbooks</h2><button type="button" class="tool-btn" id="close-cloud" aria-label="Close">✕</button></div><p>Connect your own cloud account to browse, open, and save workbooks. GridForge uploads data only when you choose a cloud save. Sign-in tokens are protected with your Windows account; account access can be removed here.</p><label class="field-label" for="cloud-provider">Storage provider</label><select id="cloud-provider" class="context-select"><option value="onedrive">OneDrive</option><option value="googledrive">Google Drive</option><option value="dropbox">Dropbox</option><option value="box">Box</option></select><label class="field-label" for="cloud-client-id">OAuth app client ID</label><input id="cloud-client-id" class="scenario-input" autocomplete="off"/><label class="field-label cloud-secret-only" for="cloud-client-secret">Google desktop secret (if required) / Box app client secret (required)</label><input id="cloud-client-secret" type="password" class="scenario-input cloud-secret-only" autocomplete="new-password"/><label class="field-label cloud-dropbox-only" for="cloud-dropbox-redirect">Dropbox registered local redirect URI</label><input id="cloud-dropbox-redirect" class="scenario-input cloud-dropbox-only" value="http://localhost:53682/oauth/callback"/><label class="field-label cloud-box-only" for="cloud-box-redirect">Box registered local redirect URI</label><input id="cloud-box-redirect" class="scenario-input cloud-box-only" value="http://localhost:53683/oauth/callback"/><p class="chart-hint">Provider setup is required: register a public desktop OAuth client, enable the provider's file API, and paste its client ID here. Never enter an app secret for OneDrive or Dropbox. Google Drive access uses the limited drive.file scope. Box uses your registered client secret and protects it with Windows DPAPI.</p><div class="tool-group cloud-actions"><button id="cloud-connect" type="button" class="primary-button">Connect account</button><button id="cloud-refresh" type="button" class="secondary-button">Refresh files</button><button id="cloud-save-copy" type="button" class="secondary-button">Save a new copy</button><button id="cloud-save-current" type="button" class="secondary-button" disabled>Save opened cloud workbook</button><button id="cloud-disconnect" type="button" class="secondary-button">Disconnect</button></div><p id="cloud-status" class="chart-hint" aria-live="polite">Choose a provider and connect.</p><nav id="cloud-breadcrumbs" class="cloud-breadcrumbs" aria-label="Cloud folder path"></nav><div id="cloud-files" class="cloud-files" role="listbox" aria-label="Cloud workbooks"></div><button id="cloud-open-file" type="button" class="primary-button" disabled>Open selected workbook</button></dialog>
   <dialog id="goal-seek-dialog" class="help-dialog"><div class="dialog-top"><h2>Goal Seek</h2><button type="button" class="tool-btn" id="close-goal-seek" aria-label="Close">✕</button></div><p>Find a numeric input that makes a formula reach a target. Preview runs on a copy of the workbook; apply only the changing-cell value after reviewing the result.</p><label class="field-label" for="goal-seek-target-cell">Set formula cell</label><input id="goal-seek-target-cell" class="scenario-input" placeholder="B10"/><label class="field-label" for="goal-seek-target-value">To value</label><input id="goal-seek-target-value" class="scenario-input" type="number" step="any"/><label class="field-label" for="goal-seek-changing-cell">By changing cell</label><input id="goal-seek-changing-cell" class="scenario-input" placeholder="B2"/><p id="goal-seek-result" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="preview-goal-seek">Find solution</button><button type="button" class="primary-button" id="apply-goal-seek" disabled>Apply value</button></div></dialog>
   <dialog id="welcome-dialog" class="help-dialog welcome-dialog" aria-label="Getting started with GridForge"><div class="dialog-top"><h2>Welcome to GridForge</h2><button type="button" id="close-welcome" class="tool-btn" aria-label="Close getting started">✕</button></div>
     <p>Excel experience? GridForge uses the same cells, worksheet tabs, formula bar, and familiar editing shortcuts.</p>
     <ol class="onboarding-steps"><li><b>Enter data</b><span>Click A1, type 10, then press Enter. Move with arrows, use F2 to edit.</span></li><li><b>Use a formula</b><span>Click another cell and type =SUM(A1:A5). The fx bar and Functions tab help you find formulas.</span></li><li><b>Open an Excel file</b><span>Choose File → Import for XLSX/XLSM; File → XLSX to export. Save a JSON copy for GridForge-only settings.</span></li></ol>
     <p class="welcome-note">VBA: macro-enabled workbook edits can be saved back to XLSM, but running VBA requires the optional Windows Excel bridge.</p><div class="welcome-actions"><button class="primary-button" id="welcome-functions">Browse functions</button><button class="secondary-button" id="welcome-import">Import Excel file</button></div>
   </dialog>
-  <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Open workbook</span><kbd>Ctrl + O</kbd><span>Save Excel file</span><kbd>Ctrl + S</kbd><span>Save GridForge backup</span><kbd>Ctrl + Shift + S</kbd><span>Navigate cells</span><kbd>Arrow keys</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Cell context menu</span><kbd>Right-click / Shift+F10</kbd><span>AutoSum</span><kbd>Alt + =</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward</span><kbd>Ctrl + D</kbd><span>Insert chart from selection</span><kbd>Alt + F1</kbd><span>Refresh workbook data and Pivot Summaries</span><kbd>Ctrl + Alt + F5</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Search cell address</span><kbd>Ctrl + L</kbd></div></dialog>
+  <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Open workbook</span><kbd>Ctrl + O</kbd><span>Save Excel file</span><kbd>Ctrl + S</kbd><span>Save GridForge backup</span><kbd>Ctrl + Shift + S</kbd><span>Navigate cells / populated blocks</span><kbd>Arrow keys / Ctrl + Arrow</kbd><span>Go to row start / sheet start / used end</span><kbd>Home / Ctrl + Home / Ctrl + End</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Select row / column / worksheet</span><kbd>Shift + Space / Ctrl + Space / Ctrl + Shift + Space</kbd><span>Cell context menu</span><kbd>Right-click / Shift+F10</kbd><span>AutoSum</span><kbd>Alt + =</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward / rightward</span><kbd>Ctrl + D / Ctrl + R</kbd><span>Insert chart from selection</span><kbd>Alt + F1</kbd><span>Refresh workbook data and Pivot Summaries</span><kbd>Ctrl + Alt + F5</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Go to cell / range / defined name</span><kbd>Ctrl + L</kbd><span>Previous / next worksheet</span><kbd>Ctrl + Page Up / Page Down</kbd><span>Insert worksheet</span><kbd>Shift + F11</kbd><span>Toggle row filters</span><kbd>Ctrl + Shift + L</kbd></div></dialog>
   <dialog id="feature-availability-dialog" class="help-dialog feature-availability-dialog" aria-label="Excel feature availability"><div class="dialog-top"><h2 id="feature-dialog-title">Excel feature availability</h2><button type="button" id="close-feature-dialog" class="tool-btn" aria-label="Close">✕</button></div><p id="feature-dialog-summary">GridForge uses its own spreadsheet engine and implements a subset of Excel features. Unavailable features are identified below.</p><div id="feature-availability-list" class="feature-availability-list"></div><p id="feature-dialog-detail" class="feature-dialog-detail" aria-live="polite"></p></dialog>
 `;
 {
     const dialog = document.createElement('dialog');
     dialog.id = 'query-dialog';
     dialog.className = 'help-dialog';
-    dialog.innerHTML = `<div class="dialog-top"><h2>New Refreshable Query</h2><button type="button" class="tool-btn" id="close-query" aria-label="Close">✕</button></div><p>Create a repeatable worksheet cleanup or refresh data from a public HTTPS CSV/JSON endpoint. External requests omit cookies and credentials, reject redirects, and are limited to 3 MB.</p><label class="field-label" for="query-name">Query name</label><input id="query-name" class="scenario-input" maxlength="80" placeholder="Clean Customers"/><label class="field-label" for="query-source-kind">Source type</label><select id="query-source-kind" class="context-select"><option value="worksheet">Current worksheet range</option><option value="csv-url">CSV from HTTPS URL</option><option value="json-url">JSON from HTTPS URL</option></select><div id="query-range-source"><label class="field-label" for="query-source">Source range</label><input id="query-source" class="scenario-input" placeholder="A1:D100"/></div><div id="query-url-source" class="ribbon-hidden"><label class="field-label" for="query-source-url">Public data URL</label><input id="query-source-url" class="scenario-input" type="url" placeholder="https://example.org/data.csv" autocomplete="off"/><small class="name-scope-note">The endpoint must allow browser CORS requests. No authentication is sent. Do not put API keys or tokens in the URL; the saved query keeps its URL.</small></div><label class="field-label" for="query-destination">Load results at</label><input id="query-destination" class="scenario-input" placeholder="F1"/><label class="field-label" for="query-steps">Transformation steps (Ctrl-click for multiple)</label><select id="query-steps" class="context-select" multiple size="8">${DATA_TOOLS.filter(tool => ['text', 'number', 'cleanup'].includes(tool.kind)).map(tool => `<option value="${escapeHtml(tool.id)}">${escapeHtml(tool.category)} · ${escapeHtml(tool.label)}</option>`).join('')}</select><p id="query-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-query">Cancel</button><button type="button" class="primary-button" id="create-query">Create and load</button></div>`;
+    dialog.innerHTML = `<div class="dialog-top"><h2>New Refreshable Query</h2><button type="button" class="tool-btn" id="close-query" aria-label="Close">✕</button></div><p>Create a repeatable worksheet cleanup or refresh data from a public HTTPS CSV/JSON endpoint. External requests omit cookies and credentials, reject redirects, and are limited to 3 MB.</p><label class="field-label" for="query-name">Query name</label><input id="query-name" class="scenario-input" maxlength="80" placeholder="Clean Customers"/><label class="field-label" for="query-source-kind">Source type</label><select id="query-source-kind" class="context-select"><option value="worksheet">Current worksheet range</option><option value="csv-url">CSV from HTTPS URL</option><option value="json-url">JSON from HTTPS URL</option></select><div id="query-range-source"><label class="field-label" for="query-source">Source range</label><input id="query-source" class="scenario-input" placeholder="A1:D100"/></div><div id="query-url-source" class="ribbon-hidden"><label class="field-label" for="query-source-url">Public data URL</label><input id="query-source-url" class="scenario-input" type="url" placeholder="https://example.org/data.csv" autocomplete="off"/><div id="query-json-pointer" class="ribbon-hidden"><label class="field-label" for="query-json-pointer-input">JSON array path (JSON Pointer)</label><input id="query-json-pointer-input" class="scenario-input" placeholder="/data/items" autocomplete="off"/><small class="name-scope-note">Optional path into a nested JSON response, such as /data/items. Nested object fields flatten into dotted columns; select an array path to load its rows.</small></div><small class="name-scope-note">The endpoint must allow browser CORS requests. No authentication is sent. Do not put API keys or tokens in the URL; the saved query keeps its URL.</small></div><label class="field-label" for="query-destination">Load results at</label><input id="query-destination" class="scenario-input" placeholder="F1"/><label class="field-label" for="query-steps">Transformation steps (Ctrl-click for multiple)</label><select id="query-steps" class="context-select" multiple size="8">${DATA_TOOLS.filter(tool => ['text', 'number', 'cleanup'].includes(tool.kind)).map(tool => `<option value="${escapeHtml(tool.id)}">${escapeHtml(tool.category)} · ${escapeHtml(tool.label)}</option>`).join('')}</select><p id="query-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-query">Cancel</button><button type="button" class="primary-button" id="create-query">Create and load</button></div>`;
     root.append(dialog);
 }
 // Formula commands are injected into the existing ribbon so the workbook UI remains
@@ -422,7 +714,7 @@ root.innerHTML = `
         define.id = 'define-name-dialog';
         define.className = 'help-dialog name-dialog';
         define.setAttribute('aria-label', 'Define Name');
-        define.innerHTML = `<div class="dialog-top"><h2 id="define-name-title">Define Name</h2><button type="button" class="tool-btn" data-close-name-dialog aria-label="Close">✕</button></div><label class="field-label" for="defined-name-input">Name</label><input id="defined-name-input" class="scenario-input" maxlength="255" placeholder="e.g. Sales_Total"/><label class="field-label" for="defined-name-ref">Refers to</label><input id="defined-name-ref" class="scenario-input" placeholder="A1 or A1:B10"/><small class="name-scope-note"></small><label class="field-label" for="defined-name-comment">Comment (optional)</label><input id="defined-name-comment" class="scenario-input" maxlength="255" placeholder="What this name represents"/><div class="find-actions"><button type="button" class="secondary-button" data-close-name-dialog>Cancel</button><button type="button" id="save-defined-name" class="primary-button">Save Name</button></div>`;
+        define.innerHTML = `<div class="dialog-top"><h2 id="define-name-title">Define Name</h2><button type="button" class="tool-btn" data-close-name-dialog aria-label="Close">✕</button></div><label class="field-label" for="defined-name-input">Name</label><input id="defined-name-input" class="scenario-input" maxlength="255" placeholder="e.g. Sales_Total"/><label class="field-label" for="defined-name-ref">Refers to</label><input id="defined-name-ref" class="scenario-input" placeholder="A1, A1:B10, or =LAMBDA(x,x+1)"/><small class="name-scope-note"></small><label class="field-label" for="defined-name-comment">Comment (optional)</label><input id="defined-name-comment" class="scenario-input" maxlength="255" placeholder="What this name represents"/><div class="find-actions"><button type="button" class="secondary-button" data-close-name-dialog>Cancel</button><button type="button" id="save-defined-name" class="primary-button">Save Name</button></div>`;
         root.append(define);
         const manager = document.createElement('dialog');
         manager.id = 'name-manager-dialog';
@@ -473,24 +765,38 @@ groupFormatCommands('Font', ['#fmt-font', '#fmt-size', '#fmt-bold', '#fmt-italic
 groupFormatCommands('Alignment', ['#fmt-align', '#fmt-vertical-align', '#fmt-indent-less', '#fmt-indent-more', '#fmt-wrap']);
 groupFormatCommands('Number', ['#fmt-number', '#fmt-number-code', '#btn-autosum']);
 groupFormatCommands('Styles', ['#fmt-fill', '#fmt-border', '#fmt-preset', '#btn-format-table', '#btn-conditional', '#fmt-clear', '.quick-colors [data-color-target="fill"]']);
-groupFormatCommands('Cells', ['#btn-table-edit', '#btn-table-to-chart', '#btn-freeze-row', '#btn-freeze-col', '#btn-paste-values']);
+groupFormatCommands('Cells', ['#btn-table-edit', '#btn-table-to-chart', '#btn-freeze-row', '#btn-freeze-col', '#btn-freeze-panes', '#btn-unfreeze-panes', '#btn-paste-values']);
 const grid = el('grid-scroll');
 const surface = el('grid-surface');
+let activeDrawTool = 'pen', drawModeActive = false, drawingSelectionMode = false, activeDrawStroke = null, drawingPointerId = null, drawChanged = false, pageBreakPreview = false, selectedDrawingIds = new Set(), draggingDrawing = null;
+const drawingBoundsCache = new Map();
 const formulaInput = el('formula'), nameBox = el('name-box');
 const side = el('sidebar-body');
 const currentRef = () => asRef(active.r, active.c);
 const sel = () => bounds(anchor, end);
 const inBounds = (r, c) => r >= 0 && r < book.rows && c >= 0 && c < book.cols;
 function toast(msg) { const n = el('toast'); n.textContent = msg; n.classList.add('visible'); setTimeout(() => n.classList.remove('visible'), 2800); }
-function save() { el('save-state').textContent = 'Saving…'; clearTimeout(storeTimeout); storeTimeout = window.setTimeout(() => { try {
-    localStorage.setItem(STORAGE, JSON.stringify(doc.toJSON()));
-    localStorage.setItem(TITLE_STORAGE, workbookTitle);
-    el('save-state').textContent = 'Saved locally';
+function save() { el('save-state').textContent = 'Saving…'; clearTimeout(storeTimeout); storeTimeout = window.setTimeout(() => { const revision = ++saveRevision; try {
+    const value = { document: doc.toJSON(), title: workbookTitle };
+    void writeStoredWorkspace(value).then(() => { if (revision === saveRevision)
+        el('save-state').textContent = 'Saved locally'; }).catch(() => { try {
+        localStorage.setItem(STORAGE, JSON.stringify(value.document));
+        localStorage.setItem(TITLE_STORAGE, workbookTitle);
+        if (revision === saveRevision)
+            el('save-state').textContent = 'Saved locally';
+    }
+    catch {
+        if (revision === saveRevision)
+            el('save-state').textContent = 'Storage full — export JSON';
+        toast('Automatic local storage is unavailable. Export your workbook to JSON.');
+    } });
 }
 catch {
     el('save-state').textContent = 'Storage full — export JSON';
-    toast('Local storage is full. Export your workbook to JSON.');
+    toast('Unable to create a workbook snapshot. Export your workbook to JSON.');
 } }, 250); }
+if (migrateLocalStorage)
+    window.setTimeout(() => save(), 0);
 function stats() { const s = book.lastStats; el('metric-count').textContent = String(s.recalculated); el('metric-time').textContent = `${s.durationMs.toFixed(3)} ms`; el('metric-populated').textContent = s.totalPopulated.toLocaleString(); el('grid-size').textContent = `${(book.rows * book.cols).toLocaleString()}-cell canvas`; el('btn-undo').toggleAttribute('disabled', !book.canUndo); el('btn-redo').toggleAttribute('disabled', !book.canRedo); }
 let visibleRowsCacheKey = '', visibleRowsCache = [];
 function visibleRows() {
@@ -560,6 +866,7 @@ function refresh() { renderGrid(); nameBox.value = currentRef(); if (document.ac
     showRibbon('Home'); const selection = analyzeSelection(book, b); el('selection-aggregate').textContent = selection.numbers ? `SUM ${Math.round(selection.sum * 100) / 100} · AVG ${Math.round((selection.average ?? 0) * 100) / 100}` : ''; el('selection-status').textContent = b.r1 === b.r2 && b.c1 === b.c2 ? `${currentRef()} selected` : `${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)} selected`; }
 function renderTabs() {
     el('sheet-tab-list').innerHTML = doc.sheets.filter(x => !x.hidden).map(x => `<button type="button" class="sheet-tab ${doc.activeId === x.id ? 'active-tab' : ''}" data-sheet-id="${x.id}" ${x.tabColor ? `style="--sheet-tab-color:${x.tabColor}"` : ''} title="Switch to ${escapeHtml(x.name)}">▦ <span>${escapeHtml(x.name)}</span></button>`).join('');
+    syncPageLayoutControls();
     const sheetIndex = doc.sheets.findIndex(x => x.id === doc.activeId);
     el('btn-sheet-left').disabled = sheetIndex <= 0;
     el('btn-sheet-right').disabled = sheetIndex >= doc.sheets.length - 1;
@@ -581,9 +888,11 @@ function renderFormatControls() {
     el('fmt-color').value = style.color ?? (document.documentElement.dataset.theme === 'light' ? '#273d36' : '#d4dbef');
     el('fmt-fill').value = style.background ?? (document.documentElement.dataset.theme === 'light' ? '#ffffff' : '#131b2d');
 }
-function selectionRefs() { const b = sel(), refs = []; for (let r = b.r1; r <= b.r2; r++)
+function selectionRefs() { const b = sel(), count = (b.r2 - b.r1 + 1) * (b.c2 - b.c1 + 1); if (!Number.isSafeInteger(count) || count > MAX_WORKSHEET_POPULATED_CELLS)
+    throw Error(`Formatting is limited to ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()} cells at a time.`); const refs = []; for (let r = b.r1; r <= b.r2; r++)
     for (let c = b.c1; c <= b.c2; c++)
         refs.push(asRef(r, c)); return refs; }
+function styledRefsInSelection() { const b = sel(); return book.allStyles().filter(item => { const point = parseRef(item.ref); return !!point && point.row >= b.r1 && point.row <= b.r2 && point.col >= b.c1 && point.col <= b.c2; }).map(item => item.ref); }
 function applyStyle(patch) { try {
     const selected = selectionRefs();
     book.patchStyles(selected, patch);
@@ -779,6 +1088,8 @@ function renderGrid() {
     }
     add('corner', grid.scrollLeft, grid.scrollTop, HEAD_W, HEAD_H, '').style.zIndex = '12';
     surface.replaceChildren(frag);
+    renderDrawings();
+    renderPageBreakPreview();
     renderCharts();
     renderPivotSlicers();
     el('metric-rendered').textContent = String(rendered);
@@ -807,7 +1118,7 @@ function renderCharts() {
         card.style.top = `${chart.y}px`;
         card.style.width = `${chart.width}px`;
         card.style.height = `${chart.height + 38}px`;
-        card.innerHTML = `<div class="worksheet-chart-head"><span class="chart-move">⋮⋮</span><strong>${escapeHtml(chart.title || chart.kind + ' chart')}</strong><span class="chart-head-actions"><button type="button" data-chart-action="edit" title="Edit chart" aria-label="Edit chart">✎</button><button type="button" data-chart-action="save" title="Download SVG" aria-label="Export SVG">⇩</button><button type="button" data-chart-action="delete" title="Delete chart" aria-label="Delete chart">✕</button></span></div><div class="worksheet-chart-svg" aria-label="Chart rendering…"></div><span class="chart-resize-grip" title="Drag to resize chart" aria-label="Resize chart">◢</span>`;
+        card.innerHTML = `<div class="worksheet-chart-head"><span class="chart-move">⋮⋮</span><strong>${escapeHtml(chart.title || chart.kind + ' chart')}</strong><span class="chart-head-actions"><button type="button" data-chart-action="edit" title="Edit chart" aria-label="Edit chart">✎</button><button type="button" data-chart-action="save" title="Download SVG" aria-label="Export SVG">⇩</button><button type="button" data-chart-action="save-png" title="Download PNG" aria-label="Export PNG">▧</button><button type="button" data-chart-action="delete" title="Delete chart" aria-label="Delete chart">✕</button></span></div><div class="worksheet-chart-svg" aria-label="Chart rendering…"></div><span class="chart-resize-grip" title="Drag to resize chart" aria-label="Resize chart">◢</span>`;
         const host = card.querySelector('.worksheet-chart-svg'), cacheKey = `${doc.activeId}:${chart.id}`, signature = `${book.valueRevision}:${JSON.stringify(chart)}`, cached = chartSvgCache.get(cacheKey);
         if (cached?.signature === signature) {
             host.innerHTML = cached.svg;
@@ -839,6 +1150,167 @@ function renderCharts() {
     };
     if (pending.length)
         window.setTimeout(paintNext, 0);
+}
+function drawingPath(stroke) { const points = stroke.points; if (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') {
+    const a = points[0], b = points.at(-1);
+    if (stroke.tool === 'rectangle') {
+        const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), h = Math.abs(a[1] - b[1]);
+        return `M${x} ${y}H${x + w}V${y + h}H${x}Z`;
+    }
+    const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(a[0] - b[0]) / 2, ry = Math.abs(a[1] - b[1]) / 2;
+    return `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${rx * 2} 0a${rx} ${ry} 0 1 0 ${-rx * 2} 0`;
+} return points.map((point, index) => `${index ? 'L' : 'M'}${point[0]} ${point[1]}`).join(' '); }
+function updateDrawingSelection(svg) { if (svg)
+    for (const item of Array.from(svg.querySelectorAll('[data-ink-id]'))) {
+        const selected = selectedDrawingIds.has(item.dataset.inkId ?? '');
+        item.dataset.selected = String(selected);
+        item.setAttribute('aria-pressed', String(selected));
+    } el('draw-delete-selected').disabled = selectedDrawingIds.size === 0; el('draw-duplicate-selected').disabled = selectedDrawingIds.size === 0; }
+function changeDrawingSelection(id, additive, svg) { if (id) {
+    if (additive) {
+        if (selectedDrawingIds.has(id))
+            selectedDrawingIds.delete(id);
+        else
+            selectedDrawingIds.add(id);
+    }
+    else if (!selectedDrawingIds.has(id))
+        selectedDrawingIds = new Set([id]);
+}
+else if (!additive)
+    selectedDrawingIds.clear(); updateDrawingSelection(svg); }
+function renderDrawings() {
+    const saved = doc.active.tools.drawings, strokes = activeDrawStroke ? [...saved, activeDrawStroke] : saved;
+    for (const id of selectedDrawingIds)
+        if (!saved.some(stroke => stroke.id === id))
+            selectedDrawingIds.delete(id);
+    updateDrawingSelection();
+    surface.querySelector('.worksheet-ink-layer')?.remove();
+    if (!strokes.length && !drawModeActive)
+        return;
+    const width = Math.max(surface.clientWidth, Number.parseFloat(surface.style.width) || 0), height = Math.max(surface.clientHeight, Number.parseFloat(surface.style.height) || 0), svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('worksheet-ink-layer');
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('aria-label', 'Worksheet drawings');
+    svg.setAttribute('role', 'group');
+    const defs = document.createElementNS(svg.namespaceURI, 'defs'), marker = document.createElementNS(svg.namespaceURI, 'marker');
+    marker.id = 'gridforge-ink-arrow';
+    marker.setAttribute('markerWidth', '8');
+    marker.setAttribute('markerHeight', '8');
+    marker.setAttribute('refX', '7');
+    marker.setAttribute('refY', '4');
+    marker.setAttribute('orient', 'auto');
+    marker.setAttribute('markerUnits', 'strokeWidth');
+    const arrowHead = document.createElementNS(svg.namespaceURI, 'path');
+    arrowHead.setAttribute('d', 'M0 0L8 4L0 8Z');
+    arrowHead.setAttribute('fill', 'context-stroke');
+    marker.append(arrowHead);
+    defs.append(marker);
+    svg.append(defs);
+    for (const stroke of strokes) {
+        if (stroke.points.length < 1)
+            continue;
+        const accessibleName = `${stroke.tool === 'ellipse' ? 'oval' : stroke.tool} drawing${stroke.tool === 'text' && stroke.text ? `: ${stroke.text.slice(0, 100)}` : ''}`;
+        if (stroke.tool === 'text') {
+            const p = stroke.points[0], text = document.createElementNS(svg.namespaceURI, 'text');
+            text.dataset.inkId = stroke.id;
+            text.dataset.selected = String(selectedDrawingIds.has(stroke.id));
+            text.setAttribute('x', String(p[0]));
+            text.setAttribute('y', String(p[1]));
+            text.setAttribute('fill', stroke.color);
+            text.setAttribute('font-size', String(Math.max(12, stroke.width * 4)));
+            text.setAttribute('role', 'button');
+            text.setAttribute('tabindex', drawingSelectionMode ? '0' : '-1');
+            text.setAttribute('aria-label', accessibleName);
+            text.setAttribute('aria-pressed', String(selectedDrawingIds.has(stroke.id)));
+            text.textContent = stroke.text ?? '';
+            svg.append(text);
+            continue;
+        }
+        const path = document.createElementNS(svg.namespaceURI, 'path');
+        path.dataset.inkId = stroke.id;
+        path.dataset.selected = String(selectedDrawingIds.has(stroke.id));
+        path.setAttribute('role', 'button');
+        path.setAttribute('tabindex', drawingSelectionMode ? '0' : '-1');
+        path.setAttribute('aria-label', accessibleName);
+        path.setAttribute('aria-pressed', String(selectedDrawingIds.has(stroke.id)));
+        path.setAttribute('d', drawingPath(stroke));
+        path.setAttribute('fill', stroke.fill && (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') ? stroke.color : 'none');
+        if (stroke.fill)
+            path.setAttribute('fill-opacity', '.18');
+        path.setAttribute('stroke', stroke.color);
+        path.setAttribute('stroke-width', String(stroke.tool === 'highlighter' ? Math.max(8, stroke.width * 2) : stroke.width));
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        if (stroke.tool === 'highlighter')
+            path.setAttribute('stroke-opacity', '.25');
+        if (stroke.tool === 'arrow')
+            path.setAttribute('marker-end', 'url(#gridforge-ink-arrow)');
+        svg.append(path);
+    }
+    svg.addEventListener('pointerdown', event => { if (!drawingSelectionMode)
+        return; event.preventDefault(); event.stopPropagation(); const target = event.target, object = target instanceof Element ? target.closest('[data-ink-id]') : null, id = object?.dataset.inkId, stroke = doc.active.tools.drawings.find(item => item.id === id), additive = event.shiftKey || event.ctrlKey || event.metaKey; changeDrawingSelection(stroke?.id ?? null, additive, svg); if (object)
+        try {
+            object.focus({ preventScroll: true });
+        }
+        catch {
+            object.focus();
+        } if (!stroke || !selectedDrawingIds.has(stroke.id))
+        return; draggingDrawing = { ids: [...selectedDrawingIds], start: drawPoint(event), points: new Map([...selectedDrawingIds].map(selectedId => { const selected = doc.active.tools.drawings.find(item => item.id === selectedId); return [selectedId, selected.points.map(point => [point[0], point[1]])]; })) }; svg.setPointerCapture(event.pointerId); });
+    svg.addEventListener('keydown', event => { if (!drawingSelectionMode || event.key !== 'Enter' && event.key !== ' ')
+        return; const object = event.target instanceof Element ? event.target.closest('[data-ink-id]') : null, id = object?.dataset.inkId; if (!id)
+        return; event.preventDefault(); event.stopPropagation(); changeDrawingSelection(id, event.shiftKey || event.ctrlKey || event.metaKey, svg); });
+    svg.addEventListener('pointermove', event => { if (!draggingDrawing || !svg.hasPointerCapture(event.pointerId))
+        return; const point = drawPoint(event), dx = point[0] - draggingDrawing.start[0], dy = point[1] - draggingDrawing.start[1]; for (const id of draggingDrawing.ids) {
+        const stroke = doc.active.tools.drawings.find(item => item.id === id), original = draggingDrawing.points.get(id);
+        if (!stroke || !original)
+            continue;
+        stroke.points = original.map(([x, y]) => [Math.max(0, Math.min(30000, x + dx)), Math.max(0, Math.min(30000, y + dy))]);
+        const object = svg.querySelector(`[data-ink-id="${CSS.escape(id)}"]`);
+        if (stroke.tool === 'text') {
+            object?.setAttribute('x', String(stroke.points[0][0]));
+            object?.setAttribute('y', String(stroke.points[0][1]));
+        }
+        else
+            object?.setAttribute('d', drawingPath(stroke));
+    } });
+    svg.addEventListener('pointerup', event => { if (!draggingDrawing || !svg.hasPointerCapture(event.pointerId))
+        return; const ids = draggingDrawing.ids; draggingDrawing = null; for (const id of ids)
+        drawingBoundsCache.delete(id); save(); el('draw-state').textContent = `${ids.length} object${ids.length === 1 ? '' : 's'} selected · drag to move, Delete to remove; Ctrl/Shift-click adds objects.`; });
+    svg.addEventListener('pointercancel', () => { if (!draggingDrawing)
+        return; for (const id of draggingDrawing.ids) {
+        const stroke = doc.active.tools.drawings.find(item => item.id === id), original = draggingDrawing.points.get(id);
+        if (stroke && original)
+            stroke.points = original.map(point => [point[0], point[1]]);
+    } draggingDrawing = null; renderDrawings(); });
+    surface.append(svg);
+}
+function renderPageBreakPreview() {
+    surface.querySelector('.page-break-overlay')?.remove();
+    if (!pageBreakPreview)
+        return;
+    const setup = doc.active.tools.pageSetup, paperPixels = { letter: [816, 1056], legal: [816, 1344], a3: [1123, 1587], a4: [794, 1123], tabloid: [1056, 1632] };
+    let [pageW, pageH] = paperPixels[setup.paper] ?? paperPixels.letter;
+    if (setup.orientation === 'landscape')
+        [pageW, pageH] = [pageH, pageW];
+    const stepX = Math.max(100, pageW - (setup.marginLeft + setup.marginRight) * 96), stepY = Math.max(100, pageH - (setup.marginTop + setup.marginBottom) * 96), w = Math.max(surface.clientWidth, Number.parseFloat(surface.style.width) || 0), h = Math.max(surface.clientHeight, Number.parseFloat(surface.style.height) || 0), svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('page-break-overlay');
+    svg.setAttribute('width', String(w));
+    svg.setAttribute('height', String(h));
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    const ns = svg.namespaceURI;
+    for (let x = HEAD_W + setup.marginLeft * 96 + stepX; x < w; x += stepX) {
+        const line = document.createElementNS(ns, 'path');
+        line.setAttribute('d', `M${x} 0V${h}`);
+        svg.append(line);
+    }
+    for (let y = HEAD_H + setup.marginTop * 96 + stepY; y < h; y += stepY) {
+        const line = document.createElementNS(ns, 'path');
+        line.setAttribute('d', `M0 ${y}H${w}`);
+        svg.append(line);
+    }
+    surface.append(svg);
 }
 const busyPivotSlicerIds = new Set(), busyPivotGroupIds = new Set(), pivotSlicerSearch = new Map(), pivotSlicerValueCache = new Map();
 function pivotSlicerSource(spec) { const name = spec.sourceSheet ?? doc.active.name; return doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === name.toLocaleLowerCase())?.book; }
@@ -1024,6 +1496,8 @@ el('save-pivot-slicer-connections').addEventListener('click', async () => {
 let editingChartId = null, editingChartPivotId = null, selectedChartId = null;
 const chartDialog = el('chart-dialog'), chartListDialog = el('chart-list-dialog');
 const selectedChart = () => doc.active.tools.charts.find(chart => chart.id === selectedChartId);
+const chartDataTableKinds = new Set(CHART_DATA_TABLE_KINDS);
+const chartHiddenDataKinds = new Set(CHART_HIDDEN_DATA_KINDS);
 function updateChartRibbonControls() {
     const chart = selectedChart();
     if (!chart)
@@ -1067,6 +1541,12 @@ function updateChartRibbonControls() {
     el('chart-toggle-gridlines').setAttribute('aria-pressed', String(chart.majorGridlines !== false));
     el('chart-toggle-minor-gridlines').setAttribute('aria-pressed', String(chart.minorGridlines ?? false));
     el('chart-toggle-error-bars').setAttribute('aria-pressed', String(chart.seriesOptions?.some(o => o.errorBars) ?? false));
+    el('chart-toggle-data-table').disabled = !chartDataTableKinds.has(chart.kind);
+    el('chart-toggle-data-table').setAttribute('aria-pressed', String(chart.dataTable ?? false));
+    el('chart-toggle-data-table-keys').disabled = !chartDataTableKinds.has(chart.kind) || !chart.dataTable;
+    el('chart-toggle-data-table-keys').setAttribute('aria-pressed', String(chart.dataTableShowKeys ?? false));
+    el('chart-toggle-hidden-data').disabled = !chartHiddenDataKinds.has(chart.kind);
+    el('chart-toggle-hidden-data').setAttribute('aria-pressed', String(chart.includeHiddenData ?? false));
 }
 function selectChart(id) {
     selectedChartId = id;
@@ -1114,6 +1594,11 @@ function waterfallTotalPointInput(chart) {
         indexes.add(count - 1);
     return [...indexes].sort((a, b) => a - b).map(index => index + 1).join(', ');
 }
+function readBoxWhiskerOptions() {
+    if (el('chart-kind').value !== 'box-whisker')
+        return {};
+    return { boxQuartileMethod: el('chart-box-quartiles').value, boxShowInnerPoints: el('chart-box-inner').checked, boxShowOutliers: el('chart-box-outliers').checked, boxShowMeanMarker: el('chart-box-mean-marker').checked, boxShowMeanLine: el('chart-box-mean-line').checked };
+}
 function chartPreview() {
     const node = el('chart-preview'), notice = el('chart-validation');
     try {
@@ -1125,7 +1610,7 @@ function chartPreview() {
         if (kind === 'scatter' && d.series.length < 2)
             throw Error('Scatter charts need at least two numeric columns: one X series and one or more Y series.');
         const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, d.rows) : undefined, pointColors = readPiePointColors(sourceChart, kind, range, orientation);
-        const data = { id: 'chart-preview', kind, theme: el('chart-theme').value, title: el('chart-title').value, range, x: 0, y: 0, width: 460, height: 280, legend: el('chart-legend').value, xAxisTitle: el('chart-xaxis').value, xAxisLabelAngle: sourceChart?.xAxisLabelAngle, xAxisLabelInterval: sourceChart?.xAxisLabelInterval, yAxisTitle: el('chart-yaxis').value, secondaryYAxisTitle: el('chart-yaxis-secondary').value, xAxisMin: sourceChart?.xAxisMin, xAxisMax: sourceChart?.xAxisMax, xAxisMajorUnit: sourceChart?.xAxisMajorUnit, xAxisNumberFormat: sourceChart?.xAxisNumberFormat, xAxisFormatCode: sourceChart?.xAxisFormatCode, yAxisMin: sourceChart?.yAxisMin, yAxisMax: sourceChart?.yAxisMax, yAxisMajorUnit: sourceChart?.yAxisMajorUnit, yAxisNumberFormat: sourceChart?.yAxisNumberFormat, yAxisFormatCode: sourceChart?.yAxisFormatCode, dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelPosition: el('chart-data-label-position').value, dataLabelSeparator: el('chart-label-separator').value || undefined, ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), ...(pointColors ? { dataPointColors: pointColors } : {}), switchRowsColumns: orientation, seriesOptions: readSeriesOptions() };
+        const data = { id: 'chart-preview', kind, theme: el('chart-theme').value, title: el('chart-title').value, accessibilityDescription: el('chart-accessibility-description').value.trim() || undefined, range, x: 0, y: 0, width: 460, height: 280, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, xAxisTitle: el('chart-xaxis').value, xAxisLabelAngle: sourceChart?.xAxisLabelAngle, xAxisLabelInterval: sourceChart?.xAxisLabelInterval, yAxisTitle: el('chart-yaxis').value, secondaryYAxisTitle: el('chart-yaxis-secondary').value, xAxisMin: sourceChart?.xAxisMin, xAxisMax: sourceChart?.xAxisMax, xAxisMajorUnit: sourceChart?.xAxisMajorUnit, xAxisNumberFormat: sourceChart?.xAxisNumberFormat, xAxisFormatCode: sourceChart?.xAxisFormatCode, yAxisMin: sourceChart?.yAxisMin, yAxisMax: sourceChart?.yAxisMax, yAxisMajorUnit: sourceChart?.yAxisMajorUnit, yAxisNumberFormat: sourceChart?.yAxisNumberFormat, yAxisFormatCode: sourceChart?.yAxisFormatCode, dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelPosition: el('chart-data-label-position').value, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, ...readBoxWhiskerOptions(), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), ...(pointColors ? { dataPointColors: pointColors } : {}), switchRowsColumns: orientation, seriesOptions: readSeriesOptions() };
         node.innerHTML = chartSvg(book, data);
         notice.textContent = `${d.rows} data rows · ${d.series.length} numeric series · updates with the source cells.`;
         el('chart-submit').disabled = false;
@@ -1138,6 +1623,8 @@ function chartPreview() {
 }
 function updateChartOptionVisibility() {
     const kind = el('chart-kind').value, histogram = kind === 'histogram';
+    el('chart-box-whisker-options').hidden = kind !== 'box-whisker';
+    el('chart-reverse-categories').parentElement.hidden = !['column', 'bar', 'line', 'area', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'radar'].includes(kind);
     for (const id of ['chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow']) {
         const input = el(id), label = input.previousElementSibling;
         input.hidden = !histogram;
@@ -1171,7 +1658,14 @@ function renderSeriesOptions(chart) {
         return;
     }
     const combo = el('chart-kind').value === 'combo', theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office;
-    host.innerHTML = '<strong>Series settings</strong>' + data.series.map((series, index) => { const opt = chart?.seriesOptions?.[index] ?? {}, defaultKind = combo && index === data.series.length - 1 ? 'line' : 'column', seriesKind = opt.kind ?? defaultKind, defaultColor = palette[index % palette.length]; return `<div class="chart-series-config" data-series-index="${index}"><b>${escapeHtml(series.name)}</b><label>Axis <select data-series-axis aria-label="${escapeHtml(series.name)} axis"><option value="primary" ${opt.axis !== 'secondary' ? 'selected' : ''}>Left</option><option value="secondary" ${opt.axis === 'secondary' ? 'selected' : ''}>Right</option></select></label><label>Type <select data-series-kind aria-label="${escapeHtml(series.name)} chart type"><option value="column" ${seriesKind === 'column' ? 'selected' : ''}>Columns</option><option value="line" ${seriesKind === 'line' ? 'selected' : ''}>Line</option></select></label><label>Color <input data-series-color type="color" value="${opt.color ?? defaultColor}" aria-label="${escapeHtml(series.name)} color"/></label><label>Markers <select data-series-marker aria-label="${escapeHtml(series.name)} markers"><option value="show" ${opt.marker !== false ? 'selected' : ''}>Show</option><option value="hide" ${opt.marker === false ? 'selected' : ''}>Hide</option></select></label><label>Error bars <select data-error-type aria-label="${escapeHtml(series.name)} error bars"><option value="none" ${!opt.errorBars ? 'selected' : ''}>None</option><option value="fixed" ${opt.errorBars?.type === 'fixed' ? 'selected' : ''}>Fixed</option><option value="percentage" ${opt.errorBars?.type === 'percentage' ? 'selected' : ''}>Percent</option><option value="standardDeviation" ${opt.errorBars?.type === 'standardDeviation' ? 'selected' : ''}>Std. dev.</option></select></label><input data-error-value type="number" min="0" step="any" value="${opt.errorBars?.value ?? 5}" title="Error bar amount" aria-label="${escapeHtml(series.name)} error bar amount"/><label>Trendline <select data-trendline aria-label="${escapeHtml(series.name)} trendline"><option value="none">None</option>${['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].map(type => `<option value="${type}" ${opt.trendline?.type === type ? 'selected' : ''}>${type === 'movingAverage' ? 'Moving average' : type[0].toUpperCase() + type.slice(1)}</option>`).join('')}</select></label><input data-order type="number" min="2" max="6" value="${opt.trendline?.order ?? 2}" title="Polynomial order"/><input data-period type="number" min="2" max="100" value="${opt.trendline?.period ?? 2}" title="Moving average period"/><input data-forward type="number" min="0" max="50" value="${opt.trendline?.forward ?? 0}" title="Forecast forward periods"/><input data-backward type="number" min="0" max="50" value="${opt.trendline?.backward ?? 0}" title="Forecast backward periods"/><label><input data-equation type="checkbox" ${opt.trendline?.showEquation ? 'checked' : ''}/> Equation</label><label><input data-r2 type="checkbox" ${opt.trendline?.showR2 ? 'checked' : ''}/> R²</label></div>`; }).join('');
+    host.innerHTML = '<strong>Series settings</strong>' + data.series.map((series, index) => { const opt = chart?.seriesOptions?.[index] ?? {}, defaultKind = combo && index === data.series.length - 1 ? 'line' : 'column', seriesKind = opt.kind ?? defaultKind, defaultColor = palette[index % palette.length]; return `<div class="chart-series-config" data-series-index="${index}"><b>${escapeHtml(series.name)}</b><label>Axis <select data-series-axis aria-label="${escapeHtml(series.name)} axis"><option value="primary" ${opt.axis !== 'secondary' ? 'selected' : ''}>Left</option><option value="secondary" ${opt.axis === 'secondary' ? 'selected' : ''}>Right</option></select></label><label>Type <select data-series-kind aria-label="${escapeHtml(series.name)} chart type"><option value="column" ${seriesKind === 'column' ? 'selected' : ''}>Columns</option><option value="line" ${seriesKind === 'line' ? 'selected' : ''}>Line</option></select></label><label>Color <input data-series-color type="color" value="${opt.color ?? defaultColor}" aria-label="${escapeHtml(series.name)} color"/></label><label>Markers <select data-series-marker aria-label="${escapeHtml(series.name)} markers"><option value="show" ${opt.marker !== false ? 'selected' : ''}>Show</option><option value="hide" ${opt.marker === false ? 'selected' : ''}>Hide</option></select></label><label>Error bars <select data-error-type aria-label="${escapeHtml(series.name)} error bars"><option value="none" ${!opt.errorBars ? 'selected' : ''}>None</option><option value="fixed" ${opt.errorBars?.type === 'fixed' ? 'selected' : ''}>Fixed</option><option value="percentage" ${opt.errorBars?.type === 'percentage' ? 'selected' : ''}>Percent</option><option value="standardDeviation" ${opt.errorBars?.type === 'standardDeviation' ? 'selected' : ''}>Std. dev.</option><option value="standardError" ${opt.errorBars?.type === 'standardError' ? 'selected' : ''}>Std. error</option></select></label><input data-error-value type="number" min="0" step="any" value="${opt.errorBars?.value ?? 5}" title="Error bar amount" aria-label="${escapeHtml(series.name)} error bar amount"/><label data-error-axis-label ${el('chart-kind').value === 'scatter' ? '' : 'hidden'}>Error axis <select data-error-axis aria-label="${escapeHtml(series.name)} error bar axis"><option value="y" ${opt.errorBars?.axis !== 'x' ? 'selected' : ''}>Y</option><option value="x" ${opt.errorBars?.axis === 'x' ? 'selected' : ''}>X</option></select></label><label>Error direction <select data-error-direction aria-label="${escapeHtml(series.name)} error bar direction"><option value="both" ${!opt.errorBars?.direction || opt.errorBars.direction === 'both' ? 'selected' : ''}>Both</option><option value="plus" ${opt.errorBars?.direction === 'plus' ? 'selected' : ''}>Plus</option><option value="minus" ${opt.errorBars?.direction === 'minus' ? 'selected' : ''}>Minus</option></select></label><label><input data-error-cap type="checkbox" ${opt.errorBars?.endCap !== false ? 'checked' : ''}/> End caps</label><label>Trendline <select data-trendline aria-label="${escapeHtml(series.name)} trendline"><option value="none">None</option>${['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].map(type => `<option value="${type}" ${opt.trendline?.type === type ? 'selected' : ''}>${type === 'movingAverage' ? 'Moving average' : type[0].toUpperCase() + type.slice(1)}</option>`).join('')}</select></label><input data-order type="number" min="2" max="6" value="${opt.trendline?.order ?? 2}" title="Polynomial order"/><input data-period type="number" min="2" max="100" value="${opt.trendline?.period ?? 2}" title="Moving average period"/><input data-forward type="number" min="0" max="50" value="${opt.trendline?.forward ?? 0}" title="Forecast forward periods"/><input data-backward type="number" min="0" max="50" value="${opt.trendline?.backward ?? 0}" title="Forecast backward periods"/><label><input data-equation type="checkbox" ${opt.trendline?.showEquation ? 'checked' : ''}/> Equation</label><label><input data-r2 type="checkbox" ${opt.trendline?.showR2 ? 'checked' : ''}/> R²</label></div>`; }).join('');
+    for (const row of Array.from(host.querySelectorAll('.chart-series-config'))) {
+        const type = row.querySelector('[data-error-type]'), amount = row.querySelector('[data-error-value]');
+        const sync = () => { amount.disabled = type.value === 'none' || type.value === 'standardError'; if (type.value === 'standardError')
+            amount.title = 'Calculated from the series data'; };
+        type.addEventListener('change', sync);
+        sync();
+    }
     renderPiePointColors(chart, data);
 }
 function renderPiePointColors(chart, data) {
@@ -1194,7 +1688,7 @@ function readPiePointColors(chart, kind, range, switchRowsColumns) {
     }
     return colors.some((color, index) => color.toLowerCase() !== palette[index % palette.length].toLowerCase()) ? colors : undefined;
 }
-function readSeriesOptions() { const theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office; return Array.from(document.querySelectorAll('.chart-series-config')).map((row, index) => { const trend = row.querySelector('[data-trendline]').value, color = row.querySelector('[data-series-color]').value, marker = row.querySelector('[data-series-marker]').value === 'show', errorType = row.querySelector('[data-error-type]').value, errorValue = Number(row.querySelector('[data-error-value]').value); return { axis: row.querySelector('[data-series-axis]').value, kind: row.querySelector('[data-series-kind]').value, ...(color !== palette[index % palette.length] ? { color } : {}), marker, ...(errorType === 'none' ? {} : { errorBars: { type: errorType, value: Number.isFinite(errorValue) ? errorValue : 5 } }), ...(trend === 'none' ? {} : { trendline: { type: trend, order: Number(row.querySelector('[data-order]').value) || 2, period: Number(row.querySelector('[data-period]').value) || 2, forward: Number(row.querySelector('[data-forward]').value) || 0, backward: Number(row.querySelector('[data-backward]').value) || 0, showEquation: row.querySelector('[data-equation]').checked, showR2: row.querySelector('[data-r2]').checked } }) }; }); }
+function readSeriesOptions() { const theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office; return Array.from(document.querySelectorAll('.chart-series-config')).map((row, index) => { const trend = row.querySelector('[data-trendline]').value, color = row.querySelector('[data-series-color]').value, marker = row.querySelector('[data-series-marker]').value === 'show', errorType = row.querySelector('[data-error-type]').value, errorValue = Number(row.querySelector('[data-error-value]').value), errorDirection = row.querySelector('[data-error-direction]').value, errorAxis = row.querySelector('[data-error-axis]').value, errorEndCap = row.querySelector('[data-error-cap]').checked; return { axis: row.querySelector('[data-series-axis]').value, kind: row.querySelector('[data-series-kind]').value, ...(color !== palette[index % palette.length] ? { color } : {}), marker, ...(errorType === 'none' ? {} : { errorBars: { type: errorType, value: errorType === 'standardError' ? 0 : Number.isFinite(errorValue) ? errorValue : 5, direction: errorDirection, axis: errorAxis, ...(errorEndCap ? {} : { endCap: false }) } }), ...(trend === 'none' ? {} : { trendline: { type: trend, order: Number(row.querySelector('[data-order]').value) || 2, period: Number(row.querySelector('[data-period]').value) || 2, forward: Number(row.querySelector('[data-forward]').value) || 0, backward: Number(row.querySelector('[data-backward]').value) || 0, showEquation: row.querySelector('[data-equation]').checked, showR2: row.querySelector('[data-r2]').checked } }) }; }); }
 function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     editingChartPivotId = pivotId ?? null;
     const c = doc.active.tools.charts.find(x => x.id === id);
@@ -1211,10 +1705,14 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     editingChartPivotId = c?.pivotId ?? editingChartPivotId;
     el('chart-range').value = c?.range ?? sourceRange ?? suggestedChartRange();
     el('chart-title').value = c?.title ?? (book.getRaw('A1') ? `${book.getRaw('A1').slice(0, 40)} · ${kind}` : 'My chart');
+    el('chart-accessibility-description').value = c?.accessibilityDescription ?? '';
     el('chart-theme').value = c?.theme ?? 'office';
     el('chart-legend').value = c?.legend ?? 'bottom';
+    el('chart-blanks').value = c?.displayBlanksAs ?? 'gap';
+    el('chart-reverse-categories').checked = c?.reverseCategories ?? false;
     el('chart-data-label-position').value = c?.dataLabelPosition ?? 'outsideEnd';
     el('chart-label-separator').value = c?.dataLabelSeparator ?? '';
+    el('chart-data-label-format').value = c?.dataLabelFormatCode ?? '';
     el('chart-xaxis').value = c?.xAxisTitle ?? '';
     el('chart-yaxis').value = c?.yAxisTitle ?? '';
     el('chart-yaxis-secondary').value = c?.secondaryYAxisTitle ?? '';
@@ -1227,6 +1725,11 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     el('chart-histogram-bin-width').value = String(c?.histogramBinWidth ?? 0);
     el('chart-histogram-underflow').value = c?.histogramUnderflow === undefined ? '' : String(c.histogramUnderflow);
     el('chart-histogram-overflow').value = c?.histogramOverflow === undefined ? '' : String(c.histogramOverflow);
+    el('chart-box-quartiles').value = c?.boxQuartileMethod ?? 'inclusive';
+    el('chart-box-inner').checked = c?.boxShowInnerPoints ?? false;
+    el('chart-box-outliers').checked = c?.boxShowOutliers ?? true;
+    el('chart-box-mean-marker').checked = c?.boxShowMeanMarker ?? false;
+    el('chart-box-mean-line').checked = c?.boxShowMeanLine ?? false;
     renderSeriesOptions(c);
     chartPreview();
     chartListDialog.close();
@@ -1234,7 +1737,7 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
 }
 for (const button of Array.from(document.querySelectorAll('[data-chart-kind]')))
     button.addEventListener('click', () => openChartEditor(button.dataset.chartKind));
-for (const id of ['chart-range', 'chart-title', 'chart-kind', 'chart-theme', 'chart-legend', 'chart-data-label-position', 'chart-xaxis', 'chart-yaxis', 'chart-yaxis-secondary', 'chart-labels', 'chart-label-category', 'chart-label-series', 'chart-label-percent', 'chart-label-separator', 'chart-waterfall-total-points', 'chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow'])
+for (const id of ['chart-range', 'chart-title', 'chart-accessibility-description', 'chart-kind', 'chart-theme', 'chart-legend', 'chart-blanks', 'chart-data-label-position', 'chart-data-label-format', 'chart-reverse-categories', 'chart-xaxis', 'chart-yaxis', 'chart-yaxis-secondary', 'chart-labels', 'chart-label-category', 'chart-label-series', 'chart-label-percent', 'chart-label-separator', 'chart-waterfall-total-points', 'chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow', 'chart-box-quartiles', 'chart-box-inner', 'chart-box-outliers', 'chart-box-mean-marker', 'chart-box-mean-line'])
     el(id).addEventListener('input', () => { if (id === 'chart-kind')
         updateChartOptionVisibility(); if (id === 'chart-histogram-bins' && Number(el('chart-histogram-bins').value) > 0)
         el('chart-histogram-bin-width').value = '0'; if (id === 'chart-histogram-bin-width' && Number(el('chart-histogram-bin-width').value) > 0)
@@ -1253,7 +1756,7 @@ el('chart-submit').addEventListener('click', () => {
         if (kind === 'scatter' && extractChartData(book, range, false).series.length < 2)
             throw Error('Scatter charts need at least two numeric columns: one X series and one or more Y series.');
         const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, extractChartData(book, range).rows) : undefined;
-        const chart = { ...(chosen ? { xAxisMin: chosen.xAxisMin, xAxisMax: chosen.xAxisMax, xAxisMajorUnit: chosen.xAxisMajorUnit, xAxisNumberFormat: chosen.xAxisNumberFormat, xAxisFormatCode: chosen.xAxisFormatCode, xAxisLabelAngle: chosen.xAxisLabelAngle, xAxisLabelInterval: chosen.xAxisLabelInterval, yAxisMin: chosen.yAxisMin, yAxisMax: chosen.yAxisMax, yAxisMajorUnit: chosen.yAxisMajorUnit, secondaryYAxisMin: chosen.secondaryYAxisMin, secondaryYAxisMax: chosen.secondaryYAxisMax, secondaryYAxisMajorUnit: chosen.secondaryYAxisMajorUnit, yAxisNumberFormat: chosen.yAxisNumberFormat, secondaryYAxisNumberFormat: chosen.secondaryYAxisNumberFormat, yAxisFormatCode: chosen.yAxisFormatCode, secondaryYAxisFormatCode: chosen.secondaryYAxisFormatCode, doughnutHoleSize: chosen.doughnutHoleSize, firstSliceAngle: chosen.firstSliceAngle, majorGridlines: chosen.majorGridlines, minorGridlines: chosen.minorGridlines } : {}), id: chosen?.id ?? `chart-${Date.now()}-${Math.floor(Math.random() * 1e5)}`, kind, theme: el('chart-theme').value, title: el('chart-title').value.trim().slice(0, 100), range, pivotId: editingChartPivotId && doc.active.tools.pivotTables.some(pivot => pivot.id === editingChartPivotId && pivotChartRange(pivot) === range) ? editingChartPivotId : undefined, x: chosen?.x ?? Math.min(13000, HEAD_W + Math.max(0, b.c1) * COL_W + 18), y: chosen?.y ?? Math.min(27000, HEAD_H + Math.max(0, b.r1) * ROW_H + 16), width: chosen?.width ?? 510, height: chosen?.height ?? 320, legend: el('chart-legend').value, dataLabelPosition: el('chart-data-label-position').value, xAxisTitle: el('chart-xaxis').value.trim().slice(0, 70), yAxisTitle: el('chart-yaxis').value.trim().slice(0, 70), secondaryYAxisTitle: el('chart-yaxis-secondary').value.trim().slice(0, 70), dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelSeparator: el('chart-label-separator').value || undefined, showFinalTotal: kind === 'waterfall' && waterfallTotalPoints?.includes(extractChartData(book, range).rows - 1) === true, ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), switchRowsColumns: kind === 'scatter' ? false : chosen?.switchRowsColumns ?? false, seriesOptions: readSeriesOptions() };
+        const chart = { ...(chosen ? { xAxisMin: chosen.xAxisMin, xAxisMax: chosen.xAxisMax, xAxisMajorUnit: chosen.xAxisMajorUnit, xAxisNumberFormat: chosen.xAxisNumberFormat, xAxisFormatCode: chosen.xAxisFormatCode, xAxisLabelAngle: chosen.xAxisLabelAngle, xAxisLabelInterval: chosen.xAxisLabelInterval, yAxisMin: chosen.yAxisMin, yAxisMax: chosen.yAxisMax, yAxisMajorUnit: chosen.yAxisMajorUnit, secondaryYAxisMin: chosen.secondaryYAxisMin, secondaryYAxisMax: chosen.secondaryYAxisMax, secondaryYAxisMajorUnit: chosen.secondaryYAxisMajorUnit, yAxisNumberFormat: chosen.yAxisNumberFormat, secondaryYAxisNumberFormat: chosen.secondaryYAxisNumberFormat, yAxisFormatCode: chosen.yAxisFormatCode, secondaryYAxisFormatCode: chosen.secondaryYAxisFormatCode, doughnutHoleSize: chosen.doughnutHoleSize, firstSliceAngle: chosen.firstSliceAngle, majorGridlines: chosen.majorGridlines, minorGridlines: chosen.minorGridlines } : {}), id: chosen?.id ?? `chart-${Date.now()}-${Math.floor(Math.random() * 1e5)}`, kind, ...readBoxWhiskerOptions(), theme: el('chart-theme').value, title: el('chart-title').value.trim().slice(0, 100), accessibilityDescription: el('chart-accessibility-description').value.trim().slice(0, 500) || undefined, range, pivotId: editingChartPivotId && doc.active.tools.pivotTables.some(pivot => pivot.id === editingChartPivotId && pivotChartRange(pivot) === range) ? editingChartPivotId : undefined, x: chosen?.x ?? Math.min(13000, HEAD_W + Math.max(0, b.c1) * COL_W + 18), y: chosen?.y ?? Math.min(27000, HEAD_H + Math.max(0, b.r1) * ROW_H + 16), width: chosen?.width ?? 510, height: chosen?.height ?? 320, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, dataLabelPosition: el('chart-data-label-position').value, xAxisTitle: el('chart-xaxis').value.trim().slice(0, 70), yAxisTitle: el('chart-yaxis').value.trim().slice(0, 70), secondaryYAxisTitle: el('chart-yaxis-secondary').value.trim().slice(0, 70), dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, showFinalTotal: kind === 'waterfall' && waterfallTotalPoints?.includes(extractChartData(book, range).rows - 1) === true, ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), switchRowsColumns: kind === 'scatter' ? false : chosen?.switchRowsColumns ?? false, seriesOptions: readSeriesOptions() };
         chart.dataPointColors = readPiePointColors(chosen, kind, range, chosen?.switchRowsColumns ?? false);
         if (chosen)
             Object.assign(chosen, chart);
@@ -1282,7 +1785,11 @@ function showChartList() {
 el('btn-manage-charts').addEventListener('click', showChartList);
 el('close-chart-list').addEventListener('click', () => chartListDialog.close());
 el('chart-context-kind').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.kind = el('chart-context-kind').value; saveSelectedChart(); });
+    return; chart.kind = el('chart-context-kind').value; if (!chartDataTableKinds.has(chart.kind)) {
+    delete chart.dataTable;
+    delete chart.dataTableShowKeys;
+} if (!chartHiddenDataKinds.has(chart.kind))
+    delete chart.includeHiddenData; saveSelectedChart(); });
 el('chart-context-theme').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
     return; chart.theme = el('chart-context-theme').value; saveSelectedChart(); });
 el('chart-legend-position').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
@@ -1297,6 +1804,19 @@ el('chart-toggle-legend').addEventListener('click', () => { const chart = select
     return; chart.legend = chart.legend === 'none' ? 'bottom' : 'none'; saveSelectedChart(); });
 el('chart-toggle-labels').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
     return; chart.dataLabels = !chart.dataLabels; saveSelectedChart(); });
+el('chart-toggle-data-table').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
+    return; if (!chartDataTableKinds.has(chart.kind)) {
+    toast('Data tables are available for column, bar, line, area, stacked, 100% stacked and combo charts.');
+    return;
+} chart.dataTable = !chart.dataTable; if (!chart.dataTable)
+    delete chart.dataTableShowKeys; saveSelectedChart(); });
+el('chart-toggle-data-table-keys').addEventListener('click', () => { const chart = selectedChart(); if (!chart?.dataTable)
+    return; chart.dataTableShowKeys = !chart.dataTableShowKeys; saveSelectedChart(); });
+el('chart-toggle-hidden-data').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
+    return; if (!chartHiddenDataKinds.has(chart.kind)) {
+    toast('Plot Hidden Data is available for standard Excel chart types.');
+    return;
+} chart.includeHiddenData = !chart.includeHiddenData; saveSelectedChart(); });
 el('chart-toggle-gridlines').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
     return; chart.majorGridlines = chart.majorGridlines === false; saveSelectedChart(); });
 el('chart-toggle-minor-gridlines').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
@@ -1554,7 +2074,7 @@ function openWorksheetHyperlink(link) {
         anchor.remove();
         return;
     }
-    const location = (link.location ?? '').replace(/^#/, '').trim(), qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!(.+)$/.exec(location), sheetName = qualified ? (qualified[1] ?? qualified[2] ?? '').replace(/''/g, "'").trim() : doc.active.name, refs = (qualified?.[3] ?? location).replace(/\$/g, '').split(':'), first = parseRef(refs[0] ?? ''), last = parseRef(refs[1] ?? refs[0] ?? ''), sheet = doc.sheets.find(item => item.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase());
+    const entered = (link.location ?? '').replace(/^#/, '').trim(), location = book.resolveHyperlinkLocation(entered) ?? entered, qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!(.+)$/.exec(location), sheetName = qualified ? (qualified[1] ?? qualified[2] ?? '').replace(/''/g, "'").trim() : doc.active.name, refs = (qualified?.[3] ?? location).replace(/\$/g, '').split(':'), first = parseRef(refs[0] ?? ''), last = parseRef(refs[1] ?? refs[0] ?? ''), sheet = doc.sheets.find(item => item.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase());
     if (!first || !last || refs.length > 2 || first.row > last.row || first.col > last.col || last.row >= book.rows || last.col >= book.cols || !sheet) {
         toast('This internal hyperlink target is not a supported in-grid cell range.');
         return;
@@ -1626,6 +2146,8 @@ surface.addEventListener('click', e => {
         download(`${c.title.replace(/[^a-z0-9 _-]/gi, '').slice(0, 40) || 'GridForge-chart'}.svg`, chartSvg(book, c), 'image/svg+xml');
         toast('SVG chart downloaded');
     }
+    if (button.dataset.chartAction === 'save-png')
+        void downloadChartPng(c).catch(error => toast(error instanceof Error ? error.message : 'Unable to export this chart as PNG.'));
 });
 let draggingPivotSlicer = null;
 let resizingPivotSlicer = null;
@@ -1891,6 +2413,172 @@ function gridPointerCell(clientX, clientY) {
     const r = visibleRows()[viewR];
     return r === undefined || !inBounds(r, viewC) ? null : { r, c: viewC };
 }
+function drawPoint(event) { const rect = grid.getBoundingClientRect(); return [Math.max(0, Math.min(30000, Math.round(event.clientX - rect.left + grid.scrollLeft))), Math.max(0, Math.min(30000, Math.round(event.clientY - rect.top + grid.scrollTop)))]; }
+function setDrawMode(enabled) { if (!enabled) {
+    if (activeDrawStroke) {
+        doc.active.tools.drawings.push(activeDrawStroke);
+        activeDrawStroke = null;
+        save();
+    }
+    drawingPointerId = null;
+    if (drawChanged) {
+        save();
+        drawChanged = false;
+    }
+    renderDrawings();
+} drawingSelectionMode = false; grid.classList.remove('draw-select-mode'); drawModeActive = enabled; grid.classList.toggle('draw-mode', enabled); document.documentElement.dataset.drawMode = enabled ? 'active' : 'off'; el('draw-state').textContent = enabled ? `Drawing with ${activeDrawTool}. Escape or Select returns to cells.` : 'Select a drawing tool, then use Select Objects to move a shape.'; el('draw-exit').classList.toggle('active', !enabled); }
+function setDrawingSelectionMode(enabled) { setDrawMode(false); drawingSelectionMode = enabled; grid.classList.toggle('draw-select-mode', enabled); document.documentElement.dataset.drawTool = enabled ? 'select' : ''; el('draw-select').classList.toggle('active', enabled); el('draw-state').textContent = enabled ? 'Click an object; Ctrl/Shift-click to add or remove objects. Drag the selection to move it; press Delete to remove it.' : 'Drawing object selection is off.'; renderDrawings(); }
+function chooseDrawTool(tool) { document.documentElement.dataset.drawTool = tool; activeDrawTool = tool === 'eraser' ? 'pen' : tool; setDrawMode(true); document.querySelectorAll('.draw-tool[data-draw-tool],#draw-pen,#draw-highlighter,#draw-eraser').forEach(button => button.classList.toggle('active', button.id === (tool === 'pen' ? 'draw-pen' : tool === 'highlighter' ? 'draw-highlighter' : tool === 'eraser' ? 'draw-eraser' : '') || button.dataset.drawTool === tool)); el('draw-state').textContent = tool === 'eraser' ? 'Eraser active · drag over strokes to remove them.' : tool === 'text' ? 'Text box · click on the sheet and enter text.' : `Drawing with ${tool} · drag on the sheet.`; }
+function strokeBounds(stroke) { const cached = drawingBoundsCache.get(stroke.id); if (cached)
+    return cached; const xs = stroke.points.map(point => point[0]), ys = stroke.points.map(point => point[1]); let left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys); if (stroke.tool === 'text') {
+    const size = Math.max(12, stroke.width * 4);
+    right += ((stroke.text ?? '').length * size * .65);
+    top -= size;
+} const bounds = { left, top, right, bottom }; drawingBoundsCache.set(stroke.id, bounds); return bounds; }
+function strokeDistance(stroke, x, y) { const segment = (x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1, length = dx * dx + dy * dy, t = length ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / length)) : 0; return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)); }; if (stroke.tool === 'text') {
+    const bounds = strokeBounds(stroke);
+    return Math.hypot(Math.max(bounds.left - x, 0, x - bounds.right), Math.max(bounds.top - y, 0, y - bounds.bottom));
+} if (stroke.tool === 'rectangle') {
+    const [a, b] = [stroke.points[0], stroke.points.at(-1)], left = Math.min(a[0], b[0]), right = Math.max(a[0], b[0]), top = Math.min(a[1], b[1]), bottom = Math.max(a[1], b[1]);
+    return Math.min(segment(left, top, right, top), segment(right, top, right, bottom), segment(right, bottom, left, bottom), segment(left, bottom, left, top));
+} if (stroke.tool === 'ellipse') {
+    const [a, b] = [stroke.points[0], stroke.points.at(-1)], rx = Math.max(1, Math.abs(a[0] - b[0]) / 2), ry = Math.max(1, Math.abs(a[1] - b[1]) / 2), cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, radial = Math.hypot((x - cx) / rx, (y - cy) / ry);
+    return Math.abs(radial - 1) * Math.min(rx, ry);
+} let best = Infinity; for (let i = 1; i < stroke.points.length; i++) {
+    const [x1, y1] = stroke.points[i - 1], [x2, y2] = stroke.points[i];
+    best = Math.min(best, segment(x1, y1, x2, y2));
+} if (stroke.points.length === 1) {
+    const [px, py] = stroke.points[0];
+    best = Math.hypot(x - px, y - py);
+} return best; }
+function eraseAt(point) { const drawings = doc.active.tools.drawings, removed = drawings.filter(stroke => { const bounds = strokeBounds(stroke), radius = Math.max(10, stroke.width + 8); return point[0] >= bounds.left - radius && point[0] <= bounds.right + radius && point[1] >= bounds.top - radius && point[1] <= bounds.bottom + radius && strokeDistance(stroke, point[0], point[1]) <= radius; }); if (!removed.length)
+    return; const ids = new Set(removed.map(stroke => stroke.id)); doc.active.tools.drawings = drawings.filter(stroke => !ids.has(stroke.id)); for (const id of ids) {
+    drawingBoundsCache.delete(id);
+    surface.querySelector(`[data-ink-id="${CSS.escape(id)}"]`)?.remove();
+} drawChanged = true; }
+function previewStroke(stroke) { const svg = surface.querySelector('.worksheet-ink-layer'); if (!svg) {
+    renderDrawings();
+    return;
+} let path = svg.querySelector(`[data-ink-id="${CSS.escape(stroke.id)}"]`); if (!path) {
+    const created = document.createElementNS(svg.namespaceURI, 'path');
+    created.dataset.inkId = stroke.id;
+    created.setAttribute('fill', stroke.fill && (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') ? stroke.color : 'none');
+    if (stroke.fill)
+        created.setAttribute('fill-opacity', '.18');
+    created.setAttribute('stroke', stroke.color);
+    created.setAttribute('stroke-width', String(stroke.tool === 'highlighter' ? Math.max(8, stroke.width * 2) : stroke.width));
+    created.setAttribute('stroke-linecap', 'round');
+    created.setAttribute('stroke-linejoin', 'round');
+    if (stroke.tool === 'highlighter')
+        created.setAttribute('stroke-opacity', '.25');
+    if (stroke.tool === 'arrow')
+        created.setAttribute('marker-end', 'url(#gridforge-ink-arrow)');
+    svg.append(created);
+    path = created;
+} path.setAttribute('d', drawingPath(stroke)); }
+grid.addEventListener('pointerdown', event => { if (!drawModeActive || event.button !== 0)
+    return; event.preventDefault(); event.stopImmediatePropagation(); const point = drawPoint(event); if (doc.active.tools.drawings.length >= 300 || doc.active.tools.drawings.reduce((sum, item) => sum + item.points.length, 0) + (activeDrawTool === 'text' ? 1 : 2) > 75000) {
+    toast('Drawing limit reached for this worksheet.');
+    return;
+} if (activeDrawTool === 'text') {
+    const value = window.prompt('Text to place on the worksheet (up to 500 characters):');
+    if (value === null || !value.trim())
+        return;
+    doc.active.tools.drawings.push({ id: `ink-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, tool: 'text', color: el('draw-color').value, width: Number(el('draw-width').value), points: [point], text: value.slice(0, 500) });
+    save();
+    renderDrawings();
+    return;
+} drawingPointerId = event.pointerId; drawChanged = false; grid.setPointerCapture(event.pointerId); if (document.documentElement.dataset.drawTool === 'eraser') {
+    eraseAt(point);
+    return;
+} activeDrawStroke = { id: `ink-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, tool: activeDrawTool, color: el('draw-color').value, width: Number(el('draw-width').value), points: [point, point], ...(el('draw-fill').checked && (activeDrawTool === 'rectangle' || activeDrawTool === 'ellipse') ? { fill: true } : {}) }; previewStroke(activeDrawStroke); }, true);
+grid.addEventListener('pointermove', event => { if (drawingPointerId !== event.pointerId)
+    return; event.preventDefault(); event.stopImmediatePropagation(); const point = drawPoint(event); if ((document.documentElement.dataset.drawTool === 'eraser')) {
+    eraseAt(point);
+    return;
+} if (!activeDrawStroke)
+    return; const points = activeDrawStroke.points; if (activeDrawStroke.tool === 'pen' || activeDrawStroke.tool === 'highlighter') {
+    const previous = points.at(-1);
+    if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) >= 1.5 && points.length < 1200 && doc.active.tools.drawings.reduce((sum, item) => sum + item.points.length, 0) + points.length < 75000)
+        points.push(point);
+}
+else
+    points[1] = point; previewStroke(activeDrawStroke); }, true);
+grid.addEventListener('pointerup', event => { if (drawingPointerId !== event.pointerId)
+    return; event.preventDefault(); event.stopImmediatePropagation(); drawingPointerId = null; if (activeDrawStroke) {
+    doc.active.tools.drawings.push(activeDrawStroke);
+    activeDrawStroke = null;
+    drawChanged = true;
+} if (drawChanged) {
+    save();
+    renderDrawings();
+} drawChanged = false; }, true);
+grid.addEventListener('pointercancel', event => { if (drawingPointerId !== event.pointerId)
+    return; drawingPointerId = null; activeDrawStroke = null; renderDrawings(); }, { capture: true });
+el('draw-pen').addEventListener('click', () => chooseDrawTool('pen'));
+el('draw-highlighter').addEventListener('click', () => chooseDrawTool('highlighter'));
+el('draw-eraser').addEventListener('click', () => { chooseDrawTool('eraser'); document.documentElement.dataset.drawTool = 'eraser'; });
+for (const button of Array.from(document.querySelectorAll('[data-draw-tool]')))
+    button.addEventListener('click', () => { document.documentElement.dataset.drawTool = button.dataset.drawTool ?? ''; chooseDrawTool(button.dataset.drawTool); });
+el('draw-select').addEventListener('click', () => setDrawingSelectionMode(true));
+function duplicateSelectedDrawings() { const originals = doc.active.tools.drawings.filter(stroke => selectedDrawingIds.has(stroke.id)); if (!originals.length)
+    return; const totalPoints = doc.active.tools.drawings.reduce((sum, stroke) => sum + stroke.points.length, 0), copyPoints = originals.reduce((sum, stroke) => sum + stroke.points.length, 0); if (doc.active.tools.drawings.length + originals.length > 300 || totalPoints + copyPoints > 75000) {
+    toast('There is not enough room to duplicate the selected drawings on this worksheet.');
+    return;
+} const ids = new Set(doc.active.tools.drawings.map(stroke => stroke.id)), copies = originals.map(stroke => { let id = ''; do {
+    id = `ink-copy-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+} while (ids.has(id)); ids.add(id); return { ...stroke, id, points: stroke.points.map(([x, y]) => [Math.min(30000, x + 14), Math.min(30000, y + 14)]) }; }); doc.active.tools.drawings.push(...copies); selectedDrawingIds = new Set(copies.map(stroke => stroke.id)); save(); renderDrawings(); el('draw-state').textContent = `${copies.length} drawing${copies.length === 1 ? '' : 's'} duplicated; drag to reposition.`; }
+el('draw-duplicate-selected').addEventListener('click', duplicateSelectedDrawings);
+el('draw-delete-selected').addEventListener('click', () => { if (!selectedDrawingIds.size)
+    return; const ids = new Set(selectedDrawingIds); doc.active.tools.drawings = doc.active.tools.drawings.filter(stroke => !ids.has(stroke.id)); for (const id of ids)
+    drawingBoundsCache.delete(id); selectedDrawingIds.clear(); save(); renderDrawings(); });
+el('draw-exit').addEventListener('click', () => { document.documentElement.dataset.drawTool = ''; selectedDrawingIds.clear(); setDrawMode(false); });
+el('draw-undo').addEventListener('click', () => { const removed = doc.active.tools.drawings.pop(); if (removed)
+    drawingBoundsCache.delete(removed.id); selectedDrawingIds.clear(); save(); renderDrawings(); });
+el('draw-clear').addEventListener('click', () => { if (!doc.active.tools.drawings.length)
+    return; if (!window.confirm('Remove all drawing ink and shapes from this worksheet?'))
+    return; for (const stroke of doc.active.tools.drawings)
+    drawingBoundsCache.delete(stroke.id); doc.active.tools.drawings = []; selectedDrawingIds.clear(); save(); renderDrawings(); });
+el('draw-color').addEventListener('change', () => { if (!selectedDrawingIds.size)
+    return; for (const stroke of doc.active.tools.drawings)
+    if (selectedDrawingIds.has(stroke.id)) {
+        stroke.color = el('draw-color').value;
+        drawingBoundsCache.delete(stroke.id);
+    } save(); renderDrawings(); });
+el('draw-width').addEventListener('change', () => { if (!selectedDrawingIds.size)
+    return; for (const stroke of doc.active.tools.drawings)
+    if (selectedDrawingIds.has(stroke.id)) {
+        stroke.width = Number(el('draw-width').value);
+        drawingBoundsCache.delete(stroke.id);
+    } save(); renderDrawings(); });
+el('draw-replay').addEventListener('click', () => { const paths = Array.from(surface.querySelectorAll('.worksheet-ink-layer path[data-ink-id]')); let delay = 0; for (const path of paths) {
+    try {
+        const length = path.getTotalLength();
+        path.style.strokeDasharray = String(length);
+        path.style.strokeDashoffset = String(length);
+        const animation = path.animate([{ strokeDashoffset: String(length) }, { strokeDashoffset: '0' }], { duration: Math.min(1400, Math.max(180, length * 2)), delay, easing: 'ease-out', fill: 'forwards' });
+        delay += 90;
+        animation.onfinish = () => { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; };
+    }
+    catch { /* Some SVG engines do not expose path-length animation. */ }
+} });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && drawModeActive) {
+    document.documentElement.dataset.drawTool = '';
+    setDrawMode(false);
+    return;
+} if (event.key === 'Escape' && drawingSelectionMode) {
+    selectedDrawingIds.clear();
+    setDrawingSelectionMode(false);
+    return;
+} const target = event.target, editable = target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); if (editable)
+    return; if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd' && drawingSelectionMode && selectedDrawingIds.size) {
+    event.preventDefault();
+    duplicateSelectedDrawings();
+    return;
+} if ((event.key === 'Delete' || event.key === 'Backspace') && drawingSelectionMode && selectedDrawingIds.size) {
+    event.preventDefault();
+    el('draw-delete-selected').click();
+} });
 function apply(edits) { pivotValueCache.clear(); pivotGroupedValueCache.clear(); try {
     for (const edit of edits) {
         const rule = dataValidationAt(edit.ref, doc.active.tools.dataValidations);
@@ -1993,9 +2681,7 @@ function beginEdit(replace) {
     inp.addEventListener('blur', () => { if (editing === inp)
         commitEdit(); });
 }
-function actionFor(rect, raw = '') { const edits = []; for (let r = rect.r1; r <= rect.r2; r++)
-    for (let c = rect.c1; c <= rect.c2; c++)
-        edits.push({ ref: asRef(r, c), raw }); return edits; }
+function actionFor(rect, raw = '') { return book.allEntries().filter(cell => { const point = parseRef(cell.ref); return !!point && point.row >= rect.r1 && point.row <= rect.r2 && point.col >= rect.c1 && point.col <= rect.c2; }).map(cell => ({ ref: cell.ref, raw })); }
 function fillTo(target) {
     const r0 = active.r, c0 = active.c;
     const vertical = Math.abs(target.r - r0) >= Math.abs(target.c - c0);
@@ -2135,9 +2821,9 @@ async function showPivotDetails(ref) {
         const [firstRef, lastRef] = spec.sourceRange.replace(/\$/g, '').toUpperCase().split(':'), first = parseRef(firstRef ?? ''), last = parseRef(lastRef ?? firstRef ?? '');
         if (!first || !last)
             throw Error('The PivotTable source range is invalid.');
-        if (sourceRows.length + 1 > 1000)
-            throw Error('This workbook supports 1,000 worksheet rows, so these details do not fit on one worksheet.');
-        const headers = pivotSourceFieldHeaders(source.book, spec.sourceRange), detailsBook = new Workbook(1000, last.col - first.col + 1), edits = [], styles = [];
+        if (sourceRows.length + 1 > MAX_WORKSHEET_ROWS)
+            throw Error('The worksheet row limit prevents these PivotTable details from fitting on one worksheet.');
+        const headers = pivotSourceFieldHeaders(source.book, spec.sourceRange), detailsBook = new Workbook(MAX_WORKSHEET_ROWS, last.col - first.col + 1), edits = [], styles = [];
         for (let field = 0; field < headers.length; field++) {
             const raw = headers[field] ?? `Column ${field + 1}`, sourceRef = `${colToName(first.col + field)}${first.row + 1}`;
             edits.push({ ref: `${colToName(field)}1`, raw: raw.startsWith('=') ? `'${raw}` : raw });
@@ -2286,6 +2972,85 @@ grid.addEventListener('keydown', ev => {
         return;
     }
     const ctrl = ev.ctrlKey || ev.metaKey;
+    if (ev.key === ' ' && ctrl && ev.shiftKey) {
+        ev.preventDefault();
+        anchor = { r: 0, c: 0 };
+        end = { r: book.rows - 1, c: book.cols - 1 };
+        refresh();
+        return;
+    }
+    if (ev.key === ' ' && ctrl) {
+        ev.preventDefault();
+        anchor = { r: 0, c: active.c };
+        end = { r: book.rows - 1, c: active.c };
+        ensureVisible();
+        refresh();
+        return;
+    }
+    if (ev.key === ' ' && ev.shiftKey) {
+        ev.preventDefault();
+        anchor = { r: active.r, c: 0 };
+        end = { r: active.r, c: book.cols - 1 };
+        ensureVisible();
+        refresh();
+        return;
+    }
+    if (ctrl && (ev.key === 'PageUp' || ev.key === 'PageDown')) {
+        ev.preventDefault();
+        const sheets = doc.sheets.filter(sheet => !sheet.hidden), index = sheets.findIndex(sheet => sheet.id === doc.activeId);
+        if (sheets.length > 1)
+            changeSheet(sheets[(index + (ev.key === 'PageDown' ? 1 : -1) + sheets.length) % sheets.length].id);
+        return;
+    }
+    if (ev.shiftKey && ev.key === 'F11' && !ctrl) {
+        ev.preventDefault();
+        el('btn-add-sheet').click();
+        return;
+    }
+    if (ctrl && ev.shiftKey && ev.key.toLowerCase() === 'l') {
+        ev.preventDefault();
+        if (doc.active.tools.filter) {
+            el('btn-clear-filter').click();
+        }
+        else
+            el('btn-filter').click();
+        return;
+    }
+    if (ctrl && ev.key === 'Home') {
+        ev.preventDefault();
+        select(0, 0, ev.shiftKey);
+        return;
+    }
+    if (ctrl && ev.key === 'End') {
+        ev.preventDefault();
+        const last = book.getLastUsedCell() ?? { row: 0, col: 0 };
+        select(Math.min(book.rows - 1, last.row), Math.min(book.cols - 1, last.col), ev.shiftKey);
+        return;
+    }
+    if (ev.key === 'Home') {
+        ev.preventDefault();
+        select(active.r, 0, ev.shiftKey);
+        return;
+    }
+    if (ctrl && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.key)) {
+        ev.preventDefault();
+        const vertical = ev.key === 'ArrowUp' || ev.key === 'ArrowDown', step = ev.key === 'ArrowUp' || ev.key === 'ArrowLeft' ? -1 : 1, limit = vertical ? book.rows : book.cols;
+        const occupied = (index) => book.getRaw(asRef(vertical ? index : active.r, vertical ? active.c : index)) !== '';
+        let index = vertical ? active.r : active.c, filled = occupied(index);
+        while (index + step >= 0 && index + step < limit && occupied(index + step) === filled)
+            index += step;
+        if (!filled) {
+            while (index + step >= 0 && index + step < limit && !occupied(index + step))
+                index += step;
+            if (occupied(index))
+                filled = true;
+        }
+        if (filled)
+            while (index + step >= 0 && index + step < limit && occupied(index + step))
+                index += step;
+        select(vertical ? index : active.r, vertical ? active.c : index, ev.shiftKey);
+        return;
+    }
     if (ev.ctrlKey && ev.altKey && ev.key === 'F5') {
         ev.preventDefault();
         el('btn-refresh-queries').click();
@@ -2355,6 +3120,18 @@ grid.addEventListener('keydown', ev => {
         }
         return;
     }
+    if (ctrl && ev.key.toLowerCase() === 'r') {
+        ev.preventDefault();
+        const b = sel();
+        if (b.c2 > b.c1) {
+            const edits = [];
+            for (let r = b.r1; r <= b.r2; r++)
+                for (let c = b.c1 + 1; c <= b.c2; c++)
+                    edits.push({ ref: asRef(r, c), raw: shiftFormula(book.getRaw(asRef(r, b.c1)), 0, c - b.c1) });
+            apply(edits);
+        }
+        return;
+    }
     if (ctrl && ev.key.toLowerCase() === 'a') {
         ev.preventDefault();
         anchor = { r: 0, c: 0 };
@@ -2405,7 +3182,13 @@ grid.addEventListener('keydown', ev => {
     select(Math.min(book.rows - 1, Math.max(0, active.r + dr)), Math.min(book.cols - 1, Math.max(0, active.c + dc)), ev.shiftKey && ev.key !== 'Tab');
 });
 function copySelection(cut = false) {
-    clipboardCache = snapshotCells(book, sel(), doc.activeId, cut);
+    try {
+        clipboardCache = snapshotCells(book, sel(), doc.activeId, cut);
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : `Copy is limited to ${MAX_CLIPBOARD_CELLS.toLocaleString()} cells.`);
+        return;
+    }
     // Menu and Ctrl+X copying is always usable within the app even when browser clipboard permission is denied.
     void navigator.clipboard?.writeText(clipboardCache.plain).catch(() => { });
     toast(`${cut ? 'Cut' : 'Copied'} ${clipboardCache.rows.length} row(s) · ${cut ? 'paste to move' : 'paste to duplicate'}`);
@@ -2438,7 +3221,14 @@ function pasteCached(valuesOnly = false) {
 document.addEventListener('copy', ev => {
     if (document.activeElement !== grid)
         return;
-    clipboardCache = snapshotCells(book, sel(), doc.activeId, false);
+    try {
+        clipboardCache = snapshotCells(book, sel(), doc.activeId, false);
+    }
+    catch (error) {
+        ev.preventDefault();
+        toast(error instanceof Error ? error.message : `Copy is limited to ${MAX_CLIPBOARD_CELLS.toLocaleString()} cells.`);
+        return;
+    }
     ev.clipboardData?.setData('text/plain', clipboardCache.plain);
     // Preserve the existing same-app MIME metadata for browsers that allow it.
     ev.clipboardData?.setData('application/x-gridforge-cells', JSON.stringify(clipboardCache));
@@ -2480,18 +3270,83 @@ else if (ev.key === 'Escape') {
 } });
 el('btn-commit').addEventListener('click', () => { apply([{ ref: currentRef(), raw: formulaInput.value }]); grid.focus({ preventScroll: true }); });
 el('btn-cancel-formula').addEventListener('click', () => { formulaInput.value = book.getRaw(currentRef()); grid.focus({ preventScroll: true }); });
+function jumpFromNameBox(input) {
+    const value = input.trim();
+    if (!value)
+        return false;
+    let sheet = doc.active, reference = value, quoted = false, bang = -1;
+    for (let i = 0; i < value.length; i++) {
+        if (value[i] === "'") {
+            if (quoted && value[i + 1] === "'") {
+                i++;
+                continue;
+            }
+            quoted = !quoted;
+        }
+        else if (value[i] === '!' && !quoted)
+            bang = i;
+    }
+    if (bang >= 0) {
+        let sheetName = value.slice(0, bang).trim();
+        if (sheetName.startsWith("'") && sheetName.endsWith("'"))
+            sheetName = sheetName.slice(1, -1).replace(/''/g, "'");
+        else if (sheetName.includes("'") || sheetName.includes(' '))
+            return false;
+        const found = doc.sheets.find(item => item.name.toLocaleLowerCase() === sheetName.toLocaleLowerCase());
+        if (!found || found.hidden)
+            return false;
+        sheet = found;
+        reference = value.slice(bang + 1).trim();
+    }
+    const targetBook = sheet.book, named = targetBook.getDefinedNames().find(item => item.name.toLocaleLowerCase() === reference.toLocaleLowerCase());
+    const target = (named?.ref ?? reference).replace(/\$/g, '').toUpperCase(), parts = target.split(':');
+    if (parts.length > 2)
+        return false;
+    const first = parseRef(parts[0] ?? ''), last = parseRef(parts[1] ?? parts[0] ?? '');
+    if (!first || !last || first.row >= targetBook.rows || first.col >= targetBook.cols || last.row >= targetBook.rows || last.col >= targetBook.cols)
+        return false;
+    if (sheet.id !== doc.activeId)
+        changeSheet(sheet.id);
+    active = { r: first.row, c: first.col };
+    anchor = { ...active };
+    end = { r: last.row, c: last.col };
+    ensureVisible();
+    refresh();
+    grid.focus({ preventScroll: true });
+    return true;
+}
 nameBox.addEventListener('keydown', ev => { if (ev.key === 'Enter') {
-    const p = parseRef(nameBox.value.trim());
-    if (p && inBounds(p.row, p.col))
-        select(p.row, p.col);
-    else
-        toast('Enter a valid address, e.g. AA120');
+    if (!jumpFromNameBox(nameBox.value))
+        toast('Enter a valid cell or range such as AA120 or A1:C20, or a supported defined name.');
 } if (ev.key === 'Escape')
     nameBox.value = currentRef(); });
 const desktopAPI = () => {
     const bridge = window;
     return bridge.pywebview?.api?.save_file ? bridge.pywebview.api : null;
 };
+async function downloadChartPng(chart) {
+    const svg = chartSvg(book, chart), sourceUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })), image = new Image();
+    try {
+        await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(Error('The chart could not be converted to an image.')); image.src = sourceUrl; });
+        const scale = 2, canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(chart.width * scale));
+        canvas.height = Math.max(1, Math.round(chart.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context)
+            throw Error('PNG export is unavailable in this browser.');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(Error('The chart image could not be encoded as PNG.')), 'image/png'));
+        const name = `${chart.title.replace(/[^a-z0-9 _-]/gi, '').slice(0, 40) || 'GridForge-chart'}.png`;
+        download(name, new Uint8Array(await blob.arrayBuffer()), 'image/png');
+        toast('PNG chart downloaded at 2× resolution.');
+    }
+    finally {
+        URL.revokeObjectURL(sourceUrl);
+        image.src = '';
+    }
+}
 function download(name, contents, type) {
     const native = desktopAPI();
     if (native) {
@@ -2649,6 +3504,8 @@ async function editedXlsm() {
 }
 el('btn-save-xlsm').addEventListener('click', async () => {
     try {
+        if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !window.confirm('GridForge ink strokes and drawn shapes are not embedded in the edited XLSM. Save the workbook without those drawings? Keep a GridForge JSON copy to preserve them.'))
+            return;
         const output = await editedXlsm();
         download(workbookTitle.replace(/[^a-z0-9_.-]+/gi, '_') + '_edited.xlsm', output.bytes, 'application/vnd.ms-excel.sheet.macroEnabled.12');
         toast(`Saved XLSM with ${output.editedCells} changed cells; VBA preserved.`);
@@ -2669,6 +3526,8 @@ el('run-excel-vba').addEventListener('click', async () => {
         status.textContent = 'Enter a valid VBA macro name and the bridge session token.';
         return;
     }
+    if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !confirm('GridForge ink and drawn shapes will not be included in the temporary XLSM. Continue without them?'))
+        return;
     if (!confirm(`Run '${macro}' using desktop Microsoft Excel?\n\nVBA is executable code and may change files, connect to networks, or launch programs. Only continue if you trust this workbook and macro. Excel Trust Center restrictions will remain active.`))
         return;
     button.disabled = true;
@@ -2687,7 +3546,7 @@ el('run-excel-vba').addEventListener('click', async () => {
         // A real Excel macro can produce features outside GridForge's importer limits.
         // Preserve the downloaded result even when re-import cannot display it.
         try {
-            const imported = await importXlsx(result);
+            const imported = await importXlsxOffThread(result, undefined, true);
             pivotValueCache.clear();
             pivotGroupedValueCache.clear();
             doc = imported.document;
@@ -2722,34 +3581,53 @@ el('btn-original-xlsm').addEventListener('click', () => { if (!originalMacroFile
     toast('No original .xlsm is loaded.');
     return;
 } download(originalMacroFile.name, originalMacroFile.bytes, 'application/vnd.ms-excel.sheet.macroEnabled.12'); toast('Downloaded unchanged original XLSM. Your GridForge edits are not included.'); });
-el('btn-xlsx').addEventListener('click', () => { try {
-    download(xlsxFileName(workbookTitle), exportXlsx(doc), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+el('btn-xlsx').addEventListener('click', async () => { const button = el('btn-xlsx'), saveState = el('save-state'), prior = saveState.textContent ?? 'Saved locally'; try {
+    if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !window.confirm('GridForge ink strokes and drawn shapes are saved in GridForge JSON, not embedded in XLSX. Export the workbook without those drawings?'))
+        return;
+    button.disabled = true;
+    saveState.textContent = 'Preparing Excel workbook…';
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    const bytes = await exportXlsxOffThread(doc);
+    download(xlsxFileName(workbookTitle), bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     toast(doc.sheets.some(s => s.tools.charts.length) ? 'XLSX exported with editable native Excel chart objects.' : 'Exported multi-sheet XLSX.');
 }
 catch (e) {
     toast(e instanceof Error ? e.message : 'XLSX export failed');
+}
+finally {
+    button.disabled = false;
+    saveState.textContent = prior;
 } });
-el('btn-json').addEventListener('click', () => download('gridforge-workbook-v3.json', JSON.stringify(doc.toJSON(), null, 2), 'application/json'));
-el('btn-csv').addEventListener('click', () => {
-    const entries = book.allEntries();
-    let maxR = 0, maxC = 0;
-    for (const x of entries) {
-        const p = parseRef(x.ref);
-        maxR = Math.max(maxR, p.row);
-        maxC = Math.max(maxC, p.col);
-    }
-    const rows = [];
-    for (let r = 0; r <= maxR; r++) {
-        const line = [];
-        for (let c = 0; c <= maxC; c++) {
-            const result = book.getValue(asRef(r, c)), shown = display(result);
-            line.push(typeof result.value === 'string' && /^[\t\r\n ]*[=+\-@]/.test(shown) ? `'${shown}` : shown);
-        }
-        rows.push(line);
-    }
-    download('gridforge-values.csv', encodeCSV(rows), 'text/csv');
-    toast('Exported calculated values to CSV');
-});
+el('btn-json').addEventListener('click', async () => { const button = el('btn-json'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; try {
+    button.disabled = true;
+    status.textContent = 'Preparing workbook JSON…';
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    const bytes = await exportDataOffThread(doc, 'json');
+    download('gridforge-workbook-v3.json', bytes, 'application/json');
+    toast('Exported GridForge workbook JSON.');
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'JSON export failed.');
+}
+finally {
+    button.disabled = false;
+    status.textContent = prior;
+} });
+el('btn-csv').addEventListener('click', async () => { const button = el('btn-csv'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; try {
+    button.disabled = true;
+    status.textContent = 'Calculating CSV values…';
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    const bytes = await exportDataOffThread(doc, 'csv');
+    download('gridforge-values.csv', bytes, 'text/csv');
+    toast('Exported calculated values to CSV.');
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'CSV export failed.');
+}
+finally {
+    button.disabled = false;
+    status.textContent = prior;
+} });
 el('btn-undo').addEventListener('click', () => { if (book.undo()) {
     pivotValueCache.clear();
     pivotGroupedValueCache.clear();
@@ -2790,12 +3668,14 @@ picker.addEventListener('change', async () => {
     const file = picker.files?.[0];
     if (!file)
         return;
+    const priorSaveState = el('save-state').textContent ?? 'Ready';
     try {
-        const macroEnabled = /\.xlsm$/i.test(file.name), isOffice = /\.xlsx?$/i.test(file.name) || macroEnabled;
-        const content = isOffice ? '' : await file.text();
+        let importNotice = '';
+        const macroEnabled = /\.xlsm$/i.test(file.name), isOffice = /\.xlsx?$/i.test(file.name) || macroEnabled, isJson = /\.json$/i.test(file.name);
+        const content = isOffice || isJson ? '' : await file.text();
         if (isOffice) {
             const bytes = new Uint8Array(await file.arrayBuffer());
-            const response = await importXlsx(bytes);
+            const response = await importXlsxOffThread(bytes, message => { el('save-state').textContent = message; }, macroEnabled);
             pivotValueCache.clear();
             pivotGroupedValueCache.clear();
             doc = response.document;
@@ -2812,10 +3692,10 @@ picker.addEventListener('change', async () => {
                 el('import-notes-dialog').showModal();
             }
         }
-        else if (file.name.toLowerCase().endsWith('.json')) {
+        else if (isJson) {
             pivotValueCache.clear();
             pivotGroupedValueCache.clear();
-            doc = SpreadsheetDocument.fromJSON(JSON.parse(content));
+            doc = await importJsonOffThread(new Uint8Array(await file.arrayBuffer()), message => { el('save-state').textContent = message; });
             book = doc.active.book;
             pivotExpandControls.clear();
             originalMacroFile = null;
@@ -2826,15 +3706,12 @@ picker.addEventListener('change', async () => {
             originalMacroFile = null;
             el('btn-original-xlsm').hidden = true;
             el('btn-save-xlsm').hidden = true;
-            const rows = parseCSV(content);
-            const fresh = new Workbook(Math.max(400, Math.min(1000, rows.length)), Math.max(52, Math.min(104, rows.reduce((longest, row) => Math.max(longest, row.length), 0))));
-            const edits = [];
-            rows.forEach((line, r) => line.forEach((text, c) => { if (r < fresh.rows && c < fresh.cols && text !== '')
-                edits.push({ ref: asRef(r, c), raw: text }); }));
-            fresh.applyEdits(edits, false);
+            const imported = await importCsvOffThread(new Uint8Array(await file.arrayBuffer()), message => { el('save-state').textContent = message; });
+            if (imported.clipped)
+                importNotice = ` Source was clipped to the worksheet capacity (CSV contains ${imported.clipped.rows} × ${imported.clipped.columns}).`;
             pivotValueCache.clear();
             pivotGroupedValueCache.clear();
-            doc = new SpreadsheetDocument(fresh);
+            doc = imported.document;
             book = doc.active.book;
             pivotExpandControls.clear();
         }
@@ -2844,15 +3721,241 @@ picker.addEventListener('change', async () => {
         el('book-title').textContent = workbookTitle;
         save();
         select(0, 0);
-        toast(`Imported ${file.name}; verify formulas and styles`);
+        toast(`Imported ${file.name}; verify formulas and styles.${importNotice}`);
     }
     catch (e) {
+        el('save-state').textContent = priorSaveState;
         toast(e instanceof Error ? e.message : 'Import failed');
     }
     finally {
         picker.value = '';
     }
 });
+const cloudDialog = el('cloud-dialog'), cloudProvider = el('cloud-provider'), cloudProviderConfigs = (() => { try {
+    return JSON.parse(localStorage.getItem('gridforge:cloud-oauth-config:v1') ?? '{}');
+}
+catch {
+    return {};
+} })();
+let cloudFiles = [], cloudNextPage, cloudSelectedFile = null, cloudOpenFile = null, cloudFolderPath = [], cloudBusy = false;
+const cloudNames = { onedrive: 'OneDrive', googledrive: 'Google Drive', dropbox: 'Dropbox', box: 'Box' };
+function selectedCloudProvider() { return cloudProvider.value; }
+function cloudApi() { const api = desktopAPI(); if (!api?.start_cloud_auth || !api.cloud_credential)
+    throw Error('Cloud accounts require the installed Windows app so sign-in tokens can be protected on this device.'); return api; }
+function cloudStatus(message) { el('cloud-status').textContent = message; }
+function saveCloudConfig() { const safe = Object.fromEntries(Object.entries(cloudProviderConfigs).map(([provider, config]) => [provider, provider === 'box' && config ? { clientId: config.clientId, redirectUri: config.redirectUri } : config])); localStorage.setItem('gridforge:cloud-oauth-config:v1', JSON.stringify(safe)); }
+function readCloudConfig() { const provider = selectedCloudProvider(), redirectUri = provider === 'dropbox' ? el('cloud-dropbox-redirect').value.trim() : provider === 'box' ? el('cloud-box-redirect').value.trim() : ''; return { clientId: el('cloud-client-id').value.trim(), ...(el('cloud-client-secret').value.trim() ? { clientSecret: el('cloud-client-secret').value.trim() } : {}), ...(redirectUri ? { redirectUri } : {}) }; }
+function showCloudProviderConfig() { const provider = selectedCloudProvider(), config = cloudProviderConfigs[provider] ?? { clientId: '' }; el('cloud-client-id').value = config.clientId; el('cloud-client-secret').value = config.clientSecret ?? ''; el('cloud-dropbox-redirect').value = config.redirectUri ?? 'http://localhost:53682/oauth/callback'; el('cloud-box-redirect').value = config.redirectUri ?? 'http://localhost:53683/oauth/callback'; document.querySelectorAll('.cloud-secret-only').forEach(node => node.hidden = provider !== 'googledrive' && provider !== 'box'); document.querySelectorAll('.cloud-dropbox-only').forEach(node => node.hidden = provider !== 'dropbox'); document.querySelectorAll('.cloud-box-only').forEach(node => node.hidden = provider !== 'box'); cloudFiles = []; cloudNextPage = undefined; cloudSelectedFile = null; cloudFolderPath = []; renderCloudFileList(); cloudStatus(`${cloudNames[provider]} selected. Sign in to browse workbooks.`); el('cloud-save-current').disabled = !cloudOpenFile || cloudOpenFile.provider !== provider; }
+function renderCloudFileList() { const breadcrumbs = el('cloud-breadcrumbs'); breadcrumbs.replaceChildren(); const root = document.createElement('button'); root.type = 'button'; root.className = 'cloud-breadcrumb'; root.textContent = cloudNames[selectedCloudProvider()]; root.addEventListener('click', () => void navigateCloudFolder(-1)); breadcrumbs.append(root); cloudFolderPath.forEach((folder, index) => { const separator = document.createElement('span'); separator.textContent = '›'; breadcrumbs.append(separator); const crumb = document.createElement('button'); crumb.type = 'button'; crumb.className = 'cloud-breadcrumb'; crumb.textContent = folder.name; crumb.addEventListener('click', () => void navigateCloudFolder(index)); breadcrumbs.append(crumb); }); const container = el('cloud-files'); container.replaceChildren(); for (const file of cloudFiles) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `cloud-file-row${file.kind === 'folder' ? ' cloud-folder-row' : ''}`;
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(cloudSelectedFile?.id === file.id));
+    button.innerHTML = `<span class="cloud-file-name">${file.kind === 'folder' ? '📁 ' : ''}${escapeHtml(file.name)}</span><span class="cloud-file-meta">${file.kind === 'folder' ? 'Folder' : file.modified ? escapeHtml(new Date(file.modified).toLocaleString()) : ''}${file.size ? ` · ${(file.size / 1024).toFixed(0)} KB` : ''}</span>`;
+    button.addEventListener('click', () => { cloudSelectedFile = file; renderCloudFileList(); });
+    button.addEventListener('dblclick', () => { cloudSelectedFile = file; void activateCloudSelection().catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to open cloud item.')); });
+    container.append(button);
+} if (cloudNextPage) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'secondary-button';
+    more.textContent = 'Load more files';
+    more.addEventListener('click', () => void browseCloudFiles(true));
+    container.append(more);
+} const open = el('cloud-open-file'); open.disabled = !cloudSelectedFile || cloudBusy; open.textContent = cloudSelectedFile?.kind === 'folder' ? 'Open folder' : 'Open selected workbook'; }
+function cloudOauthRandom(size = 48) { const bytes = crypto.getRandomValues(new Uint8Array(size)); let raw = ''; for (const byte of bytes)
+    raw += String.fromCharCode(byte); return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+async function connectCloud() {
+    if (cloudBusy)
+        return;
+    const api = cloudApi(), provider = selectedCloudProvider(), config = readCloudConfig();
+    if (config.clientId.length < 5)
+        throw Error('Enter the OAuth client ID from your provider app registration.');
+    if ((provider === 'dropbox' || provider === 'box') && !config.redirectUri)
+        throw Error(`Register and enter the ${cloudNames[provider]} localhost redirect URI.`);
+    let clientSecret = config.clientSecret ?? '';
+    if (provider === 'box') {
+        clientSecret = clientSecret || await api.box_client_secret() || '';
+        if (!clientSecret)
+            throw Error('Enter your Box app client secret.');
+        await api.box_client_secret(clientSecret);
+    }
+    cloudProviderConfigs[provider] = { clientId: config.clientId, ...(config.redirectUri ? { redirectUri: config.redirectUri } : {}), ...(provider !== 'box' && clientSecret ? { clientSecret } : {}) };
+    saveCloudConfig();
+    cloudBusy = true;
+    el('cloud-connect').disabled = true;
+    cloudStatus(`Opening ${cloudNames[provider]} sign-in in your browser…`);
+    let authId = '';
+    try {
+        const verifier = provider === 'box' ? '' : cloudOauthRandom(64), state = cloudOauthRandom(24), callback = await api.start_cloud_auth(provider, config.redirectUri ?? '');
+        authId = callback.id;
+        let codeChallenge = '';
+        if (provider !== 'box') {
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+            let raw = '';
+            for (const byte of new Uint8Array(digest))
+                raw += String.fromCharCode(byte);
+            codeChallenge = btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+        const auth = new URL(provider === 'onedrive' ? 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize' : provider === 'googledrive' ? 'https://accounts.google.com/o/oauth2/v2/auth' : provider === 'dropbox' ? 'https://www.dropbox.com/oauth2/authorize' : 'https://account.box.com/api/oauth2/authorize');
+        auth.searchParams.set('client_id', config.clientId);
+        auth.searchParams.set('response_type', 'code');
+        auth.searchParams.set('redirect_uri', callback.redirectUri);
+        auth.searchParams.set('state', state);
+        if (provider !== 'box') {
+            auth.searchParams.set('code_challenge', codeChallenge);
+            auth.searchParams.set('code_challenge_method', 'S256');
+        }
+        if (provider === 'onedrive') {
+            auth.searchParams.set('response_mode', 'query');
+            auth.searchParams.set('scope', 'offline_access User.Read Files.ReadWrite');
+        }
+        else if (provider === 'googledrive') {
+            auth.searchParams.set('scope', 'https://www.googleapis.com/auth/drive.file');
+            auth.searchParams.set('access_type', 'offline');
+            auth.searchParams.set('prompt', 'consent');
+        }
+        else if (provider === 'dropbox') {
+            auth.searchParams.set('token_access_type', 'offline');
+            auth.searchParams.set('scope', 'files.content.read files.content.write files.metadata.read');
+        }
+        if (!await api.open_cloud_auth(provider, auth.href))
+            throw Error('Could not open your system browser for sign-in.');
+        cloudStatus('Complete sign-in in your browser. Return here after approval; GridForge is waiting for the secure local callback.');
+        let callbackResult = null;
+        const deadline = Date.now() + 5 * 60 * 1000;
+        while (Date.now() < deadline) {
+            callbackResult = await api.poll_cloud_auth(callback.id, 1);
+            if (callbackResult)
+                break;
+        }
+        if (!callbackResult)
+            throw Error('Sign-in timed out. Try connecting again.');
+        authId = '';
+        if (callbackResult.state !== state)
+            throw Error('Cloud sign-in state did not match. The response was rejected.');
+        if (callbackResult.error)
+            throw Error(callbackResult.error_description ?? callbackResult.error);
+        if (!callbackResult.code)
+            throw Error('The provider returned no authorization code.');
+        cloudStatus('Finishing secure sign-in…');
+        const exchanged = await api.exchange_cloud_code(provider, config.clientId, callbackResult.code, verifier, callback.redirectUri, clientSecret), old = await api.cloud_credential(provider), prior = old ? JSON.parse(old) : undefined, token = { access_token: String(exchanged.access_token), expires_at: Date.now() + Math.max(60, Number(exchanged.expires_in) || 3600) * 1000 - 60_000, ...(typeof exchanged.refresh_token === 'string' ? { refresh_token: exchanged.refresh_token } : prior?.refresh_token ? { refresh_token: prior.refresh_token } : {}), ...(typeof exchanged.scope === 'string' ? { scope: exchanged.scope } : {}) };
+        await api.cloud_credential(provider, JSON.stringify(token));
+        cloudStatus(`${cloudNames[provider]} connected. Loading your workbook files…`);
+        await browseCloudFiles();
+    }
+    finally {
+        try {
+            if (authId)
+                await api.cancel_cloud_auth(authId);
+        }
+        finally {
+            cloudBusy = false;
+            el('cloud-connect').disabled = false;
+        }
+    }
+}
+async function cloudAccessToken(provider = selectedCloudProvider()) { const api = cloudApi(), config = cloudProviderConfigs[provider]; if (!config?.clientId)
+    throw Error('Add the provider OAuth client ID and connect your account.'); const raw = await api.cloud_credential(provider); if (!raw)
+    throw Error(`Connect your ${cloudNames[provider]} account first.`); let token; try {
+    token = JSON.parse(raw);
+}
+catch {
+    throw Error('Saved cloud sign-in is damaged. Disconnect and connect again.');
+} if (token.expires_at > Date.now() && token.access_token)
+    return token.access_token; if (!token.refresh_token)
+    throw Error('Cloud sign-in expired. Connect your account again.'); const clientSecret = provider === 'box' ? await api.box_client_secret() ?? '' : config.clientSecret ?? ''; const refreshed = await api.refresh_cloud_token(provider, config.clientId, token.refresh_token, clientSecret); token = { ...token, ...refreshed, access_token: String(refreshed.access_token), expires_at: Date.now() + Math.max(60, Number(refreshed.expires_in) || 3600) * 1000 - 60_000 }; await api.cloud_credential(provider, JSON.stringify(token)); return token.access_token; }
+async function browseCloudFiles(append = false) { const provider = selectedCloudProvider(); cloudBusy = true; el('cloud-refresh').disabled = true; el('cloud-open-file').disabled = true; cloudStatus(`Reading ${cloudNames[provider]} folder…`); try {
+    const api = cloudApi(), token = await cloudAccessToken(provider), folder = cloudFolderPath.at(-1), page = await listCloudFiles(provider, token, append ? cloudNextPage : undefined, api.box_api_request.bind(api), folder);
+    const visible = page.files.filter(file => file.kind === 'folder' || /\.(xlsx|json)$/i.test(file.name));
+    cloudFiles = append ? [...cloudFiles, ...visible].slice(0, 500) : visible;
+    cloudNextPage = page.next;
+    if (!append)
+        cloudSelectedFile = null;
+    renderCloudFileList();
+    cloudStatus(`${cloudFiles.length} folder or XLSX/JSON file(s) shown. Edits stay on this device until you choose a cloud save.`);
+}
+finally {
+    cloudBusy = false;
+    el('cloud-refresh').disabled = false;
+    renderCloudFileList();
+} }
+async function navigateCloudFolder(index) { if (cloudBusy)
+    return; if (index < 0)
+    cloudFolderPath = [];
+else
+    cloudFolderPath = cloudFolderPath.slice(0, index + 1); cloudFiles = []; cloudNextPage = undefined; cloudSelectedFile = null; renderCloudFileList(); await browseCloudFiles(); }
+async function activateCloudSelection() { if (!cloudSelectedFile || cloudBusy)
+    return; if (cloudSelectedFile.kind === 'folder') {
+    cloudFolderPath.push(cloudSelectedFile);
+    await navigateCloudFolder(cloudFolderPath.length - 1);
+    return;
+} await openCloudWorkbook(); }
+async function openCloudWorkbook() { if (!cloudSelectedFile)
+    throw Error('Select a workbook to open.'); cloudBusy = true; el('cloud-open-file').disabled = true; cloudStatus(`Opening ${cloudSelectedFile.name}…`); try {
+    const api = cloudApi(), file = cloudSelectedFile, token = await cloudAccessToken(file.provider), bytes = await downloadCloudFile(file, token, api.box_api_request.bind(api));
+    if (/\.json$/i.test(file.name)) {
+        doc = await importJsonOffThread(bytes, message => cloudStatus(message));
+        originalMacroFile = null;
+    }
+    else {
+        const imported = await importXlsxOffThread(bytes, message => cloudStatus(message));
+        doc = imported.document;
+        originalMacroFile = null;
+        if (imported.warnings.length) {
+            el('import-notes-body').innerHTML = `<strong>${doc.sheets.length} worksheet(s) loaded from ${escapeHtml(cloudNames[file.provider])}</strong><ul>${imported.warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
+            el('import-notes-dialog').showModal();
+        }
+    }
+    pivotValueCache.clear();
+    pivotGroupedValueCache.clear();
+    book = doc.active.book;
+    pivotExpandControls.clear();
+    cloudOpenFile = file;
+    workbookTitle = file.name.replace(/\.(json|xlsx)$/i, '').slice(0, 45) || 'Cloud Workbook';
+    el('book-title').textContent = workbookTitle;
+    el('btn-original-xlsm').hidden = true;
+    el('btn-save-xlsm').hidden = true;
+    if (doc.sheets.some(sheet => sheet.tools.pivotTables.length))
+        scheduleExternalPivotRefresh();
+    save();
+    select(0, 0);
+    el('cloud-save-current').disabled = false;
+    cloudStatus(`Opened ${file.name}. Save changes to update this cloud file or save a new copy.`);
+    toast(`Opened ${file.name} from ${cloudNames[file.provider]}.`);
+}
+finally {
+    cloudBusy = false;
+    el('cloud-open-file').disabled = !cloudSelectedFile;
+} }
+async function saveCloudWorkbook(copy) { const api = cloudApi(), provider = selectedCloudProvider(), token = await cloudAccessToken(provider), file = !copy && cloudOpenFile?.provider === provider ? cloudOpenFile : undefined; if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !confirm('GridForge-only drawings are not included in XLSX cloud saves. Save without drawings? Use GridForge JSON to preserve them.'))
+    return; const safeBase = workbookTitle.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'GridForge Workbook', suffix = copy ? ` - ${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}` : '', name = `${safeBase}${suffix}.xlsx`; cloudStatus('Preparing Excel workbook…'); await new Promise(resolve => requestAnimationFrame(() => resolve())); const bytes = await exportXlsxOffThread(doc); cloudStatus(`Saving ${name} to ${cloudNames[provider]}…`); const saved = await uploadCloudFile(provider, token, name, bytes, file, api.box_api_request.bind(api), copy ? cloudFolderPath.at(-1) : undefined); cloudOpenFile = saved; cloudStatus(`${saved.name} saved to ${cloudNames[provider]}.`); el('cloud-save-current').disabled = false; toast(`Saved ${saved.name} to ${cloudNames[provider]}.`); await browseCloudFiles(); }
+el('btn-cloud').addEventListener('click', () => { showCloudProviderConfig(); cloudDialog.showModal(); });
+el('close-cloud').addEventListener('click', () => cloudDialog.close());
+cloudProvider.addEventListener('change', showCloudProviderConfig);
+el('cloud-client-id').addEventListener('change', () => { cloudProviderConfigs[selectedCloudProvider()] = readCloudConfig(); saveCloudConfig(); });
+el('cloud-client-secret').addEventListener('change', () => { cloudProviderConfigs[selectedCloudProvider()] = readCloudConfig(); saveCloudConfig(); });
+el('cloud-dropbox-redirect').addEventListener('change', () => { cloudProviderConfigs[selectedCloudProvider()] = readCloudConfig(); saveCloudConfig(); });
+el('cloud-box-redirect').addEventListener('change', () => { cloudProviderConfigs[selectedCloudProvider()] = readCloudConfig(); saveCloudConfig(); });
+el('cloud-connect').addEventListener('click', () => void connectCloud().catch(error => cloudStatus(error instanceof Error ? error.message : 'Cloud connection failed.')));
+el('cloud-refresh').addEventListener('click', () => void browseCloudFiles().catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to list cloud workbooks.')));
+el('cloud-open-file').addEventListener('click', () => void activateCloudSelection().catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to open cloud item.')));
+el('cloud-save-copy').addEventListener('click', () => void saveCloudWorkbook(true).catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to save cloud workbook.')));
+el('cloud-save-current').addEventListener('click', () => void saveCloudWorkbook(false).catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to update cloud workbook.')));
+el('cloud-disconnect').addEventListener('click', async () => { try {
+    const api = cloudApi(), provider = selectedCloudProvider();
+    await api.remove_cloud_credential(provider);
+    if (provider === 'box')
+        await api.box_client_secret('');
+    cloudFiles = [];
+    cloudNextPage = undefined;
+    renderCloudFileList();
+    cloudStatus(`${cloudNames[selectedCloudProvider()]} disconnected on this device. For full access revocation, remove GridForge from the provider's connected-app settings.`);
+}
+catch (error) {
+    cloudStatus(error instanceof Error ? error.message : 'Unable to disconnect cloud account.');
+} });
 for (const id of ['close-import-notes', 'confirm-import-notes'])
     el(id).addEventListener('click', () => el('import-notes-dialog').close());
 const studioDialog = el('data-studio-dialog');
@@ -2925,18 +4028,19 @@ el('studio-apply').addEventListener('click', () => {
 });
 const ribbonCommands = {
     Home: ['btn-cut', 'btn-copy', 'btn-paste', 'btn-find'],
-    File: ['btn-import', 'btn-sample', 'btn-csv', 'btn-json', 'btn-save-xlsm', 'btn-original-xlsm'],
+    File: ['btn-import', 'btn-cloud', 'btn-sample', 'btn-csv', 'btn-json', 'btn-save-xlsm', 'btn-original-xlsm'],
     Insert: [],
     Formulas: [],
     'Table Design': ['btn-table-edit', 'btn-table-to-chart'],
-    'Chart Design': ['chart-context-kind', 'chart-context-theme', 'chart-legend-position', 'chart-switch-data', 'chart-toggle-legend', 'chart-toggle-labels', 'chart-toggle-gridlines', 'chart-toggle-minor-gridlines', 'chart-toggle-error-bars', 'chart-edit-data', 'chart-more-options'],
+    'Chart Design': ['chart-context-kind', 'chart-context-theme', 'chart-legend-position', 'chart-switch-data', 'chart-toggle-legend', 'chart-toggle-labels', 'chart-toggle-gridlines', 'chart-toggle-minor-gridlines', 'chart-toggle-error-bars', 'chart-toggle-data-table', 'chart-toggle-data-table-keys', 'chart-toggle-hidden-data', 'chart-edit-data', 'chart-more-options'],
     Format: ['chart-format-title', 'chart-format-x-title', 'chart-format-x-angle', 'chart-format-x-interval', 'chart-format-x-min', 'chart-format-x-max', 'chart-format-x-major-unit', 'chart-format-x-format', 'chart-format-x-format-code', 'chart-format-y-title', 'chart-format-y-min', 'chart-format-y-max', 'chart-format-y-major-unit', 'chart-format-secondary-y-min', 'chart-format-secondary-y-max', 'chart-format-secondary-y-major-unit', 'chart-format-y-format', 'chart-format-y-format-code', 'chart-format-secondary-y-format', 'chart-format-secondary-y-format-code', 'chart-format-doughnut-hole', 'chart-format-first-slice-angle', 'chart-format-width', 'chart-format-height', 'chart-remove-selected'],
     Data: ['btn-data-studio', 'btn-query', 'btn-refresh-queries', 'btn-sort-asc', 'btn-sort-desc', 'btn-sort-custom', 'btn-filter', 'btn-clear-filter', 'btn-data-validation', 'btn-text-to-columns', 'notice-power-query', 'notice-data-model', 'notice-power-pivot', 'notice-olap', 'notice-timeline', 'notice-pivot-chart-fields'],
     Review: ['btn-find', 'btn-undo', 'btn-redo'],
-    View: ['btn-freeze-row', 'btn-freeze-col', 'btn-hide-rows', 'btn-unhide-rows', 'btn-hide-columns', 'btn-unhide-columns', 'btn-sheet-gridlines'],
+    View: ['btn-freeze-row', 'btn-freeze-col', 'btn-freeze-panes', 'btn-unfreeze-panes', 'btn-hide-rows', 'btn-unhide-rows', 'btn-hide-columns', 'btn-unhide-columns', 'btn-sheet-gridlines'],
     Help: ['btn-feature-status'],
     'Page Layout': ['btn-column-width', 'btn-row-height', 'btn-page-setup', 'btn-print-sheet'],
-    Automate: ['btn-automate', 'btn-original-xlsm', 'btn-save-xlsm']
+    Automate: ['btn-automate', 'btn-original-xlsm', 'btn-save-xlsm'],
+    Draw: []
 };
 const formatRibbonCommands = {
     Home: ['btn-format-table', 'fmt-bold', 'fmt-italic', 'fmt-underline', 'fmt-strike', 'fmt-wrap', 'fmt-font', 'fmt-size', 'fmt-border', 'fmt-number', 'fmt-number-code', 'fmt-align', 'fmt-color', 'fmt-fill', 'fmt-clear', 'fmt-preset', 'btn-paste-values'],
@@ -2944,7 +4048,7 @@ const formatRibbonCommands = {
     'Table Design': ['btn-format-table', 'btn-table-edit', 'btn-table-to-chart'],
     Formulas: ['btn-define-name', 'btn-name-manager', 'btn-create-names', 'btn-use-name', 'btn-insert-function', 'formula-category', 'formula-aggregate', 'btn-formula-aggregate', 'btn-trace-precedents', 'btn-trace-dependents', 'btn-remove-formula-arrows', 'btn-show-formulas', 'btn-evaluate-formula'],
     Data: ['btn-conditional'],
-    View: ['btn-freeze-row', 'btn-freeze-col', 'btn-hide-rows', 'btn-unhide-rows', 'btn-hide-columns', 'btn-unhide-columns', 'btn-sheet-gridlines'],
+    View: ['btn-freeze-row', 'btn-freeze-col', 'btn-freeze-panes', 'btn-unfreeze-panes', 'btn-hide-rows', 'btn-unhide-rows', 'btn-hide-columns', 'btn-unhide-columns', 'btn-sheet-gridlines'],
     'Page Layout': ['btn-page-setup', 'btn-print-sheet']
 };
 const guideText = {
@@ -2960,10 +4064,12 @@ const guideText = {
     Review: 'Find or replace content and undo changes.',
     View: 'Freeze headings, hide rows and columns, or toggle worksheet gridlines.',
     'Page Layout': 'Worksheet layout · adjust row and column size on the grid, or freeze headings in View.',
-    Automate: 'Developer tools · record GridForge actions or open Excel VBA tools.'
+    Automate: 'Developer tools · record GridForge actions or open Excel VBA tools.',
+    Draw: 'Draw with worksheet ink tools. Save as GridForge JSON to preserve ink strokes.'
 };
 const EXCEL_FEATURES = [
-    { id: 'power-query', name: 'Power Query (M)', status: 'Partial', detail: 'GridForge can save worksheet cleanup steps and refresh public HTTPS CSV or JSON sources. The Power Query editor, M language, connectors, credentials, and native Excel query connections are not implemented.', alternative: 'Use Data → New Query for supported worksheet transformations or public CSV/JSON URLs.' },
+    { id: 'drawing-tools', name: 'Excel Draw tab compatibility', status: 'Partial', detail: 'GridForge provides worksheet pen/highlighter strokes, erasing, undo, replay, and color/width controls. Office ink objects and ink-to-shape/math conversion are not supported; ink is stored in GridForge workbook JSON and is not embedded in XLSX.', alternative: 'Use GridForge JSON to preserve ink. XLSX export warns before omitting GridForge-only strokes.' },
+    { id: 'power-query', name: 'Power Query (M)', status: 'Partial', detail: 'GridForge can save worksheet cleanup steps and refresh public HTTPS CSV or JSON sources, including JSON Pointer array selection and flattening nested object fields into bounded dotted columns. The Power Query editor, M language, connectors, credentials, and native Excel query connections are not implemented.', alternative: 'Use Data → New Query for supported worksheet transformations or public CSV/JSON URLs.' },
     { id: 'data-model', name: 'Excel Data Model', status: 'Not available', detail: 'GridForge does not create or edit an Excel Data Model, relationships, or compressed tabular model files.', alternative: 'Use a regular worksheet table as the source for a GridForge Pivot Summary.' },
     { id: 'power-pivot', name: 'Power Pivot and DAX', status: 'Not available', detail: 'Power Pivot model management and DAX calculated columns, measures, and expressions are not implemented. GridForge formulas calculate in worksheet cells.', alternative: 'Use worksheet formulas and the available Pivot Summary aggregations.' },
     { id: 'olap', name: 'OLAP connections', status: 'Not available', detail: 'GridForge does not connect to OLAP cubes, Analysis Services, or external semantic models.', alternative: 'Import supported data into a worksheet, then create a Pivot Summary.' },
@@ -3008,6 +4114,10 @@ document.addEventListener('click', event => { const target = event.target; if (!
 let ribbon = 'Home';
 function showRibbon(next) {
     ribbon = next;
+    if (next !== 'Draw' && drawModeActive) {
+        document.documentElement.dataset.drawTool = '';
+        setDrawMode(false);
+    }
     for (const tab of Array.from(document.querySelectorAll('.chart-context-tab')))
         tab.classList.toggle('ribbon-hidden', !selectedChartId);
     for (const tab of Array.from(document.querySelectorAll('[data-ribbon]'))) {
@@ -3041,6 +4151,35 @@ function showRibbon(next) {
     const displayedFormats = Array.from(document.querySelectorAll('.format-toolbar button[id],.format-toolbar select[id],.format-toolbar input[id]')).some(item => !item.classList.contains('ribbon-hidden'));
     document.querySelector('.format-toolbar')?.classList.toggle('ribbon-hidden', !displayedFormats);
     el('insert-gallery').classList.toggle('ribbon-hidden', next !== 'Insert' && next !== 'All');
+    // Draw and Page Layout use their own compact ribbon surfaces below the
+    // command ribbon. Hide the otherwise-empty command-ribbon row so it cannot
+    // leave a blank band or consume worksheet space on those tabs.
+    const compactRibbon = next === 'Draw' || next === 'Page Layout';
+    const commandRibbon = el('ribbon-content');
+    commandRibbon.classList.toggle('ribbon-hidden', compactRibbon);
+    if (compactRibbon)
+        commandRibbon.style.setProperty('display', 'none', 'important');
+    else
+        commandRibbon.style.removeProperty('display');
+    // Lock the specialized surfaces at the point they become visible as well as
+    // in CSS. This prevents an inherited flex rule or user appearance preset
+    // from stretching the compact Draw/Page Layout toolbar into the worksheet.
+    for (const [id, visible] of [['draw-ribbon', next === 'Draw'], ['page-layout-ribbon', next === 'Page Layout']]) {
+        const surface = el(id);
+        surface.classList.toggle('ribbon-hidden', !visible);
+        if (visible) {
+            surface.style.setProperty('display', 'flex', 'important');
+            surface.style.setProperty('flex', '0 0 96px', 'important');
+            surface.style.setProperty('height', '96px', 'important');
+            surface.style.setProperty('min-height', '96px', 'important');
+            surface.style.setProperty('max-height', '96px', 'important');
+            surface.style.setProperty('align-self', 'stretch', 'important');
+            surface.style.setProperty('overflow-y', 'hidden', 'important');
+        }
+        else
+            for (const property of ['display', 'flex', 'height', 'min-height', 'max-height', 'align-self', 'overflow-y'])
+                surface.style.removeProperty(property);
+    }
     document.documentElement.dataset.currentRibbon = next;
     const help = el('ribbon-hint');
     help.textContent = guideText[next] ?? guideText['All'];
@@ -3122,6 +4261,7 @@ showRibbon('Home');
 // Preferences are independent from workbook persistence and are applied before first paint.
 const themeSwitch = el('theme-switch');
 const workspaceSwitch = el('workspace-switch');
+const appearanceSwitch = el('appearance-switch');
 function applyTheme(value) {
     document.documentElement.dataset.theme = value;
     themeSwitch.textContent = value === 'dark' ? '☀ Light' : '☾ Dark';
@@ -3142,10 +4282,21 @@ function applyWorkspace(value) {
     catch { /* safe in private browsing */ }
     showRibbon('Home');
 }
+function applyAppearance(value) {
+    const allowed = ['excel', 'modern', 'compact', 'contrast'], appearance = allowed.includes(value) ? value : 'excel';
+    document.documentElement.dataset.appearance = appearance;
+    appearanceSwitch.value = appearance;
+    try {
+        localStorage.setItem('gridforge:appearance:v12', appearance);
+    }
+    catch { /* safe in private browsing */ }
+}
 themeSwitch.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
 workspaceSwitch.addEventListener('change', () => applyWorkspace(workspaceSwitch.value === 'guided' ? 'guided' : 'excel'));
+appearanceSwitch.addEventListener('change', () => applyAppearance(appearanceSwitch.value));
 applyTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 applyWorkspace(document.documentElement.dataset.workspace === 'guided' ? 'guided' : 'excel');
+applyAppearance(['excel', 'modern', 'compact', 'contrast'].includes(document.documentElement.dataset.appearance ?? '') ? document.documentElement.dataset.appearance : 'excel');
 el('guided-sample').addEventListener('click', () => el('btn-sample').click());
 el('guided-functions').addEventListener('click', () => showRibbon('Formulas'));
 el('guided-import').addEventListener('click', () => el('btn-import').click());
@@ -3210,7 +4361,14 @@ el('fmt-color').addEventListener('change', ev => applyStyle({ color: ev.target.v
 el('fmt-fill').addEventListener('change', ev => applyStyle({ background: ev.target.value }));
 for (const button of Array.from(document.querySelectorAll('[data-color-swatch]')))
     button.addEventListener('click', () => { const color = button.dataset.colorSwatch; applyStyle(button.dataset.colorTarget === 'fill' ? { background: color } : { color }); });
-el('fmt-clear').addEventListener('click', () => { book.clearStyles(selectionRefs()); save(); refresh(); });
+el('fmt-clear').addEventListener('click', () => { try {
+    book.clearStyles(styledRefsInSelection());
+    save();
+    refresh();
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'Unable to clear formatting.');
+} });
 el('btn-paste-values').addEventListener('click', () => pasteCached(true));
 el('btn-copy').addEventListener('click', () => copySelection());
 el('btn-cut').addEventListener('click', () => copySelection(true));
@@ -3373,10 +4531,15 @@ contextMenu.addEventListener('click', event => {
             apply(actionFor(sel()));
             break;
         case 'clear-format':
-            book.clearStyles(selectionRefs());
-            save();
-            refresh();
-            toast('Cleared selection formatting');
+            try {
+                book.clearStyles(styledRefsInSelection());
+                save();
+                refresh();
+                toast('Cleared selection formatting');
+            }
+            catch (error) {
+                toast(error instanceof Error ? error.message : 'Unable to clear formatting.');
+            }
             break;
         case 'bold':
             applyStyle({ bold: !book.getStyle(currentRef()).bold });
@@ -3471,8 +4634,11 @@ el('btn-replace-all').addEventListener('click', () => {
 });
 // Multiple independent sheets with a stable document container. Sheet-local formulas by design.
 function changeSheet(id) {
+    if (id === doc.activeId)
+        return;
     if (editing)
         commitEdit();
+    sheetViewState.set(doc.activeId, { active: { ...active }, anchor: { ...anchor }, end: { ...end }, scrollLeft: grid.scrollLeft, scrollTop: grid.scrollTop });
     selectedChartId = null;
     showRibbon('Home');
     doc.selectSheet(id);
@@ -3480,11 +4646,13 @@ function changeSheet(id) {
     pivotExpandControls.clear();
     if (doc.sheets.some(sheet => sheet.tools.pivotTables.length))
         scheduleExternalPivotRefresh();
-    active = { r: 0, c: 0 };
-    anchor = { ...active };
-    end = { ...active };
-    grid.scrollLeft = 0;
-    grid.scrollTop = 0;
+    const view = sheetViewState.get(id);
+    active = view ? { r: Math.min(book.rows - 1, Math.max(0, view.active.r)), c: Math.min(book.cols - 1, Math.max(0, view.active.c)) } : { r: 0, c: 0 };
+    anchor = view ? { r: Math.min(book.rows - 1, Math.max(0, view.anchor.r)), c: Math.min(book.cols - 1, Math.max(0, view.anchor.c)) } : { ...active };
+    end = view ? { r: Math.min(book.rows - 1, Math.max(0, view.end.r)), c: Math.min(book.cols - 1, Math.max(0, view.end.c)) } : { ...active };
+    grid.scrollLeft = view?.scrollLeft ?? 0;
+    grid.scrollTop = view?.scrollTop ?? 0;
+    ensureVisible();
     save();
     refresh();
     grid.focus({ preventScroll: true });
@@ -3642,37 +4810,62 @@ function renderFunctionDialog() {
 let selectedFormulaFunction = '';
 const functionDialog = el('function-insert-dialog');
 const defineNameDialog = el('define-name-dialog'), nameManagerDialog = el('name-manager-dialog'), createNamesDialog = el('create-names-dialog'), useNameDialog = el('use-name-dialog');
-let editingDefinedName = '';
+let editingDefinedName = '', editingDefinedScope = 'worksheet';
+const definedNameScopeLabel = document.createElement('label'), definedNameScopeSelect = document.createElement('select');
+definedNameScopeLabel.className = 'field-label';
+definedNameScopeLabel.htmlFor = 'defined-name-scope';
+definedNameScopeLabel.textContent = 'Scope';
+definedNameScopeSelect.id = 'defined-name-scope';
+definedNameScopeSelect.className = 'context-select';
+definedNameScopeSelect.innerHTML = '<option value="worksheet">Active worksheet</option><option value="workbook">Entire workbook</option>';
+el('defined-name-input').before(definedNameScopeLabel, definedNameScopeSelect);
 const selectedRangeRef = () => { const b = sel(), a = `${colToName(b.c1)}${b.r1 + 1}`, z = `${colToName(b.c2)}${b.r2 + 1}`; return a === z ? a : `${a}:${z}`; };
-function openDefineName(name = '', ref = selectedRangeRef(), comment = '') {
+function openDefineName(name = '', ref = selectedRangeRef(), comment = '', scope = 'worksheet') {
     editingDefinedName = name;
+    editingDefinedScope = scope;
+    definedNameScopeSelect.value = scope;
     el('define-name-title').textContent = name ? 'Edit Defined Name' : 'Define Name';
     el('defined-name-input').value = name || `Range_${currentRef()}`;
     el('defined-name-ref').value = ref;
     el('defined-name-comment').value = comment;
-    defineNameDialog.querySelectorAll('.name-scope-note').forEach(n => n.textContent = `Scope: ${doc.active.name} worksheet`);
+    defineNameDialog.querySelectorAll('.name-scope-note').forEach(n => n.textContent = scope === 'workbook' ? `Workbook names can use formulas, LAMBDAs, or a sheet-qualified reference such as ='Data'!$A$1:$A$20.` : `Worksheet scope: ${doc.active.name} · Cell/range references or a non-recursive =LAMBDA(parameters, calculation)`);
     defineNameDialog.showModal();
     el('defined-name-input').focus();
 }
 function renderNameManager() {
-    const names = book.getDefinedNames();
-    nameManagerDialog.querySelectorAll('.name-scope-note').forEach(n => n.textContent = `Scope: ${doc.active.name} worksheet`);
-    el('name-manager-list').innerHTML = names.length ? `<div class="name-manager-head"><b>Name</b><b>Refers to</b><b>Comment</b><b>Actions</b></div>${names.map(item => `<div class="name-manager-row"><strong>${escapeHtml(item.name)}</strong><code>${escapeHtml(item.ref)}</code><small>${escapeHtml(item.comment ?? '')}</small><span><button type="button" data-name-edit="${escapeHtml(item.name)}">Edit</button><button type="button" data-name-delete="${escapeHtml(item.name)}">Delete</button></span></div>`).join('')}` : '<p class="empty-sub">No names defined for this worksheet. Define one here or create names from a heading row or column.</p>';
+    const names = [...book.getDefinedNames().map(item => ({ ...item, scope: 'worksheet' })), ...doc.getWorkbookDefinedNames().map(item => ({ ...item, scope: 'workbook' }))];
+    nameManagerDialog.querySelectorAll('.name-scope-note').forEach(n => n.textContent = `Worksheet names override workbook names. Current worksheet: ${doc.active.name}`);
+    el('name-manager-list').innerHTML = names.length ? `<div class="name-manager-head"><b>Name</b><b>Refers to</b><b>Comment</b><b>Actions</b></div>${names.map(item => `<div class="name-manager-row"><strong>${escapeHtml(item.name)} <small>${item.scope === 'workbook' ? 'Workbook' : 'Worksheet'}${item.hidden ? ' · Hidden' : ''}</small></strong><code>${escapeHtml(item.ref)}</code><small>${escapeHtml(item.comment ?? '')}</small><span><button type="button" data-name-edit="${escapeHtml(item.name)}" data-name-scope="${item.scope}">Edit</button><button type="button" data-name-delete="${escapeHtml(item.name)}" data-name-scope="${item.scope}">Delete</button></span></div>`).join('')}` : '<p class="empty-sub">No names defined yet. Define a worksheet or workbook name, or create names from a heading row or column.</p>';
 }
 el('btn-define-name').addEventListener('click', () => openDefineName());
 el('btn-name-manager').addEventListener('click', () => { renderNameManager(); nameManagerDialog.showModal(); });
 document.querySelectorAll('[data-close-name-dialog]').forEach(x => x.addEventListener('click', () => defineNameDialog.close()));
 el('save-defined-name').addEventListener('click', () => {
-    const name = el('defined-name-input').value.trim(), ref = el('defined-name-ref').value.trim(), comment = el('defined-name-comment').value.trim();
+    const name = el('defined-name-input').value.trim(), ref = el('defined-name-ref').value.trim(), comment = el('defined-name-comment').value.trim(), scope = definedNameScopeSelect.value;
     try {
-        const names = book.getDefinedNames().filter(item => item.name.toLowerCase() !== editingDefinedName.toLowerCase());
-        names.push({ name, ref, ...(comment ? { comment } : {}) });
-        book.setDefinedNames(names);
+        const priorName = editingDefinedName ? (editingDefinedScope === 'workbook' ? doc.getWorkbookDefinedNames() : book.getDefinedNames()).find(item => item.name.toLowerCase() === editingDefinedName.toLowerCase()) : undefined;
+        if (editingDefinedName) {
+            if (editingDefinedScope === 'worksheet' && scope !== 'worksheet')
+                book.setDefinedNames(book.getDefinedNames().filter(item => item.name.toLowerCase() !== editingDefinedName.toLowerCase()));
+            if (editingDefinedScope === 'workbook' && scope !== 'workbook')
+                doc.setWorkbookDefinedNames(doc.getWorkbookDefinedNames().filter(item => item.name.toLowerCase() !== editingDefinedName.toLowerCase()));
+        }
+        const directRange = /^=?\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?$/i.test(ref), storedRef = scope === 'workbook' && directRange ? `='${doc.active.name.replace(/'/g, "''")}'!${ref.replace(/^=/, '')}` : ref, item = { name, ref: storedRef, ...(comment ? { comment } : {}), ...(priorName?.hidden ? { hidden: true } : {}) };
+        if (scope === 'workbook') {
+            const names = doc.getWorkbookDefinedNames().filter(existing => existing.name.toLowerCase() !== editingDefinedName.toLowerCase());
+            names.push(item);
+            doc.setWorkbookDefinedNames(names);
+        }
+        else {
+            const names = book.getDefinedNames().filter(existing => existing.name.toLowerCase() !== editingDefinedName.toLowerCase());
+            names.push(item);
+            book.setDefinedNames(names);
+        }
         save();
         refresh();
         defineNameDialog.close();
         renderNameManager();
-        toast(`Defined name ${name} saved for ${doc.active.name}.`);
+        toast(`Defined name ${name} saved for ${scope === 'workbook' ? 'the workbook' : doc.active.name}.`);
     }
     catch (e) {
         toast(e instanceof Error ? e.message : 'Unable to define name.');
@@ -3683,20 +4876,24 @@ nameManagerDialog.addEventListener('click', e => {
     const target = e.target;
     const edit = target.closest('[data-name-edit]'), del = target.closest('[data-name-delete]');
     if (edit?.dataset.nameEdit) {
-        const item = book.getDefinedNames().find(n => n.name.toLowerCase() === edit.dataset.nameEdit.toLowerCase());
+        const scope = edit.dataset.nameScope === 'workbook' ? 'workbook' : 'worksheet', item = (scope === 'workbook' ? doc.getWorkbookDefinedNames() : book.getDefinedNames()).find(n => n.name.toLowerCase() === edit.dataset.nameEdit.toLowerCase());
         if (item) {
             nameManagerDialog.close();
-            openDefineName(item.name, item.ref, item.comment ?? '');
+            openDefineName(item.name, item.ref, item.comment ?? '', scope);
         }
         return;
     }
     if (del?.dataset.nameDelete) {
         try {
-            book.setDefinedNames(book.getDefinedNames().filter(n => n.name.toLowerCase() !== del.dataset.nameDelete.toLowerCase()));
+            const scope = del.dataset.nameScope === 'workbook' ? 'workbook' : 'worksheet';
+            if (scope === 'workbook')
+                doc.setWorkbookDefinedNames(doc.getWorkbookDefinedNames().filter(n => n.name.toLowerCase() !== del.dataset.nameDelete.toLowerCase()));
+            else
+                book.setDefinedNames(book.getDefinedNames().filter(n => n.name.toLowerCase() !== del.dataset.nameDelete.toLowerCase()));
             save();
             refresh();
             renderNameManager();
-            toast(`Deleted name ${del.dataset.nameDelete}.`);
+            toast(`Deleted ${scope} name ${del.dataset.nameDelete}.`);
         }
         catch (err) {
             toast(err instanceof Error ? err.message : 'Unable to delete name.');
@@ -3704,7 +4901,7 @@ nameManagerDialog.addEventListener('click', e => {
     }
 });
 nameManagerDialog.querySelectorAll('[data-close-name-manager]').forEach(x => x.addEventListener('click', () => nameManagerDialog.close()));
-el('btn-use-name').addEventListener('click', () => { const names = book.getDefinedNames(); el('use-name-list').innerHTML = names.length ? names.map(n => `<button type="button" class="name-use-item" data-use-name="${escapeHtml(n.name)}"><strong>${escapeHtml(n.name)}</strong><code>${escapeHtml(n.ref)}</code></button>`).join('') : '<p class="empty-sub">No worksheet names are defined yet.</p>'; useNameDialog.showModal(); });
+el('btn-use-name').addEventListener('click', () => { const names = [...book.getDefinedNames().map(n => ({ ...n, scope: 'Worksheet' })), ...doc.getWorkbookDefinedNames().map(n => ({ ...n, scope: 'Workbook' }))]; el('use-name-list').innerHTML = names.length ? names.map(n => `<button type="button" class="name-use-item" data-use-name="${escapeHtml(n.name)}"><strong>${escapeHtml(n.name)} · ${n.scope}</strong><code>${escapeHtml(n.ref)}</code></button>`).join('') : '<p class="empty-sub">No names are defined yet.</p>'; useNameDialog.showModal(); });
 el('use-name-list').addEventListener('click', e => { const item = e.target.closest('[data-use-name]'); if (item?.dataset.useName) {
     prepareDefinedName(item.dataset.useName);
     useNameDialog.close();
@@ -3794,9 +4991,26 @@ function traceFormula(kind) {
         toast(kind === 'precedent' ? 'The selected cell has no direct formula references.' : 'No formulas directly depend on this cell.');
         return;
     }
-    formulaTrace = { kind, refs: new Set(refs) };
+    const traced = new Set();
+    let truncated = false;
+    for (const item of refs) {
+        const parts = item.split(':'), first = parseRef(parts[0] ?? ''), last = parseRef(parts[1] ?? parts[0] ?? '');
+        if (!first || !last)
+            continue;
+        for (let row = Math.min(first.row, last.row); row <= Math.max(first.row, last.row); row++)
+            for (let col = Math.min(first.col, last.col); col <= Math.max(first.col, last.col); col++) {
+                if (traced.size >= 50_000) {
+                    truncated = true;
+                    break;
+                }
+                traced.add(`${colToName(col)}${row + 1}`);
+            }
+        if (truncated)
+            break;
+    }
+    formulaTrace = { kind, refs: traced };
     renderGrid();
-    toast(`Highlighted ${refs.length} ${kind === 'precedent' ? 'precedent' : 'dependent'} cell${refs.length === 1 ? '' : 's'}.`);
+    toast(`Highlighted ${traced.size.toLocaleString()} ${kind === 'precedent' ? 'precedent' : 'dependent'} cell${traced.size === 1 ? '' : 's'}${truncated ? ' (first 50,000)' : ''}.`);
 }
 el('btn-trace-precedents').addEventListener('click', () => traceFormula('precedent'));
 el('btn-trace-dependents').addEventListener('click', () => traceFormula('dependent'));
@@ -3822,6 +5036,11 @@ function freeze(axis) {
 }
 el('btn-freeze-row').addEventListener('click', () => freeze('row'));
 el('btn-freeze-col').addEventListener('click', () => freeze('col'));
+el('btn-freeze-panes').addEventListener('click', () => { const tools = doc.active.tools; tools.freezeRows = active.r; tools.freezeCols = active.c; save(); renderGrid(); toast(`Frozen ${tools.freezeRows} row${tools.freezeRows === 1 ? '' : 's'} above and ${tools.freezeCols} column${tools.freezeCols === 1 ? '' : 's'} to the left of ${asRef(active.r, active.c)}.`); });
+el('btn-unfreeze-panes').addEventListener('click', () => { const tools = doc.active.tools; if (!tools.freezeRows && !tools.freezeCols) {
+    toast('No rows or columns are frozen.');
+    return;
+} tools.freezeRows = 0; tools.freezeCols = 0; save(); renderGrid(); toast('Frozen rows and columns cleared.'); });
 el('btn-sheet-gridlines').addEventListener('click', () => { const view = doc.active.viewOptions ?? {}, showGridLines = view.showGridLines === false; doc.active.viewOptions = { ...view, showGridLines }; save(); refresh(); toast(`Worksheet gridlines ${showGridLines ? 'shown' : 'hidden'}.`); });
 const filterDialog = el('filter-dialog');
 let editingFilterBounds = { r1: 0, r2: 1, c1: 0, c2: 1 };
@@ -3902,18 +5121,17 @@ const validationType = el('validation-type');
 const validationSourceType = el('validation-source-type');
 const selectionRange = () => { const b = sel(); return { start: asRef(b.r1, b.c1), end: asRef(b.r2, b.c2), bounds: b }; };
 const overlapsValidation = (rule, b) => { const a = parseRef(rule.start), z = parseRef(rule.end); return a.row <= b.r2 && z.row >= b.r1 && a.col <= b.c2 && z.col >= b.c1; };
-function dateToExcelSerial(value) { if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
-    return NaN; const date = new Date(`${value}T00:00:00Z`); if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value)
-    return NaN; return Math.floor(date.getTime() / 86400000) + 25569; }
-function excelSerialToDate(value) { if (value === undefined)
-    return ''; const date = new Date((value - 25569) * 86400000); return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : ''; }
+function dateToExcelSerial(value) { return excelDateSerial(value) ?? NaN; }
+function excelSerialToDate(value) { return value === undefined ? '' : excelSerialDateIso(value) ?? ''; }
 function syncValidationFields() { const list = validationType.value === 'list', range = validationSourceType.value === 'range', type = validationType.value, operator = el('validation-operator').value, two = operator === 'between' || operator === 'notBetween', date = type === 'date', length = type === 'textLength'; el('validation-list-fields').classList.toggle('ribbon-hidden', !list); el('validation-number-fields').classList.toggle('ribbon-hidden', list); el('validation-values-fields').classList.toggle('ribbon-hidden', !list || range); el('validation-range-fields').classList.toggle('ribbon-hidden', !list || !range); el('validation-second-field').classList.toggle('ribbon-hidden', !two); el('validation-first-label').textContent = two ? (date ? 'Start date' : 'Minimum') : (date ? 'Date' : length ? 'Length' : 'Value'); for (const id of ['validation-min', 'validation-max']) {
     const input = el(id);
-    input.type = date ? 'date' : 'number';
+    input.type = date ? 'text' : 'number';
+    input.placeholder = date ? 'YYYY-MM-DD' : '';
+    input.inputMode = date ? 'text' : 'decimal';
     input.step = type === 'whole' || length ? '1' : 'any';
 } if (length)
     el('validation-first-label').textContent = two ? 'Minimum length' : 'Length'; }
-function openDataValidation() { const { start, end } = selectionRange(), existing = doc.active.tools.dataValidations.find(rule => rule.start === start && rule.end === end); el('validation-range-note').textContent = `Applies to ${start}${start === end ? '' : `:${end}`} on ${doc.active.name}`; validationType.value = existing?.type ?? 'list'; validationSourceType.value = existing?.type === 'list' && existing.sourceRange ? 'range' : 'inline'; el('validation-operator').value = existing?.type !== 'list' ? (existing?.operator ?? (existing?.min !== undefined && existing?.max !== undefined ? 'between' : existing?.min !== undefined ? 'greaterThanOrEqual' : 'lessThanOrEqual')) : 'between'; el('validation-values').value = existing?.type === 'list' ? (existing.values ?? []).join(', ') : ''; el('validation-source-range').value = existing?.sourceRange ?? ''; el('validation-min').value = existing?.type === 'date' ? excelSerialToDate(existing.min) : existing?.type !== 'list' && existing?.min !== undefined ? String(existing.min) : ''; el('validation-max').value = existing?.type === 'date' ? excelSerialToDate(existing.max) : existing?.type !== 'list' && existing?.max !== undefined ? String(existing.max) : ''; el('validation-allow-blank').checked = existing?.allowBlank ?? true; el('validation-error-style').value = existing?.errorStyle ?? 'stop'; el('validation-prompt-title').value = existing?.promptTitle ?? ''; el('validation-prompt-message').value = existing?.promptMessage ?? ''; el('validation-error-title').value = existing?.errorTitle ?? ''; el('validation-error-message').value = existing?.errorMessage ?? ''; el('validation-show-input').checked = existing?.showInputMessage ?? Boolean(existing?.promptMessage || existing?.promptTitle); el('validation-show-error').checked = existing?.showErrorMessage ?? true; el('validation-error').textContent = ''; syncValidationFields(); dataValidationDialog.showModal(); }
+function openDataValidation() { const { start, end } = selectionRange(), existing = doc.active.tools.dataValidations.find(rule => rule.start === start && rule.end === end); el('validation-range-note').textContent = `Applies to ${start}${start === end ? '' : `:${end}`} on ${doc.active.name}`; validationType.value = existing?.type ?? 'list'; validationSourceType.value = existing?.type === 'list' && existing.sourceRange ? 'range' : 'inline'; el('validation-operator').value = existing?.type !== 'list' ? (existing?.operator ?? (existing?.min !== undefined && existing?.max !== undefined ? 'between' : existing?.min !== undefined ? 'greaterThanOrEqual' : 'lessThanOrEqual')) : 'between'; syncValidationFields(); el('validation-values').value = existing?.type === 'list' ? (existing.values ?? []).join(', ') : ''; el('validation-source-range').value = existing?.sourceRange ?? ''; el('validation-min').value = existing?.type === 'date' ? excelSerialToDate(existing.min) : existing?.type !== 'list' && existing?.min !== undefined ? String(existing.min) : ''; el('validation-max').value = existing?.type === 'date' ? excelSerialToDate(existing.max) : existing?.type !== 'list' && existing?.max !== undefined ? String(existing.max) : ''; el('validation-allow-blank').checked = existing?.allowBlank ?? true; el('validation-error-style').value = existing?.errorStyle ?? 'stop'; el('validation-prompt-title').value = existing?.promptTitle ?? ''; el('validation-prompt-message').value = existing?.promptMessage ?? ''; el('validation-error-title').value = existing?.errorTitle ?? ''; el('validation-error-message').value = existing?.errorMessage ?? ''; el('validation-show-input').checked = existing?.showInputMessage ?? Boolean(existing?.promptMessage || existing?.promptTitle); el('validation-show-error').checked = existing?.showErrorMessage ?? true; el('validation-error').textContent = ''; syncValidationFields(); dataValidationDialog.showModal(); }
 el('btn-data-validation').addEventListener('click', openDataValidation);
 el('close-data-validation').addEventListener('click', () => dataValidationDialog.close());
 validationType.addEventListener('change', syncValidationFields);
@@ -3931,7 +5149,11 @@ el('apply-data-validation').addEventListener('click', () => {
         rule = { start, end, type, values, allowBlank, ...common };
     }
     else {
-        const operator = el('validation-operator').value, firstText = el('validation-min').value, secondText = el('validation-max').value, two = operator === 'between' || operator === 'notBetween', convert = (value) => type === 'date' ? dateToExcelSerial(value) : Number(value);
+        const operator = el('validation-operator').value, firstText = el('validation-min').value.trim(), secondText = el('validation-max').value.trim(), two = operator === 'between' || operator === 'notBetween', convert = (value) => type === 'date' ? dateToExcelSerial(value) : Number(value);
+        if (type === 'date' && ((firstText !== '' && !Number.isFinite(dateToExcelSerial(firstText))) || (two && secondText !== '' && !Number.isFinite(dateToExcelSerial(secondText))))) {
+            el('validation-error').textContent = 'Enter valid dates using YYYY-MM-DD.';
+            return;
+        }
         rule = { start, end, type, operator, allowBlank, ...common, ...(firstText === '' ? {} : { min: convert(firstText) }), ...(two && secondText !== '' ? { max: convert(secondText) } : {}) };
     }
     if (rule.type === 'list' && rule.sourceRange && !dataValidationValues(rule, book).length) {
@@ -5106,14 +6328,14 @@ finally {
     }
 } });
 const queryDialog = el('query-dialog');
-function setQuerySourceMode() { const external = el('query-source-kind').value !== 'worksheet'; el('query-range-source').classList.toggle('ribbon-hidden', external); el('query-url-source').classList.toggle('ribbon-hidden', !external); }
+function setQuerySourceMode() { const kind = el('query-source-kind').value, external = kind !== 'worksheet'; el('query-range-source').classList.toggle('ribbon-hidden', external); el('query-url-source').classList.toggle('ribbon-hidden', !external); el('query-json-pointer').classList.toggle('ribbon-hidden', kind !== 'json-url'); }
 el('query-source-kind').addEventListener('change', setQuerySourceMode);
-function openQueryDialog() { const { start, end, bounds } = selectionRange(); el('query-name').value = ''; el('query-source').value = `${start}:${end}`; el('query-source-url').value = ''; el('query-source-kind').value = 'worksheet'; setQuerySourceMode(); const destination = bounds.c2 + 2 < book.cols ? asRef(bounds.r1, bounds.c2 + 2) : asRef(bounds.r2 + 2 < book.rows ? bounds.r2 + 2 : 0, bounds.c1); el('query-destination').value = destination; el('query-steps').selectedIndex = -1; el('query-error').textContent = ''; queryDialog.showModal(); }
+function openQueryDialog() { const { start, end, bounds } = selectionRange(); el('query-name').value = ''; el('query-source').value = `${start}:${end}`; el('query-source-url').value = ''; el('query-json-pointer-input').value = ''; el('query-source-kind').value = 'worksheet'; setQuerySourceMode(); const destination = bounds.c2 + 2 < book.cols ? asRef(bounds.r1, bounds.c2 + 2) : asRef(bounds.r2 + 2 < book.rows ? bounds.r2 + 2 : 0, bounds.c1); el('query-destination').value = destination; el('query-steps').selectedIndex = -1; el('query-error').textContent = ''; queryDialog.showModal(); }
 el('btn-query').addEventListener('click', openQueryDialog);
 for (const id of ['close-query', 'cancel-query'])
     el(id).addEventListener('click', () => queryDialog.close());
 el('create-query').addEventListener('click', async () => { const button = el('create-query'), message = el('query-error'); button.disabled = true; message.textContent = ''; try {
-    const sourceKind = el('query-source-kind').value, source = el('query-source').value.trim().replace(/\$/g, '').toUpperCase(), url = el('query-source-url').value.trim(), name = el('query-name').value.trim(), destination = el('query-destination').value.trim().replace(/\$/g, '').toUpperCase(), steps = Array.from(el('query-steps').selectedOptions, option => option.value), base = { id: `query-${Date.now().toString(36)}`, name, sourceKind, destination, steps }, spec = sourceKind === 'worksheet' ? { ...base, sourceRange: source } : { ...base, sourceUrl: url }, result = sourceKind === 'worksheet' ? buildQueryRefresh(book, spec) : await buildExternalQueryRefresh(book, spec);
+    const sourceKind = el('query-source-kind').value, source = el('query-source').value.trim().replace(/\$/g, '').toUpperCase(), url = el('query-source-url').value.trim(), jsonPointer = el('query-json-pointer-input').value.trim(), name = el('query-name').value.trim(), destination = el('query-destination').value.trim().replace(/\$/g, '').toUpperCase(), steps = Array.from(el('query-steps').selectedOptions, option => option.value), base = { id: `query-${Date.now().toString(36)}`, name, sourceKind, destination, steps, ...(sourceKind === 'json-url' && jsonPointer ? { jsonPointer } : {}) }, spec = sourceKind === 'worksheet' ? { ...base, sourceRange: source } : { ...base, sourceUrl: url }, result = sourceKind === 'worksheet' ? buildQueryRefresh(book, spec) : await buildExternalQueryRefresh(book, spec, progress => { message.textContent = progress; });
     if (doc.active.tools.queries.some(query => query.lastOutputRange && pivotRangesOverlap(query.lastOutputRange, result.outputRange)) || doc.active.tools.pivotTables.some(pivot => pivot.lastOutputRange && pivotRangesOverlap(pivot.lastOutputRange, result.outputRange)))
         throw Error('Query output overlaps another saved query or Pivot Summary.');
     if (result.edits.some(edit => book.getRaw(edit.ref) !== '') && !window.confirm('The query destination contains data. Replace it?'))
@@ -5148,7 +6370,7 @@ el('btn-refresh-queries').addEventListener('click', async () => {
     try {
         for (const { sheet, query, index } of queryJobs) {
             try {
-                const sourceBook = sheet.book, result = query.sourceKind && query.sourceKind !== 'worksheet' ? await buildExternalQueryRefresh(sourceBook, query) : buildQueryRefresh(sourceBook, query);
+                const sourceBook = sheet.book, result = query.sourceKind && query.sourceKind !== 'worksheet' ? await buildExternalQueryRefresh(sourceBook, query, progress => { el('save-state').textContent = progress; }) : buildQueryRefresh(sourceBook, query);
                 if (sheet.tools.queries.some((other, otherIndex) => otherIndex !== index && other.lastOutputRange && pivotRangesOverlap(other.lastOutputRange, result.outputRange)) || sheet.tools.pivotTables.some(pivot => pivot.lastOutputRange && pivotRangesOverlap(pivot.lastOutputRange, result.outputRange)))
                     throw Error('The refreshed output would overlap another saved query or Pivot Summary. Move one output first.');
                 if (result.edits.some(edit => edit.raw !== '' && sourceBook.getRaw(edit.ref) !== '' && !(query.lastOutputRange && queryRangeContains(query.lastOutputRange, edit.ref))))
@@ -5177,14 +6399,47 @@ el('btn-refresh-queries').addEventListener('click', async () => {
     }
 });
 const pageSetupDialog = el('page-setup-dialog');
-function openPageSetup() { const p = doc.active.tools.pageSetup; el('page-orientation').value = p.orientation; el('page-paper').value = p.paper; el('page-area').value = p.printArea ?? ''; el('page-repeat-rows').value = p.repeatRows ?? ''; el('page-repeat-columns').value = p.repeatColumns ?? ''; el('page-fit-width').value = String(p.fitWidth); el('page-fit-height').value = String(p.fitHeight); el('page-gridlines').checked = p.printGridlines; el('page-headings').checked = p.printHeadings; for (const [id, value] of [['page-margin-top', p.marginTop], ['page-margin-bottom', p.marginBottom], ['page-margin-left', p.marginLeft], ['page-margin-right', p.marginRight]])
-    el(id).value = String(value); el('page-setup-error').textContent = ''; pageSetupDialog.showModal(); }
+const pageOrderLabel = document.createElement('label');
+pageOrderLabel.className = 'field-label';
+pageOrderLabel.htmlFor = 'page-order';
+pageOrderLabel.textContent = 'Page order';
+const pageOrderSelect = document.createElement('select');
+pageOrderSelect.id = 'page-order';
+pageOrderSelect.className = 'context-select';
+pageOrderSelect.setAttribute('aria-label', 'Page order');
+pageOrderSelect.innerHTML = '<option value="downThenOver">Down, then over</option><option value="overThenDown">Over, then down</option>';
+el('page-area').before(pageOrderLabel, pageOrderSelect);
+function addPageSetupCheck(id, text) { const label = document.createElement('label'), input = document.createElement('input'); label.append(input, document.createTextNode(text)); input.type = 'checkbox'; input.id = id; pageSetupDialog.querySelector('.page-setup-checks').append(label); return input; }
+const centerHorizontallyCheck = addPageSetupCheck('page-center-horizontal', 'Center horizontally'), centerVerticallyCheck = addPageSetupCheck('page-center-vertical', 'Center vertically');
+function syncPageLayoutControls() { const p = doc.active.tools.pageSetup; el('page-layout-orientation').value = p.orientation; el('page-layout-paper').value = p.paper; pageOrderSelect.value = p.pageOrder; centerHorizontallyCheck.checked = p.centerHorizontally; centerVerticallyCheck.checked = p.centerVertically; const button = el('page-break-preview'); button.setAttribute('aria-pressed', String(pageBreakPreview)); button.classList.toggle('active', pageBreakPreview); }
+function updatePageSetup(changes, message) { try {
+    const validated = validateTools({ ...doc.active.tools, pageSetup: { ...doc.active.tools.pageSetup, ...changes } }, book.rows, book.cols);
+    doc.active.tools.pageSetup = validated.pageSetup;
+    syncPageLayoutControls();
+    save();
+    renderPageBreakPreview();
+    toast(message);
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'Invalid page setup.');
+} }
+function openPageSetup() { const p = doc.active.tools.pageSetup; syncPageLayoutControls(); el('page-orientation').value = p.orientation; el('page-paper').value = p.paper; pageOrderSelect.value = p.pageOrder; centerHorizontallyCheck.checked = p.centerHorizontally; centerVerticallyCheck.checked = p.centerVertically; el('page-area').value = p.printArea ?? ''; el('page-repeat-rows').value = p.repeatRows ?? ''; el('page-repeat-columns').value = p.repeatColumns ?? ''; el('page-fit-width').value = String(p.fitWidth); el('page-fit-height').value = String(p.fitHeight); el('page-gridlines').checked = p.printGridlines; el('page-headings').checked = p.printHeadings; for (const [id, value] of [['page-margin-top', p.marginTop], ['page-margin-bottom', p.marginBottom], ['page-margin-left', p.marginLeft], ['page-margin-right', p.marginRight]])
+    el(id).value = String(value); for (const [id, key] of [['page-header-left', 'headerLeft'], ['page-header-center', 'headerCenter'], ['page-header-right', 'headerRight'], ['page-footer-left', 'footerLeft'], ['page-footer-center', 'footerCenter'], ['page-footer-right', 'footerRight']])
+    el(id).value = p[key] ?? ''; el('page-setup-error').textContent = ''; pageSetupDialog.showModal(); }
 el('btn-page-setup').addEventListener('click', openPageSetup);
+el('page-layout-orientation').addEventListener('change', event => updatePageSetup({ orientation: event.currentTarget.value }, 'Page orientation updated.'));
+el('page-layout-paper').addEventListener('change', event => updatePageSetup({ paper: event.currentTarget.value }, 'Paper size updated.'));
+for (const [id, margins, label] of [['page-margins-normal', { marginTop: .75, marginBottom: .75, marginLeft: .7, marginRight: .7 }, 'Normal margins applied.'], ['page-margins-narrow', { marginTop: .25, marginBottom: .25, marginLeft: .25, marginRight: .25 }, 'Narrow margins applied.'], ['page-margins-wide', { marginTop: 1, marginBottom: 1, marginLeft: 2, marginRight: 2 }, 'Wide margins applied.']])
+    el(id).addEventListener('click', () => updatePageSetup(margins, label));
+el('page-set-print-area').addEventListener('click', () => { const b = sel(); updatePageSetup({ printArea: `${colToName(b.c1)}${b.r1 + 1}:${colToName(b.c2)}${b.r2 + 1}` }, `Print area set to ${colToName(b.c1)}${b.r1 + 1}:${colToName(b.c2)}${b.r2 + 1}.`); });
+el('page-clear-print-area').addEventListener('click', () => updatePageSetup({ printArea: undefined }, 'Print area cleared.'));
+el('page-break-preview').addEventListener('click', event => { pageBreakPreview = !pageBreakPreview; const button = event.currentTarget; button.setAttribute('aria-pressed', String(pageBreakPreview)); button.classList.toggle('active', pageBreakPreview); renderPageBreakPreview(); toast(pageBreakPreview ? 'Page break preview shown.' : 'Normal worksheet view restored.'); });
 for (const id of ['close-page-setup', 'cancel-page-setup'])
     el(id).addEventListener('click', () => pageSetupDialog.close());
 el('save-page-setup').addEventListener('click', () => { try {
-    const area = el('page-area').value.trim(), repeatRows = el('page-repeat-rows').value.trim(), repeatColumns = el('page-repeat-columns').value.trim(), pageSetup = { orientation: el('page-orientation').value, paper: el('page-paper').value, printArea: area || undefined, repeatRows: repeatRows || undefined, repeatColumns: repeatColumns || undefined, fitWidth: Number(el('page-fit-width').value), fitHeight: Number(el('page-fit-height').value), printGridlines: el('page-gridlines').checked, printHeadings: el('page-headings').checked, marginTop: Number(el('page-margin-top').value), marginBottom: Number(el('page-margin-bottom').value), marginLeft: Number(el('page-margin-left').value), marginRight: Number(el('page-margin-right').value) }, validated = validateTools({ ...doc.active.tools, pageSetup }, book.rows, book.cols);
+    const area = el('page-area').value.trim(), repeatRows = el('page-repeat-rows').value.trim(), repeatColumns = el('page-repeat-columns').value.trim(), pageSetup = { orientation: el('page-orientation').value, paper: el('page-paper').value, pageOrder: pageOrderSelect.value, centerHorizontally: centerHorizontallyCheck.checked, centerVertically: centerVerticallyCheck.checked, printArea: area || undefined, repeatRows: repeatRows || undefined, repeatColumns: repeatColumns || undefined, fitWidth: Number(el('page-fit-width').value), fitHeight: Number(el('page-fit-height').value), printGridlines: el('page-gridlines').checked, printHeadings: el('page-headings').checked, marginTop: Number(el('page-margin-top').value), marginBottom: Number(el('page-margin-bottom').value), marginLeft: Number(el('page-margin-left').value), marginRight: Number(el('page-margin-right').value), headerLeft: el('page-header-left').value, headerCenter: el('page-header-center').value, headerRight: el('page-header-right').value, footerLeft: el('page-footer-left').value, footerCenter: el('page-footer-center').value, footerRight: el('page-footer-right').value }, validated = validateTools({ ...doc.active.tools, pageSetup }, book.rows, book.cols);
     doc.active.tools.pageSetup = validated.pageSetup;
+    syncPageLayoutControls();
     save();
     refresh();
     pageSetupDialog.close();
@@ -5193,16 +6448,31 @@ el('save-page-setup').addEventListener('click', () => { try {
 catch (e) {
     el('page-setup-error').textContent = e instanceof Error ? e.message : 'Invalid page setup.';
 } });
-el('btn-print-sheet').addEventListener('click', () => { const printWindow = window.open('', '_blank'); if (!printWindow) {
-    toast('Allow pop-ups to open the print-ready worksheet.');
-    return;
-} try {
-    printWindow.document.open();
-    printWindow.document.write(buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name));
-    printWindow.document.close();
+el('btn-print-sheet').addEventListener('click', () => { let frame; try {
+    const html = buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name);
+    frame = document.createElement('iframe');
+    frame.title = 'GridForge print preview';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none';
+    const cleanup = () => { window.setTimeout(() => frame?.remove(), 250); };
+    frame.addEventListener('load', () => { const printWindow = frame?.contentWindow; if (!printWindow) {
+        cleanup();
+        toast('The system print dialog could not be opened.');
+        return;
+    } printWindow.addEventListener('afterprint', cleanup, { once: true }); window.setTimeout(() => { try {
+        printWindow.focus();
+        printWindow.print();
+    }
+    catch {
+        cleanup();
+        toast('The system print dialog could not be opened.');
+    } }, 150); }, { once: true });
+    document.body.append(frame);
+    frame.srcdoc = html;
+    toast('Opening your system printer dialog. Choose a connected printer or Microsoft Print to PDF.');
 }
 catch (e) {
-    printWindow.close();
+    frame?.remove();
     toast(e instanceof Error ? e.message : 'Unable to prepare worksheet for printing.');
 } });
 const goalSeekDialog = el('goal-seek-dialog');

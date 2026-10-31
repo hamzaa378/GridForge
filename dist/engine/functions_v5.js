@@ -2,6 +2,8 @@
  * Scope: no dynamic-array spills, no implicit VBA execution, UTC date conversions.
  */
 import { SheetError, flatten, number, text, bool, matchCriterion } from './functions.js';
+import { excelDateSerial } from './date_serial.js';
+import { parseTimeOfDayText, splitTrailingDateTimeText } from './time_text.js';
 const bad = (code, message) => { throw new SheetError(code, message); };
 const def = (description, example, run) => ({ description, example, run });
 const req = (a, min, max = min) => { if (a.length < min || a.length > max)
@@ -21,7 +23,72 @@ const factorial = (v) => { if (v < 0 || v > 170)
     result *= i; return result; };
 const excelEpoch = Date.UTC(1899, 11, 31), DAY = 86400000;
 const serial = (dt) => { const t = dt.getTime(); if (!Number.isFinite(t))
-    bad('#VALUE!', 'Invalid date.'); return (t - excelEpoch) / DAY + (t >= Date.UTC(1900, 2, 1) ? 1 : 0); };
+    return bad('#VALUE!', 'Invalid date.'); const value = excelDateSerial(dt.toISOString()); if (value === null)
+    return bad('#NUM!', 'Date is outside Excel’s supported range.'); return value; };
+const dateValue = (raw) => {
+    const locale = new Intl.DateTimeFormat().resolvedOptions().locale, normalized = raw.trim().normalize('NFKC');
+    const digitMap = new Map();
+    for (let digit = 0; digit <= 9; digit++)
+        digitMap.set(new Intl.NumberFormat(locale, { useGrouping: false }).format(digit), String(digit));
+    const asciiDigits = (value) => Array.from(value, ch => digitMap.get(ch) ?? ch).join(''), clean = (value) => value.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[\u200e\u200f\u061c.]/g, '').toLocaleLowerCase(locale).trim();
+    const makeSerial = (rawYear, month, day) => { let year = rawYear; if (year >= 0 && year < 100)
+        year += year <= 29 ? 2000 : 1900; if (year < 1900 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31)
+        bad('#VALUE!', 'Invalid calendar date.'); if (year === 1900 && month === 2 && day === 29)
+        return 60; const result = new Date(0); result.setUTCHours(0, 0, 0, 0); result.setUTCFullYear(year, month - 1, day); if (result.getUTCFullYear() !== year || result.getUTCMonth() !== month - 1 || result.getUTCDate() !== day)
+        bad('#VALUE!', 'Invalid calendar date.'); return serial(result); };
+    const value = asciiDigits(normalized), yearFirst = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(value);
+    if (yearFirst)
+        return makeSerial(Number(yearFirst[1]), Number(yearFirst[2]), Number(yearFirst[3]));
+    const names = new Map();
+    for (let month = 0; month < 12; month++) {
+        const sample = new Date(Date.UTC(2020, month, 1));
+        for (const width of ['long', 'short']) {
+            const name = clean(new Intl.DateTimeFormat(locale, { calendar: 'gregory', month: width, timeZone: 'UTC' }).format(sample));
+            if (name)
+                names.set(name, month + 1);
+        }
+        const english = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'][month];
+        names.set(english, month + 1);
+        names.set(english.slice(0, 3), month + 1);
+    }
+    const normalizedText = clean(asciiDigits(normalized));
+    for (const [name, month] of [...names].sort((a, b) => b[0].length - a[0].length)) {
+        const index = normalizedText.indexOf(name);
+        if (index < 0)
+            continue;
+        const before = normalizedText.slice(0, index), after = normalizedText.slice(index + name.length), parts = [...before.matchAll(/\d+/g), ...after.matchAll(/\d+/g)].map(item => Number(item[0]));
+        if (parts.length !== 2)
+            continue;
+        const yearAt = parts.findIndex(part => part >= 1000 && part <= 9999);
+        if (yearAt < 0)
+            continue;
+        return makeSerial(parts[yearAt], month, parts[1 - yearAt]);
+    }
+    const numericDate = /^(\d{1,4})[\s./-]+(\d{1,2})[\s./-]+(\d{1,4})$/.exec(value), parts = numericDate?.slice(1).map(Number) ?? [];
+    if (parts.length !== 3)
+        bad('#VALUE!', 'DATEVALUE could not parse the text using the current locale.');
+    const formatted = new Intl.DateTimeFormat(locale, { calendar: 'gregory', year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC' }).formatToParts(new Date(Date.UTC(2001, 10, 22))), order = formatted.filter(part => part.type === 'year' || part.type === 'month' || part.type === 'day').map(part => part.type[0]);
+    let values;
+    if (parts[0] >= 1000)
+        values = { y: parts[0], m: parts[1], d: parts[2] };
+    else
+        values = { [order[0] ?? 'm']: parts[0], [order[1] ?? 'd']: parts[1], [order[2] ?? 'y']: parts[2] };
+    return makeSerial(values.y ?? 0, values.m ?? 0, values.d ?? 0);
+};
+export const parseExcelDateValue = (raw) => dateValue(raw);
+export function parseExcelTimeValue(raw) {
+    const time = parseTimeOfDayText(raw);
+    if (time !== null)
+        return time;
+    const dateTime = splitTrailingDateTimeText(raw);
+    if (dateTime) {
+        dateValue(dateTime[0]);
+        const dateTimeValue = parseTimeOfDayText(dateTime[1]);
+        if (dateTimeValue !== null)
+            return dateTimeValue;
+    }
+    return bad('#VALUE!', 'TIMEVALUE requires a recognized time, optionally preceded by a valid date.');
+}
 const date = (v) => { if (v < 0 || v > 2_958_465 || !Number.isFinite(v))
     bad('#NUM!', 'Invalid date serial.'); const d = Math.floor(v); return new Date(excelEpoch + (d - (d >= 60 ? 1 : 0)) * DAY); };
 const excelWeekday = (v) => Math.floor(v) === 60 ? 3 : date(v).getUTCDay();
@@ -113,31 +180,35 @@ const matchExcel = (v, w) => matchCriterion(v, w);
 const payment = (rate, periods, present, future = 0, type = 0) => { if (periods <= 0)
     bad('#NUM!', 'Number of periods must be positive.'); if (rate === 0)
     return -(present + future) / periods; const factor = (1 + rate) ** periods; return safe(-(present * factor + future) * rate / ((1 + rate * type) * (factor - 1))); };
-const irr = (values, guess = .1) => { if (values.length < 2 || !values.some(v => v > 0) || !values.some(v => v < 0))
-    bad('#NUM!', 'Cash flows require both positive and negative amounts.'); let rate = Math.max(-.9, guess); for (let i = 0; i < 120; i++) {
-    let npv = 0, deriv = 0;
-    for (let j = 0; j < values.length; j++) {
-        npv += values[j] / (1 + rate) ** j;
-        if (j > 0)
-            deriv -= j * values[j] / (1 + rate) ** (j + 1);
+const irr = (values, guess = .1) => {
+    if (values.length < 2 || !values.some(v => v > 0) || !values.some(v => v < 0) || !Number.isFinite(guess) || guess <= -1)
+        bad('#NUM!', 'IRR needs positive and negative cash flows, and a finite guess greater than -1.');
+    const scale = values.reduce((maximum, value) => Math.max(maximum, Math.abs(value)), 0);
+    if (!Number.isFinite(scale) || scale === 0)
+        bad('#NUM!', 'IRR cash flows cannot be all zero.');
+    const normalized = values.map(value => value / scale);
+    let rate = guess;
+    for (let iteration = 0; iteration < 20; iteration++) {
+        if (rate <= -1 || !Number.isFinite(rate))
+            break;
+        const q = 1 / (1 + rate);
+        let npv = normalized.at(-1), derivativeQ = 0;
+        for (let index = normalized.length - 2; index >= 0; index--) {
+            derivativeQ = derivativeQ * q + npv;
+            npv = npv * q + normalized[index];
+        }
+        const derivativeRate = -q * q * derivativeQ;
+        if (!Number.isFinite(npv) || !Number.isFinite(derivativeRate) || derivativeRate === 0)
+            break;
+        const next = rate - npv / derivativeRate;
+        if (!Number.isFinite(next) || next <= -1)
+            break;
+        if (Math.abs(next - rate) <= 1e-7)
+            return safe(next);
+        rate = next;
     }
-    if (Math.abs(npv) < 1e-8)
-        return safe(rate);
-    if (!deriv || !Number.isFinite(deriv))
-        break;
-    const next = rate - npv / deriv;
-    if (next <= -.999999 || next > 1e7 || !Number.isFinite(next))
-        break;
-    rate = next;
-} let l = -.9999, h = 1; const f = (r) => sum(values.map((v, i) => v / (1 + r) ** i)); while (f(l) * f(h) > 0 && h < 1e6)
-    h = h * 2 + 1; if (f(l) * f(h) > 0)
-    bad('#NUM!', 'Could not converge to an IRR.'); for (let i = 0; i < 170; i++) {
-    const m = (l + h) / 2;
-    if (f(l) * f(m) <= 0)
-        h = m;
-    else
-        l = m;
-} return (l + h) / 2; };
+    return bad('#NUM!', 'IRR did not converge from the supplied guess within 20 iterations.');
+};
 const yearFraction = (start, end, basis) => { if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < 0 || start > 2_958_465 || end > 2_958_465)
     bad('#VALUE!', 'YEARFRAC requires valid Excel date serials.'); const sign = start <= end ? 1 : -1, a0 = Math.floor(Math.min(start, end)), b0 = Math.floor(Math.max(start, end)), days = b0 - a0; if (basis === 1) {
     let actual = 0, cursor = a0;
@@ -310,28 +381,8 @@ export const v5Functions = {
     } if (type !== 1 && type !== 2 && !(type >= 11 && type <= 17))
         bad('#NUM!', 'WEEKNUM return type supports 1, 2, 11–17 or 21.'); const jan1 = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1)), weekStart = type === 1 ? 0 : type === 2 ? 1 : (type - 11 + 1) % 7, start = (jan1.getUTCDay() - weekStart + 7) % 7; return Math.floor(((dt.getTime() - jan1.getTime()) / DAY + start) / 7) + 1; }),
     ISOWEEKNUM: def('ISO 8601 week number of date serial.', '=ISOWEEKNUM(DATE(2026,10,20))', a => { req(a, 1); const dt = date(n(a, 0)); dt.setUTCHours(0, 0, 0, 0); dt.setUTCDate(dt.getUTCDate() + 4 - (dt.getUTCDay() || 7)); const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1)); return Math.ceil((((dt.getTime() - yearStart.getTime()) / DAY) + 1) / 7); }),
-    DATEVALUE: def('Parse unambiguous year-first or English month-name date text.', '=DATEVALUE("January 20, 2026")', a => { req(a, 1); const input = s(a, 0).trim(), yearFirst = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(input), monthFirst = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/.exec(input), dayFirst = /^(\d{1,2})[-\s]([A-Za-z]+)[-\s](\d{4})$/.exec(input), months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']; let year = 0, month = 0, day = 0; if (yearFirst) {
-        year = Number(yearFirst[1]);
-        month = Number(yearFirst[2]);
-        day = Number(yearFirst[3]);
-    }
-    else if (monthFirst || dayFirst) {
-        const parts = monthFirst ?? dayFirst, monthText = monthFirst ? parts[1] : parts[2], monthKey = monthText.toLowerCase(), monthIndex = months.findIndex(name => name === monthKey || monthKey.length === 3 && name.slice(0, 3) === monthKey);
-        if (monthIndex < 0)
-            bad('#VALUE!', 'DATEVALUE could not parse the month name.');
-        year = Number(parts[3]);
-        month = monthIndex + 1;
-        day = Number(monthFirst ? parts[2] : parts[1]);
-    }
-    else
-        bad('#VALUE!', 'DATEVALUE accepts year-first numeric dates or English month-name dates; ambiguous locale-numeric dates are unsupported.'); if (year < 1900 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31)
-        bad('#VALUE!', 'Invalid calendar date.'); if (year === 1900 && month === 2 && day === 29)
-        return 60; const dt = new Date(0); dt.setUTCHours(0, 0, 0, 0); dt.setUTCFullYear(year, month - 1, day); if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day)
-        bad('#VALUE!', 'Invalid calendar date.'); return serial(dt); }),
-    TIMEVALUE: def('Parse 24-hour or AM/PM time text into a fractional day.', '=TIMEVALUE("2:30 PM")', a => { req(a, 1); const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(s(a, 0).trim()); if (!m)
-        bad('#VALUE!', 'TIMEVALUE requires a valid hour and minute, with optional seconds and AM/PM.'); let hour = Number(m[1]), minute = Number(m[2]), second = Number(m[3] ?? 0); const meridiem = m[4]?.toUpperCase(); if (minute > 59 || second > 59 || (meridiem ? hour < 1 || hour > 12 : hour > 23))
-        bad('#VALUE!', 'TIMEVALUE received an invalid time.'); if (meridiem)
-        hour = hour % 12 + (meridiem === 'PM' ? 12 : 0); return (hour * 3600 + minute * 60 + second) / 86400; }),
+    DATEVALUE: def('Parse date text using the current locale, including localized month names, unambiguous year-first dates, and locale-ordered numeric dates.', '=DATEVALUE("2026-12-31")', a => { req(a, 1); return dateValue(s(a, 0)); }),
+    TIMEVALUE: def('Parse 24-hour or AM/PM time text into a fractional day.', '=TIMEVALUE("2:30 PM")', a => { req(a, 1); return parseExcelTimeValue(s(a, 0)); }),
     NETWORKDAYSINTL: def('Workdays excluding configurable weekends (code 1 or string of 7 bits).', '=NETWORKDAYSINTL(A1,B1,1)', a => { req(a, 2, 4); let start = integer(a, 0), end = integer(a, 1), sgn = 1; if (start < 0 || end < 0 || start > 2_958_465 || end > 2_958_465)
         bad('#NUM!', 'Date serial is outside Excel’s supported range.'); if (start > end) {
         [start, end] = [end, start];
@@ -344,19 +395,19 @@ export const v5Functions = {
             total++;
     } return total * sgn; }),
     // 15 financial functions
-    RATE: def('Solve periodic interest rate for an annuity.', '=RATE(12,-100,1000)', a => { req(a, 3, 6); const periods = n(a, 0), pay = n(a, 1), pv = n(a, 2), fv = a.length >= 4 ? n(a, 3) : 0, type = a.length >= 5 ? n(a, 4) : 0; let r = a.length === 6 ? n(a, 5) : .1; if (periods <= 0)
-        bad('#NUM!', 'Periods must be positive.'); if (Math.abs(pv + pay * periods + fv) < 1e-10)
-        return 0; for (let i = 0; i < 120; i++) {
-        const f = (q) => q === 0 ? pv + pay * periods + fv : pv * (1 + q) ** periods + pay * (1 + q * type) * ((1 + q) ** periods - 1) / q + fv;
-        const y = f(r), h = 1e-6, deriv = (f(r + h) - f(r - h)) / (2 * h);
-        if (Math.abs(y) < 1e-8)
-            return r;
-        if (!Number.isFinite(deriv) || Math.abs(deriv) < 1e-12)
+    RATE: def('Solve periodic interest rate for an annuity.', '=RATE(12,-100,1000)', a => { req(a, 3, 6); const periods = n(a, 0), pay = n(a, 1), pv = n(a, 2), fv = a.length >= 4 ? n(a, 3) : 0, type = a.length >= 5 ? n(a, 4) : 0; let r = a.length === 6 ? n(a, 5) : .1; if (periods <= 0 || ![0, 1].includes(type) || !Number.isFinite(r) || r <= -1)
+        bad('#NUM!', 'Periods, payment timing, or starting guess is invalid.'); if (Math.abs(pv + pay * periods + fv) < 1e-10)
+        return 0; const f = (q) => q === 0 ? pv + pay * periods + fv : pv * (1 + q) ** periods + pay * (1 + q * type) * ((1 + q) ** periods - 1) / q + fv; for (let i = 0; i < 20; i++) {
+        const y = f(r), h = 1e-6 * Math.max(1, Math.abs(r)), lower = r - h > -1 ? r - h : r, upper = r + h, deriv = lower === r ? (f(upper) - y) / h : (f(upper) - f(lower)) / (upper - lower);
+        if (!Number.isFinite(y) || !Number.isFinite(deriv) || deriv === 0)
             break;
-        r -= y / deriv;
-        if (r <= -1 || r > 1000 || !Number.isFinite(r))
+        const next = r - y / deriv;
+        if (!Number.isFinite(next) || next <= -1)
             break;
-    } return bad('#NUM!', 'RATE did not converge.'); }),
+        if (Math.abs(next - r) <= 1e-7)
+            return next;
+        r = next;
+    } return bad('#NUM!', 'RATE did not converge from the supplied guess within 20 iterations.'); }),
     NPER: def('Calculate number of periods for fixed payment loan.', '=NPER(0.01,-100,1000)', a => { req(a, 3, 5); const r = n(a, 0), pay = n(a, 1), pv = n(a, 2), fv = a.length >= 4 ? n(a, 3) : 0, type = a.length === 5 ? n(a, 4) : 0; if (r === 0) {
         if (pay === 0)
             bad('#DIV/0!', 'Payment cannot be zero.');
@@ -411,16 +462,26 @@ export const v5Functions = {
             bad('#NUM!', 'XNPV requires dates on or after the first date.');
         return safe(sum(cashValues.map((v, i) => v / (1 + rate) ** ((wholeDates[i] - first) / 365))));
     }),
-    XIRR: def('Internal return of irregularly dated cash flows.', '=XIRR(A1:A5,B1:B5)', a => { req(a, 2, 3); const cash = nums([a[0]]), dates = nums([a[1]]); if (cash.length !== dates.length || cash.length < 2 || !cash.some(v => v > 0) || !cash.some(v => v < 0))
-        bad('#NUM!', 'Invalid flows.'); const first = dates[0], f = (r) => sum(cash.map((v, i) => v / (1 + r) ** ((dates[i] - first) / 365))); let lo = -.999, hi = 1; while (f(lo) * f(hi) > 0 && hi < 1e5)
-        hi = hi * 2 + 1; if (f(lo) * f(hi) > 0)
-        bad('#NUM!', 'XIRR cannot find root.'); for (let i = 0; i < 160; i++) {
-        const mid = (lo + hi) / 2;
-        if (f(lo) * f(mid) <= 0)
-            hi = mid;
-        else
-            lo = mid;
-    } return (lo + hi) / 2; }),
+    XIRR: def('Internal return of irregularly dated cash flows.', '=XIRR(A1:A5,B1:B5)', a => { req(a, 2, 3); const cash = nums([a[0]]), dates = nums([a[1]]), guess = a.length === 3 ? n(a, 2) : .1; if (cash.length !== dates.length || cash.length < 2 || !cash.some(v => v > 0) || !cash.some(v => v < 0) || !Number.isFinite(guess) || guess <= -1)
+        bad('#NUM!', 'XIRR needs matching dates and cash flows of both signs, with a finite guess greater than -1.'); const first = dates[0], scale = cash.reduce((maximum, value) => Math.max(maximum, Math.abs(value)), 0), normalized = cash.map(value => value / scale), years = dates.map(date => (date - first) / 365); let rate = guess; for (let iteration = 0; iteration < 100; iteration++) {
+        if (rate <= -1 || !Number.isFinite(rate))
+            break;
+        const base = 1 + rate;
+        let npv = 0, derivative = 0;
+        for (let index = 0; index < normalized.length; index++) {
+            const yearsFromFirst = years[index], term = normalized[index] / base ** yearsFromFirst;
+            npv += term;
+            derivative -= yearsFromFirst * term / base;
+        }
+        if (!Number.isFinite(npv) || !Number.isFinite(derivative) || derivative === 0)
+            break;
+        const next = rate - npv / derivative;
+        if (!Number.isFinite(next) || next <= -1)
+            break;
+        if (Math.abs(next - rate) <= 1e-8)
+            return safe(next);
+        rate = next;
+    } return bad('#NUM!', 'XIRR did not converge from the supplied guess within 100 iterations.'); }),
     FVSCHEDULE: def('Future value after sequence of interest rates.', '=FVSCHEDULE(1000,A1:A4)', a => { req(a, 2); return safe(nums([a[1]]).reduce((v, r) => v * (1 + r), n(a, 0))); }),
     RRI: def('Equivalent annual compound growth rate.', '=RRI(5,100,150)', a => { req(a, 3); const periods = n(a, 0), present = n(a, 1), future = n(a, 2); if (periods <= 0 || present <= 0 || future < 0)
         bad('#NUM!', 'Invalid RRI arguments.'); return safe((future / present) ** (1 / periods) - 1); }),

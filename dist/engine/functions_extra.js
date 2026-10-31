@@ -1,9 +1,12 @@
 /** GridForge v4: 80 additional Excel-style scalar and range functions.
  * Implemented in TypeScript without any spreadsheet formula engine.
- * Deliberate limits: no dynamic-array spill; dates use Excel's 1900 date system
+ * Deliberate limits: array functions can produce bounded spill results through the workbook evaluator;
+ * dates use Excel's 1900 date system
  * with UTC arithmetic; unsupported advanced Excel options are documented.
  */
 import { SheetError, flatten, number, text, bool, matchCriterion } from './functions.js';
+import { parseLocaleNumberText } from './locale_number.js';
+import { parseTimeOfDayText } from './time_text.js';
 const fail = (code, message) => { throw new SheetError(code, message); };
 const def = (description, example, run) => ({ description, example, run });
 const req = (a, min, max = min) => { if (a.length < min || a.length > max)
@@ -21,9 +24,16 @@ const holidaySet = (v) => { const dates = numericRange(v); for (const date of da
 const nonBlank = (v) => v !== null && v !== '';
 const matrix = (v) => Array.isArray(v) ? v.map(row => row.map(c => Array.isArray(c) ? fail('#VALUE!', 'Nested array not supported.') : c)) : [[v]];
 const vector = (v) => flatten([v]);
+const shape = (v) => { if (!Array.isArray(v))
+    return [1, 1]; const width = v[0]?.length ?? 0; if (v.some(row => row.length !== width))
+    fail('#VALUE!', 'Range arguments must be rectangular.'); return [v.length, width]; };
+const sameShape = (a, b) => a[0] === b[0] && a[1] === b[1];
 const equal = (a, b) => matchCriterion(a, b);
 const paired = (a, count) => {
     req(a, count, count);
+    const target = shape(a[0]);
+    if (a.slice(1).some(range => !sameShape(shape(range), target)))
+        fail('#VALUE!', 'Data ranges must have the same dimensions.');
     const source = a.map(vector);
     if (source.some(x => x.length !== source[0].length))
         fail('#VALUE!', 'Data ranges must have equal lengths.');
@@ -105,15 +115,22 @@ const multipleCriteria = (a, hasValues) => {
     const offset = hasValues ? 1 : 0;
     if (a.length < offset + 2 || (a.length - offset) % 2 !== 0)
         fail('#ARG!', 'Expected criteria_range, criterion pairs.');
-    const ranges = [], criteria = [];
+    if ((a.length - offset) / 2 > 127)
+        fail('#ARG!', 'Excel supports at most 127 criteria range/criterion pairs.');
+    const ranges = [], criteria = [], rangeShapes = [];
     for (let i = offset; i < a.length; i += 2) {
+        rangeShapes.push(shape(a[i]));
         ranges.push(vector(a[i]));
-        criteria.push(val(a, i + 1));
+        const criterion = val(a, i + 1);
+        criteria.push(criterion === null ? 0 : criterion);
     }
+    const target = rangeShapes[0];
+    if (rangeShapes.some(current => !sameShape(current, target)))
+        fail('#VALUE!', 'Criteria ranges must have the same dimensions.');
     const length = ranges[0].length;
-    if (ranges.some(r => r.length !== length))
-        fail('#VALUE!', 'Criteria ranges must have the same number of cells.');
     const values = hasValues ? vector(a[0]) : ranges[0];
+    if (hasValues && !sameShape(shape(a[0]), target))
+        fail('#VALUE!', 'Result and criteria ranges must have the same dimensions.');
     if (values.length !== length)
         fail('#VALUE!', 'Result and criteria ranges must be the same size.');
     return { values, ranges, criteria };
@@ -278,58 +295,24 @@ export const moreFunctions = {
         fail('#VALUE!', 'Invalid Unicode code point.'); return String.fromCodePoint(cp); }),
     NUMBERVALUE: def('Parse a number with selectable decimal and group separators.', '=NUMBERVALUE("1.234,5",",",".")', a => {
         req(a, 1, 3);
-        const raw = text(val(a, 0)), decimalArg = a.length >= 2 ? text(val(a, 1)) : '.', groupArg = a.length === 3 ? text(val(a, 2)) : ',';
-        // Excel uses only the first character of each separator argument.
-        const decimal = decimalArg[0] ?? '', group = groupArg[0] ?? '';
-        if (!decimal || (group && decimal === group))
-            fail('#VALUE!', 'Invalid decimal or grouping separator.');
-        // Excel ignores ordinary spaces throughout the number and applies each trailing %.
-        let input = raw.replace(/ /g, '');
-        if (input === '')
-            return 0;
-        let percentCount = 0;
-        while (input.endsWith('%')) {
-            percentCount++;
-            input = input.slice(0, -1);
-        }
-        if (input.includes('%'))
-            fail('#VALUE!', 'Percent signs must be at the end of the text.');
-        const exponentParts = input.split(/[eE]/);
-        if (exponentParts.length > 2)
-            fail('#VALUE!', 'NUMBERVALUE could not parse the text.');
-        let mantissa = exponentParts[0];
-        const exponent = exponentParts.length === 2 ? `e${exponentParts[1]}` : '';
-        const decimalIndex = mantissa.indexOf(decimal);
-        if (decimalIndex >= 0 && mantissa.indexOf(decimal, decimalIndex + decimal.length) >= 0)
-            fail('#VALUE!', 'NUMBERVALUE could not parse the text.');
-        // Group separators are ignored before the decimal point; after it Excel returns #VALUE!.
-        const integerPart = decimalIndex < 0 ? mantissa : mantissa.slice(0, decimalIndex);
-        const fractionPart = decimalIndex < 0 ? '' : mantissa.slice(decimalIndex + decimal.length);
-        if (group && fractionPart.includes(group))
-            fail('#VALUE!', 'Grouping separator cannot follow the decimal separator.');
-        mantissa = integerPart.split(group).join('') + (decimalIndex < 0 ? '' : '.' + fractionPart);
-        const cleaned = mantissa + exponent;
-        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(cleaned))
-            fail('#VALUE!', 'NUMBERVALUE could not parse the text.');
-        let result = Number(cleaned);
-        for (let i = 0; i < percentCount; i++)
-            result /= 100;
-        return finite(result);
+        const raw = text(val(a, 0)), decimalArg = a.length >= 2 && val(a, 1) !== null ? text(val(a, 1)) : undefined, groupArg = a.length >= 3 && val(a, 2) !== null ? text(val(a, 2)) : undefined;
+        const parsed = parseLocaleNumberText(raw, decimalArg, groupArg);
+        if (parsed === null)
+            return fail('#VALUE!', 'NUMBERVALUE could not parse the text using the selected separators.');
+        return finite(parsed);
     }),
     TEXTBEFORE: def('Text before a delimiter with positive/negative instance, case mode, end matching and fallback.', '=TEXTBEFORE("a-b-c","-",-1)', a => { req(a, 2, 6); const str = text(val(a, 0)), sep = text(val(a, 1)), instance = a.length >= 3 ? integer(a, 2) : 1, matchMode = a.length >= 4 ? n(a, 3) : 0, matchEnd = a.length >= 5 ? n(a, 4) : 0; if (str.length > 32767 || sep.length > 32767)
         fail('#VALUE!', 'TEXTBEFORE text and delimiter are limited to 32,767 characters.'); if (instance === 0)
         fail('#VALUE!', 'Instance must be nonzero.'); if (matchMode !== 0 && matchMode !== 1)
         fail('#VALUE!', 'match_mode must be 0 or 1.'); if (matchEnd !== 0 && matchEnd !== 1)
-        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!str)
-        return ''; if (!sep)
+        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!sep)
         return instance > 0 ? '' : str; const positions = textDelimiterPositions(str, sep, matchMode === 1, matchEnd === 1), index = instance > 0 ? instance - 1 : positions.length + instance; if (index < 0 || index >= positions.length)
         return a.length >= 6 ? val(a, 5) : fail('#N/A', 'TEXTBEFORE delimiter instance not found.'); return str.slice(0, positions[index]); }),
     TEXTAFTER: def('Text after a delimiter with positive/negative instance, case mode, end matching and fallback.', '=TEXTAFTER("a-b-c","-",-1)', a => { req(a, 2, 6); const str = text(val(a, 0)), sep = text(val(a, 1)), instance = a.length >= 3 ? integer(a, 2) : 1, matchMode = a.length >= 4 ? n(a, 3) : 0, matchEnd = a.length >= 5 ? n(a, 4) : 0; if (str.length > 32767 || sep.length > 32767)
         fail('#VALUE!', 'TEXTAFTER text and delimiter are limited to 32,767 characters.'); if (instance === 0)
         fail('#VALUE!', 'Instance must be nonzero.'); if (matchMode !== 0 && matchMode !== 1)
         fail('#VALUE!', 'match_mode must be 0 or 1.'); if (matchEnd !== 0 && matchEnd !== 1)
-        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!str)
-        return ''; if (!sep)
+        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!sep)
         return instance > 0 ? str : ''; const positions = textDelimiterPositions(str, sep, matchMode === 1, matchEnd === 1), index = instance > 0 ? instance - 1 : positions.length + instance; if (index < 0 || index >= positions.length)
         return a.length >= 6 ? val(a, 5) : fail('#N/A', 'TEXTAFTER delimiter instance not found.'); return str.slice(positions[index] + sep.length); }),
     // 16 Excel 1900 date-system scalar functions (UTC, no locale-dependent parsing)
@@ -342,13 +325,13 @@ export const moreFunctions = {
     DAY: def('Day of month for date serial.', '=DAY(DATE(2026,10,20))', a => { req(a, 1); return Math.floor(dateSerial(a, 0)) === 60 ? 29 : dayDate(dateSerial(a, 0)).getUTCDate(); }),
     TODAY: def('Current UTC calendar day as Excel date serial (refreshes on recalculation).', '=TODAY()', a => { req(a, 0); const d = new Date(); return excelDate(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))); }),
     NOW: def('Current UTC date and time as Excel serial (refreshes on recalculation).', '=NOW()', a => { req(a, 0); return excelDate(new Date()); }),
-    TIME: def('Time fraction of day from hours, minutes and seconds.', '=TIME(14,30,0)', a => { req(a, 3); if ([0, 1, 2].some(i => n(a, i) < 0))
-        fail('#NUM!', 'TIME inputs must be nonnegative.'); return ((integer(a, 0) * 3600 + integer(a, 1) * 60 + integer(a, 2)) % 86400) / 86400; }),
-    HOUR: def('Hour component of a serial time.', '=HOUR(TIME(14,30,0))', a => { req(a, 1); const x = n(a, 0); if (x < 0)
+    TIME: def('Time fraction of day from hours, minutes and seconds; larger valid fields roll over into the next hour or day.', '=TIME(27,0,0)', a => { req(a, 3); const fields = [0, 1, 2].map(index => n(a, index)); if (fields.some(value => value < 0 || value > 32767))
+        fail('#NUM!', 'TIME fields must be from 0 through 32767.'); const [hours, minutes, seconds] = fields.map(Math.trunc); return ((hours * 3600 + minutes * 60 + seconds) % 86400) / 86400; }),
+    HOUR: def('Hour component of a time serial or supported time text.', '=HOUR("6:45 PM")', a => { req(a, 1); const value = val(a, 0), x = typeof value === 'string' ? (parseTimeOfDayText(value) ?? n(a, 0)) : n(a, 0); if (x < 0)
         fail('#NUM!', 'Time serial must be nonnegative.'); return Math.floor((x - Math.floor(x)) * 24 + 1e-9); }),
-    MINUTE: def('Minute component of a serial time.', '=MINUTE(TIME(14,30,0))', a => { req(a, 1); const x = n(a, 0); if (x < 0)
+    MINUTE: def('Minute component of a time serial or supported time text.', '=MINUTE("6:45 PM")', a => { req(a, 1); const value = val(a, 0), x = typeof value === 'string' ? (parseTimeOfDayText(value) ?? n(a, 0)) : n(a, 0); if (x < 0)
         fail('#NUM!', 'Time serial must be nonnegative.'); return Math.floor(((x - Math.floor(x)) * 1440) % 60 + 1e-8); }),
-    SECOND: def('Second component of a serial time.', '=SECOND(TIME(14,30,45))', a => { req(a, 1); const x = n(a, 0); if (x < 0)
+    SECOND: def('Second component of a time serial or supported time text.', '=SECOND("6:45:18 PM")', a => { req(a, 1); const value = val(a, 0), x = typeof value === 'string' ? (parseTimeOfDayText(value) ?? n(a, 0)) : n(a, 0); if (x < 0)
         fail('#NUM!', 'Time serial must be nonnegative.'); return Math.floor(((x - Math.floor(x)) * 86400) % 60 + 1e-6); }),
     DAYS: def('Number of days between date serials.', '=DAYS(B1,A1)', a => { req(a, 2); return Math.trunc(n(a, 0)) - Math.trunc(n(a, 1)); }),
     EDATE: def('Shift date by whole months, keeping day when possible.', '=EDATE(A1,3)', a => { req(a, 2); return monthShift(n(a, 0), integer(a, 1)); }),
@@ -550,8 +533,8 @@ export const moreFunctions = {
     PV: def('Present value of an annuity with constant payments.', '=PV(0.05/12,60,-200)', a => { req(a, 3, 5); const rate = n(a, 0), periods = n(a, 1), payment = n(a, 2), future = a.length >= 4 ? n(a, 3) : 0, type = a.length === 5 ? n(a, 4) : 0; if (periods < 0)
         fail('#NUM!', 'Periods must be nonnegative.'); if (rate === 0)
         return -(future + payment * periods); const growth = (1 + rate) ** periods; return finite(-(future + payment * (1 + rate * type) * (growth - 1) / rate) / growth); }),
-    NPV: def('Net present value of periodic future cash flows.', '=NPV(0.1,B1:B5)', a => { req(a, 2, 255); const rate = n(a, 0); if (rate <= -1)
-        fail('#NUM!', 'NPV rate must be greater than -1.'); const values = flatten(a.slice(1)); let total = 0; for (let i = 0; i < values.length; i++)
-        total += number(values[i]) / (1 + rate) ** (i + 1); return finite(total); }),
+    NPV: def('Net present value of periodic future cash flows; text, logical values, blanks, and reference errors are ignored.', '=NPV(0.1,B1:B5)', a => { req(a, 2, 255); const rate = n(a, 0); if (rate <= -1)
+        fail('#NUM!', 'NPV rate must be greater than -1.'); const values = flatten(a.slice(1)).filter((value) => typeof value === 'number' && Number.isFinite(value)); let total = 0; for (let i = 0; i < values.length; i++)
+        total += values[i] / (1 + rate) ** (i + 1); return finite(total); }),
 };
 export const extraFunctionNames = Object.keys(moreFunctions).sort();

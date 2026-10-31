@@ -1,9 +1,9 @@
 {
   "name": "gridforge-gdg-frontend-task2",
-  "version": "11.26.0",
+  "version": "12.0.126",
   "private": true,
   "type": "module",
-  "description": "GridForge standalone spreadsheet with an Excel 2019-style workspace, cross-worksheet formulas, refreshable Pivot Summary reports, worksheet tools, formula functions, native charts, and a Windows installer build kit.",
+  "description": "GridForge standalone spreadsheet with flexible Excel-style, Modern, Compact, and High Contrast workspaces, cloud workbook access, charts, formulas, PivotTables, and Windows installer.",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
     "start": "node scripts/serve.mjs",
@@ -49,6 +49,7 @@
   "license": "MIT",
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.12",
+    "esbuild": "^0.28.2",
     "typescript": "^5.8.3"
   }
 }

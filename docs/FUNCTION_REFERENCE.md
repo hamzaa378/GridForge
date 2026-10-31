@@ -1,8 +1,8 @@
-# GridForge Formula Reference — 507 Local Functions + 9 Connected Names
+# GridForge Formula Reference — 506 Local Functions + 10 Connected Names
 
-This reference is **generated from the actual custom TypeScript function registry** by `node scripts/build_function_docs.mjs`. It includes 56 original functions, 80 added in v4, another 80 added in v5, 90 more in v6, 100 new names in v9, and 100 more registered names in v10.
+This reference is **generated from the actual custom TypeScript function registry** by `node scripts/build_function_docs.mjs`. It includes the original function set and later v4, v5, v6, v9, and v10 additions. Registry groups overlap where aliases were retained, so the total is deduplicated from the live registry.
 
-All formulas start with `=` and use commas to separate arguments. **507** functions have local or workbook-context implementations (some with limited behavior); the **9 External & Connected** entries are recognized with explicit errors and require services that GridForge does not provide. Do not claim full Excel parity.
+All formulas start with `=` and support comma or semicolon function argument separators (do not mix separators within one call); semicolon-separated formulas also accept decimal commas. **506** functions have local or workbook-context implementations (some with limited behavior); the **10 External & Connected** entries are recognized but need workbook connections or services. Do not claim full Excel parity.
 
 | Function | Category | Description | Example | Added in |
 | --- | --- | --- | --- | --- |
@@ -30,7 +30,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **AVEDEV** | Statistical | Average absolute deviation from mean. | `=AVEDEV(A1:A8)` | v4 |
 | **AVERAGE** | Statistical | Arithmetic mean of numeric values. | `=AVERAGE(B1:B8)` | v1–v3 |
 | **AVERAGEA** | Statistical | Average including referenced text as zero; direct nonnumeric text is an error. | `=AVERAGEA(A1:A4)` | v6 |
-| **AVERAGEIF** | Math & Engineering | Average numeric matches. | `=AVERAGEIF(A1:A10,">5",B1:B10)` | v1–v3 |
+| **AVERAGEIF** | Math & Engineering | Average numeric matches; an empty-cell criterion reference is treated as zero. | `=AVERAGEIF(A1:A10,">5",B1:B10)` | v1–v3 |
 | **AVERAGEIFS** | Math & Engineering | Average numeric values matching all criteria ranges. | `=AVERAGEIFS(C1:C5,A1:A5,"North")` | v4 |
 | **BAHTTEXT** | Text | Write nonnegative baht and satang amounts in Thai words (six digits max). | `=BAHTTEXT(A1:A5)` | v10 |
 | **BASE** | Math & Engineering | Convert integer to text in the supplied radix 2–36. | `=BASE(255,16)` | v5 |
@@ -54,8 +54,8 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **BITOR** | Math & Engineering | Bitwise OR for non-negative 48-bit integers. | `=BITOR(6,3)` | v6 |
 | **BITRSHIFT** | Math & Engineering | Shift bits right within supported 48-bit range. | `=BITRSHIFT(16,2)` | v6 |
 | **BITXOR** | Math & Engineering | Bitwise XOR for non-negative 48-bit integers. | `=BITXOR(6,3)` | v6 |
-| **BYCOL** | Lookup & Reference | Apply a named aggregate to every row or column (limited alternative to Excel LAMBDA). | `=INDEX(BYROW(A1:B3,"SUM"),1,1)` | v10 |
-| **BYROW** | Lookup & Reference | Apply a named aggregate to every row or column (limited alternative to Excel LAMBDA). | `=INDEX(BYROW(A1:B3,"SUM"),1,1)` | v10 |
+| **BYCOL** | Lookup & Reference | Apply a scoped LAMBDA to each row or column and return one result per row or column. | `=BYROW(A1:B3,LAMBDA(row,SUM(row)))` | v10 |
+| **BYROW** | Lookup & Reference | Apply a scoped LAMBDA to each row or column and return one result per row or column. | `=BYROW(A1:B3,LAMBDA(row,SUM(row)))` | v10 |
 | **CEILING** | Math & Engineering | Round up to a multiple. | `=CEILING(13,5)` | v1–v3 |
 | **CEILING.MATH** | Math & Engineering | Round up to multiple, with mode for negatives. | `=CEILING.MATH(7.2,2)` | v6 |
 | **CEILING.PRECISE** | Math & Engineering | Round toward positive infinity to significance. | `=CEILING.PRECISE(-4.1,2)` | v6 |
@@ -90,10 +90,10 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **COSH** | Math & Engineering | Hyperbolic cosine. | `=COSH(0)` | v4 |
 | **COT** | Math & Engineering | Cotangent. | `=COT(1)` | v5 |
 | **COTH** | Math & Engineering | Hyperbolic cotangent. | `=COTH(1)` | v5 |
-| **COUNT** | Statistical | Count numeric cells. | `=COUNT(A1:A10)` | v1–v3 |
+| **COUNT** | Statistical | Count numeric cells and numeric text or logical values passed directly; text and errors in ranges are ignored. | `=COUNT(A1:A10)` | v1–v3 |
 | **COUNTA** | Statistical | Count nonempty values, including empty text and errors. | `=COUNTA(A1:A10)` | v1–v3 |
 | **COUNTBLANK** | Statistical | Count blank cells in a range. | `=COUNTBLANK(A1:A10)` | v1–v3 |
-| **COUNTIF** | Math & Engineering | Count cells matching a criterion. | `=COUNTIF(A1:A10,">10")` | v1–v3 |
+| **COUNTIF** | Math & Engineering | Count cells matching a criterion; an empty-cell criterion reference is treated as zero. | `=COUNTIF(A1:A10,">10")` | v1–v3 |
 | **COUNTIFS** | Math & Engineering | Count rows satisfying all conditions. | `=COUNTIFS(A1:A5,"North",B1:B5,">3")` | v4 |
 | **COUPDAYBS** | Financial | Coupon-date calculations for regular coupon schedules. | `=COUPNUM(DATE(2026,1,1),DATE(2028,1,1),2)` | v10 |
 | **COUPDAYS** | Financial | Coupon-date calculations for regular coupon schedules. | `=COUPNUM(DATE(2026,1,1),DATE(2028,1,1),2)` | v10 |
@@ -114,13 +114,13 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **CUBEMEMBERPROPERTY** | External & Connected | Connected Excel function — requires OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine. | `=CUBEMEMBERPROPERTY("Sales","[Region].[North]","Caption")` | v10.4 / external-only |
 | **CUBERANKEDMEMBER** | External & Connected | Connected Excel function — requires OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine. | `=CUBERANKEDMEMBER("Sales","[Products]",1)` | v10.4 / external-only |
 | **CUBESET** | External & Connected | Connected Excel function — requires OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine. | `=CUBESET("Sales","[Products].Members","Products")` | v10.4 / external-only |
-| **CUBESETCOUNT** | Database | Count delimited members in a text set; OLAP connection not supported. | `=CUBESETCOUNT(A1:A5)` | v10 |
+| **CUBESETCOUNT** | External & Connected | Connected Excel function — counts members of a set returned by an OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine. | `=CUBESETCOUNT(CUBESET("Sales","[Products].Members"))` | v10.4 / external-only |
 | **CUBEVALUE** | External & Connected | Connected Excel function — requires OLAP cube connection. Recognized for workbook compatibility but not available in GridForge's offline formula engine. | `=CUBEVALUE("Sales","[Measures].[Revenue]")` | v10.4 / external-only |
 | **CUMIPMT** | Financial | Cumulative interest paid over periods. | `=CUMIPMT(0.01,12,1000,1,3,0)` | v6 |
 | **CUMPRINC** | Financial | Cumulative principal paid over periods. | `=CUMPRINC(0.01,12,1000,1,3,0)` | v6 |
 | **DATE** | Date & Time | Construct an Excel date serial from year, month and day. | `=DATE(2026,10,20)` | v4 |
 | **DATEDIF** | Date & Time | Return a date difference in years, months, days or month/year remainders. | `=DATEDIF(DATE(2020,1,1),DATE(2022,4,1),"M")` | v5 |
-| **DATEVALUE** | Date & Time | Parse unambiguous year-first or English month-name date text. | `=DATEVALUE("January 20, 2026")` | v5 |
+| **DATEVALUE** | Date & Time | Parse date text using the current locale, including localized month names, unambiguous year-first dates, and locale-ordered numeric dates. | `=DATEVALUE("2026-12-31")` | v5 |
 | **DAVERAGE** | Database | Database aggregates using an Excel-style field and criteria table. | `=DSUM(A1:C5,"Sales",E1:E2)` | v9 |
 | **DAY** | Date & Time | Day of month for date serial. | `=DAY(DATE(2026,10,20))` | v4 |
 | **DAYS** | Date & Time | Number of days between date serials. | `=DAYS(B1,A1)` | v4 |
@@ -178,9 +178,9 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **FACTDOUBLE** | Math & Engineering | Double factorial n!!. | `=FACTDOUBLE(7)` | v5 |
 | **FALSE** | Logical | Excel logical constant. | `=TRUE()` | v9 |
 | **FDIST** | Statistical | Probability distributions and legacy Excel compatibility functions. | `=BETADIST(0.5,2,2)` | v9 |
-| **FIELDVALUE** | Information | Extract a field from a key=value string (no linked Excel data types). | `=FIELDVALUE(A1:A5)` | v10 |
+| **FIELDVALUE** | Information | Read a field from a linked Excel data type (linked data types are not available in GridForge). | `=FIELDVALUE(A1:A5)` | v10 |
 | **FILTER** | Lookup & Reference | Filter rows or columns using a matching Boolean include vector. | `=FILTER(A1:A5)` | v10 |
-| **FILTERXML** | Text | Extract first tag text from a simple XML snippet (limited XML XPath selector). | `=FILTERXML(A1:A5)` | v10 |
+| **FILTERXML** | Text | Evaluate bounded XPath queries against offline XML; node selections spill as a vertical list when the host provides a DOM parser. | `=FILTERXML(A1:A5)` | v10 |
 | **FIND** | Text | Find substring, case-sensitive, 1-based. | `=FIND("a","cable")` | v1–v3 |
 | **FINDB** | Text | Byte position of text occurrence (case sensitive). | `=FINDB("el","Hello")` | v5 |
 | **FINV** | Statistical | Probability distributions and legacy Excel compatibility functions. | `=BETADIST(0.5,2,2)` | v9 |
@@ -192,10 +192,10 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **FLOOR.MATH** | Math & Engineering | Round down to multiple, with mode for negatives. | `=FLOOR.MATH(7.2,2)` | v6 |
 | **FLOOR.PRECISE** | Math & Engineering | Round toward negative infinity to significance. | `=FLOOR.PRECISE(-4.1,2)` | v6 |
 | **FORECAST** | Statistical | Predict y using least squares at a specified x. | `=FORECAST(7,B1:B6,A1:A6)` | v4 |
-| **FORECAST.ETS** | Statistical | Offline trend forecast with linear smoothing; not full ETS exponential smoothing. | `=FORECAST.ETS(A1:A5)` | v10 |
-| **FORECAST.ETS.CONFINT** | Statistical | Offline trend forecast with linear smoothing; not full ETS exponential smoothing. | `=FORECAST.ETS.CONFINT(A1:A5)` | v10 |
-| **FORECAST.ETS.SEASONALITY** | Statistical | Offline trend forecast with linear smoothing; not full ETS exponential smoothing. | `=FORECAST.ETS.SEASONALITY(A1:A5)` | v10 |
-| **FORECAST.ETS.STAT** | Statistical | Offline trend forecast with linear smoothing; not full ETS exponential smoothing. | `=FORECAST.ETS.STAT(A1:A5)` | v10 |
+| **FORECAST.ETS** | Statistical | Bounded additive triple-exponential smoothing for seasonal series; nonseasonal, short, or oversized data fall back to linear regression. Blank values honor data_completion. | `=FORECAST.ETS(14,B1:B12,A1:A12)` | v10 |
+| **FORECAST.ETS.CONFINT** | Statistical | Confidence-scaled interval estimate for the bounded additive ETS model; linear fallback and approximate uncertainty remain. Blank values honor data_completion. | `=FORECAST.ETS.CONFINT(14,B1:B12,A1:A12)` | v10 |
+| **FORECAST.ETS.SEASONALITY** | Statistical | Estimate a repeated cycle length from equally spaced observations; returns zero when no strong cycle is detected. Blank values honor data_completion. | `=FORECAST.ETS.SEASONALITY(B1:B24,A1:A24)` | v10 |
+| **FORECAST.ETS.STAT** | Statistical | Return statistics from the bounded additive ETS approximation; smoothing coefficients are exposed when a seasonal model fits. Blank values honor data_completion. | `=FORECAST.ETS.STAT(B1:B12,A1:A12,7)` | v10 |
 | **FORECAST.LINEAR** | Statistical | Least-squares forecast. | `=FORECAST.LINEAR(5,B1:B4,A1:A4)` | v6 |
 | **FORMULATEXT** | Lookup & Reference | Return source formula from a referenced cell. | `=FORMULATEXT(A1)` | v6 |
 | **FREQUENCY** | Statistical | Frequency histogram (array result; use INDEX to extract a bin). | `=INDEX(FREQUENCY(A1:A5,B1:B2),1,1)` | v9 |
@@ -214,14 +214,14 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **GEOMEAN** | Statistical | Geometric mean of positive numeric values. | `=GEOMEAN(A1:A5)` | v4 |
 | **GESTEP** | Math & Engineering | Returns 1 when a number reaches a step. | `=GESTEP(7,5)` | v6 |
 | **GETPIVOTDATA** | Lookup & Reference | Returns an aggregate from a saved GridForge Pivot Summary, with optional field/item criteria. Supports active report, item, label, date, and Top/Bottom value filters, configured base aggregations, and the Pivot Summary's configured Show Values As calculations. | `=GETPIVOTDATA("Sum of Sales",A1,"Region","North")` | v1–v3 |
-| **GROUPBY** | Database | Simple grouped sum over labels (array result, no pivot totals). | `=GROUPBY(A1:A5)` | v10 |
+| **GROUPBY** | Database | Formula-based grouping, aggregation, filtering, sorting, and grand totals; the workbook evaluator handles their array and LAMBDA arguments. | `=GROUPBY(A2:A8,B2:B8,SUM)` | v10 |
 | **GROWTH** | Statistical | Linear or exponential regression forecast; multi-output results can be used with INDEX. | `=INDEX(TREND(B1:B5,A1:A5,A6),1,1)` | v9 |
 | **HARMEAN** | Statistical | Harmonic mean of positive numeric values. | `=HARMEAN(A1:A5)` | v4 |
 | **HEX2BIN** | Math & Engineering | Convert binary, octal, decimal and hexadecimal engineering numbers. | `=DEC2HEX(255)` | v9 |
 | **HEX2DEC** | Math & Engineering | Convert binary, octal, decimal and hexadecimal engineering numbers. | `=DEC2HEX(255)` | v9 |
 | **HEX2OCT** | Math & Engineering | Convert binary, octal, decimal and hexadecimal engineering numbers. | `=DEC2HEX(255)` | v9 |
 | **HLOOKUP** | Lookup & Reference | Lookup in the top row; exact or next-smaller match from ascending data. | `=HLOOKUP("Q2",A1:D3,2,FALSE)` | v4 |
-| **HOUR** | Date & Time | Hour component of a serial time. | `=HOUR(TIME(14,30,0))` | v4 |
+| **HOUR** | Date & Time | Hour component of a time serial or supported time text. | `=HOUR("6:45 PM")` | v4 |
 | **HSTACK** | Lookup & Reference | Join rectangular array ranges. | `=HSTACK(A1:A5)` | v10 |
 | **HYPERLINK** | Lookup & Reference | Return display text and activate safe direct HTTP/HTTPS/mailto or simple in-workbook cell targets. | `=HYPERLINK("https://example.com","Site")` | v6 |
 | **HYPGEOM.DIST** | Statistical | Hypergeometric probability. | `=HYPGEOM.DIST(A1:A5)` | v10 |
@@ -250,7 +250,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **IMSUM** | Math & Engineering | Complex-number engineering arithmetic. | `=IMABS("3+4i")` | v9 |
 | **INDEX** | Lookup & Reference | Return a value, row, column, or array at 1-based positions; zero selects a whole row or column. | `=INDEX(A1:C5,0,2)` | v1–v3 |
 | **INDIRECT** | Lookup & Reference | Evaluate an A1 address held in text. | `=INDIRECT("B7")` | v6 |
-| **INFO** | Information | Return limited spreadsheet runtime information (no operating-system inspection). | `=INFO(A1:A5)` | v10 |
+| **INFO** | Information | Return the modeled Excel-compatible runtime information for this workbook. | `=INFO(A1:A5)` | v10 |
 | **INT** | Math & Engineering | Round down to an integer. | `=INT(3.9)` | v1–v3 |
 | **INTERCEPT** | Statistical | Least squares regression intercept. | `=INTERCEPT(B1:B6,A1:A6)` | v4 |
 | **INTRATE** | Financial | Simple annualized rate from redemption and investment. | `=INTRATE(A1:A5)` | v10 |
@@ -268,14 +268,14 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **ISNUMBER** | Information | Check if a value is numeric. | `=ISNUMBER(A1)` | v1–v3 |
 | **ISO.CEILING** | Math & Engineering | ISO-compliant rounding to significance. | `=ISO.CEILING(5.2,2)` | v6 |
 | **ISODD** | Information | TRUE for odd integers. | `=ISODD(3)` | v5 |
-| **ISOMITTED** | Information | True for an omitted optional argument, represented as a blank. | `=ISOMITTED(A1:A5)` | v10 |
+| **ISOMITTED** | Information | Check whether an optional parameter was omitted when a LAMBDA was invoked. | `=LAMBDA(value,optional,ISOMITTED(optional))(1,)` | v10 |
 | **ISOWEEKNUM** | Date & Time | ISO 8601 week number of date serial. | `=ISOWEEKNUM(DATE(2026,10,20))` | v5 |
 | **ISPMT** | Financial | Straight-line interest over period. | `=ISPMT(0.05,2,12,1000)` | v6 |
 | **ISREF** | Information | TRUE when argument is a valid reference. | `=ISREF(A1)` | v6 |
 | **ISTEXT** | Information | Check if a value contains text. | `=ISTEXT(A1)` | v1–v3 |
 | **JIS** | Text | Convert full-width and half-width Latin text. | `=JIS(A1:A5)` | v10 |
 | **KURT** | Statistical | Excess sample kurtosis. | `=KURT(A1:A10)` | v5 |
-| **LAMBDA** | Lookup & Reference | Limited formula descriptor: returns last scalar argument, without executing code. | `=LAMBDA(A1:A5)` | v10 |
+| **LAMBDA** | Lookup & Reference | Create a scoped calculation for supported lambda-aware functions or a worksheet-local defined name. | `=MAP(A1:A3,LAMBDA(value,value*2))` | v10 |
 | **LARGE** | Statistical | k-th largest numeric value. | `=LARGE(A1:A10,2)` | v1–v3 |
 | **LCM** | Math & Engineering | Least common multiple of nonnegative integers. | `=LCM(4,6)` | v4 |
 | **LEFT** | Text | Take the leftmost characters. | `=LEFT(A1,3)` | v1–v3 |
@@ -294,8 +294,8 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **LOGNORMDIST** | Compatibility | Legacy Excel alias for LOGNORM.DIST. Lognormal probability density or CDF. | `=LOGNORM.DIST(2,0,1,TRUE)` | v9 |
 | **LOOKUP** | Lookup & Reference | Approximate match in an ascending lookup vector; returns the greatest key not exceeding the target. | `=LOOKUP(5,A1:A10,B1:B10)` | v5 |
 | **LOWER** | Text | Convert text to lowercase. | `=LOWER(A1)` | v1–v3 |
-| **MAKEARRAY** | Lookup & Reference | Generate an array by named coordinate operation (limited Lambda alternative). | `=MAKEARRAY(A1:A5)` | v10 |
-| **MAP** | Lookup & Reference | Map safe unary operations across an array; no code execution. | `=MAP(A1:A5)` | v10 |
+| **MAKEARRAY** | Lookup & Reference | Generate an array by invoking a two-parameter LAMBDA for each row and column. | `=MAKEARRAY(3,2,LAMBDA(row,col,row*col))` | v10 |
+| **MAP** | Lookup & Reference | Map one or more arrays with a LAMBDA and return a same-sized result array. | `=MAP(A1:A3,LAMBDA(value,value*2))` | v10 |
 | **MATCH** | Lookup & Reference | Return the relative position of an exact or approximate match. | `=MATCH("pear",A1:A10,0)` | v1–v3 |
 | **MAX** | Statistical | Largest numeric value. | `=MAX(A1:A10)` | v1–v3 |
 | **MAXA** | Statistical | Largest numeric or logical value. | `=MAXA(A1:A4)` | v6 |
@@ -308,7 +308,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **MIN** | Statistical | Smallest numeric value. | `=MIN(A1:A10)` | v1–v3 |
 | **MINA** | Statistical | Smallest numeric or logical value. | `=MINA(A1:A4)` | v6 |
 | **MINIFS** | Statistical | Minimum value matching all criteria. | `=MINIFS(C2:C6,A2:A6,"East")` | v6 |
-| **MINUTE** | Date & Time | Minute component of a serial time. | `=MINUTE(TIME(14,30,0))` | v4 |
+| **MINUTE** | Date & Time | Minute component of a time serial or supported time text. | `=MINUTE("6:45 PM")` | v4 |
 | **MINVERSE** | Math & Engineering | Matrix determinant, matrix inverse or matrix product. | `=MDETERM(A1:B2)` | v9 |
 | **MIRR** | Financial | Modified internal rate of return. | `=MIRR(A1:A5,0.08,0.12)` | v5 |
 | **MMULT** | Math & Engineering | Matrix determinant, matrix inverse or matrix product. | `=MDETERM(A1:B2)` | v9 |
@@ -338,7 +338,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **NOT** | Logical | Negate a boolean. | `=NOT(A1>10)` | v1–v3 |
 | **NOW** | Date & Time | Current UTC date and time as Excel serial (refreshes on recalculation). | `=NOW()` | v4 |
 | **NPER** | Financial | Calculate number of periods for fixed payment loan. | `=NPER(0.01,-100,1000)` | v5 |
-| **NPV** | Financial | Net present value of periodic future cash flows. | `=NPV(0.1,B1:B5)` | v4 |
+| **NPV** | Financial | Net present value of periodic future cash flows; text, logical values, blanks, and reference errors are ignored. | `=NPV(0.1,B1:B5)` | v4 |
 | **NUMBERVALUE** | Text | Parse a number with selectable decimal and group separators. | `=NUMBERVALUE("1.234,5",",",".")` | v4 |
 | **OCT2BIN** | Math & Engineering | Convert binary, octal, decimal and hexadecimal engineering numbers. | `=DEC2HEX(255)` | v9 |
 | **OCT2DEC** | Math & Engineering | Convert binary, octal, decimal and hexadecimal engineering numbers. | `=DEC2HEX(255)` | v9 |
@@ -364,7 +364,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **PHI** | Statistical | Standard normal probability density. | `=PHI(0)` | v6 |
 | **PHONETIC** | Text | Return stored phonetic text, if available; plain text is returned otherwise. | `=PHONETIC(A1:A5)` | v10 |
 | **PI** | Math & Engineering | The mathematical constant pi. | `=PI()` | v1–v3 |
-| **PIVOTBY** | Database | Simple grouped sum over labels (array result, no pivot totals). | `=PIVOTBY(A1:A5)` | v10 |
+| **PIVOTBY** | Database | Formula-based grouping, aggregation, filtering, sorting, and grand totals; the workbook evaluator handles their array and LAMBDA arguments. | `=GROUPBY(A2:A8,B2:B8,SUM)` | v10 |
 | **PMT** | Financial | Payment per period for a fixed-rate loan. | `=PMT(0.05/12,60,10000)` | v4 |
 | **POISSON** | Compatibility | Legacy Excel alias for POISSON.DIST. Poisson probability. | `=POISSON.DIST(2,4,FALSE)` | v9 |
 | **POISSON.DIST** | Statistical | Poisson probability. | `=POISSON.DIST(2,4,FALSE)` | v6 |
@@ -390,8 +390,8 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **RANK.EQ** | Statistical | Rank in numeric list. | `=RANK.EQ(4,A1:A5,0)` | v6 |
 | **RATE** | Financial | Solve periodic interest rate for an annuity. | `=RATE(12,-100,1000)` | v5 |
 | **RECEIVED** | Financial | Treasury and fixed-income calculations (simplified conventions for coupon schedules). | `=TBILLPRICE(45000,45100,0.05)` | v9 |
-| **REDUCE** | Lookup & Reference | Reduce or accumulate array values using a named arithmetic operation. | `=REDUCE(A1:A5)` | v10 |
-| **REGEXEXTRACT** | Text | Extract first match or capturing group from text. | `=REGEXEXTRACT("AB123","[0-9]+")` | v6 |
+| **REDUCE** | Lookup & Reference | Reduce an array or return intermediate accumulator values using a LAMBDA. | `=SCAN(0,A1:A3,LAMBDA(total,value,total+value))` | v10 |
+| **REGEXEXTRACT** | Text | Extract the first match, all matches, or capture groups with optional case-insensitive matching. | `=REGEXEXTRACT("A12 B34","[A-Z]\d+",1,1)` | v6 |
 | **REGEXREPLACE** | Text | Replace regex matches, global by default. | `=REGEXREPLACE("ABC12","[0-9]+","99")` | v5 |
 | **REGEXTEST** | Text | Test text against a JavaScript-compatible regular expression. | `=REGEXTEST("ABC12","[0-9]+")` | v5 |
 | **REPLACE** | Text | Replace part of a text string. | `=REPLACE("hello",2,2,"a")` | v1–v3 |
@@ -408,12 +408,12 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **RRI** | Financial | Equivalent annual compound growth rate. | `=RRI(5,100,150)` | v5 |
 | **RSQ** | Statistical | Square of Pearson correlation coefficient. | `=RSQ(A1:A6,B1:B6)` | v4 |
 | **RTD** | External & Connected | Connected Excel function — requires Windows RTD COM server. Recognized for workbook compatibility but not available in GridForge's offline formula engine. | `=RTD("GridForge.NotInstalled","","quote")` | v10.4 / external-only |
-| **SCAN** | Lookup & Reference | Reduce or accumulate array values using a named arithmetic operation. | `=SCAN(A1:A5)` | v10 |
+| **SCAN** | Lookup & Reference | Reduce an array or return intermediate accumulator values using a LAMBDA. | `=SCAN(0,A1:A3,LAMBDA(total,value,total+value))` | v10 |
 | **SEARCH** | Text | Find substring, case-insensitive. | `=SEARCH("A","cable")` | v1–v3 |
 | **SEARCHB** | Text | Case insensitive byte position of text occurrence. | `=SEARCHB("EL","Hello")` | v5 |
 | **SEC** | Math & Engineering | Secant. | `=SEC(1)` | v5 |
 | **SECH** | Math & Engineering | Hyperbolic secant. | `=SECH(1)` | v5 |
-| **SECOND** | Date & Time | Second component of a serial time. | `=SECOND(TIME(14,30,45))` | v4 |
+| **SECOND** | Date & Time | Second component of a time serial or supported time text. | `=SECOND("6:45:18 PM")` | v4 |
 | **SEQUENCE** | Lookup & Reference | Generate numeric arrays. | `=INDEX(SEQUENCE(3,2),2,2)` | v10 |
 | **SERIESSUM** | Math & Engineering | Power series polynomial weighted by coefficients. | `=SERIESSUM(2,1,2,A1:A3)` | v6 |
 | **SHEET** | Information | Return a worksheet position or the number of worksheets in the workbook; reference arguments support one worksheet at a time. | `=SHEET(A1:A5)` | v10 |
@@ -442,7 +442,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **SUBSTITUTE** | Text | Replace all matching substrings. | `=SUBSTITUTE(A1,"old","new")` | v1–v3 |
 | **SUBTOTAL** | Math & Engineering | Aggregate a selected range by Excel subtotal operation code. | `=SUBTOTAL(9,A1:A10)` | v9 |
 | **SUM** | Math & Engineering | Sum numeric values, ignoring text and blanks. | `=SUM(A1:A10)` | v1–v3 |
-| **SUMIF** | Math & Engineering | Sum values matching a criterion. | `=SUMIF(A1:A5,">10",B1:B5)` | v1–v3 |
+| **SUMIF** | Math & Engineering | Sum values matching a criterion; an empty-cell criterion reference is treated as zero. | `=SUMIF(A1:A5,">10",B1:B5)` | v1–v3 |
 | **SUMIFS** | Math & Engineering | Sum values matching multiple criteria ranges. | `=SUMIFS(C1:C5,A1:A5,"North",B1:B5,">3")` | v4 |
 | **SUMPRODUCT** | Math & Engineering | Sum of products at matching positions in equally shaped arrays. | `=SUMPRODUCT(A1:A4,B1:B4)` | v4 |
 | **SUMSQ** | Math & Engineering | Sum of squares of all numeric arguments. | `=SUMSQ(A1:A4)` | v4 |
@@ -470,7 +470,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **TEXTBEFORE** | Text | Text before a delimiter with positive/negative instance, case mode, end matching and fallback. | `=TEXTBEFORE("a-b-c","-",-1)` | v4 |
 | **TEXTJOIN** | Text | Join text or ranges with delimiter, optionally ignoring blanks. | `=TEXTJOIN(", ",TRUE,A1:A4)` | v4 |
 | **TEXTSPLIT** | Text | Split text using one or more row/column delimiters, with Excel match-mode and padding options. | `=INDEX(TEXTSPLIT("a,b",","),1,2)` | v10 |
-| **TIME** | Date & Time | Time fraction of day from hours, minutes and seconds. | `=TIME(14,30,0)` | v4 |
+| **TIME** | Date & Time | Time fraction of day from hours, minutes and seconds; larger valid fields roll over into the next hour or day. | `=TIME(27,0,0)` | v4 |
 | **TIMEVALUE** | Date & Time | Parse 24-hour or AM/PM time text into a fractional day. | `=TIMEVALUE("2:30 PM")` | v5 |
 | **TINV** | Statistical | Probability distributions and legacy Excel compatibility functions. | `=BETADIST(0.5,2,2)` | v9 |
 | **TOCOL** | Lookup & Reference | Flatten an array with blank filtering and row- or column-major scan order. | `=TOCOL(A1:A5)` | v10 |
@@ -490,7 +490,7 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 | **UNICODE** | Text | Unicode code point of first character. | `=UNICODE("é")` | v4 |
 | **UNIQUE** | Lookup & Reference | Return distinct rows or columns using Excel case-insensitive text comparisons. | `=UNIQUE(A1:A5)` | v10 |
 | **UPPER** | Text | Convert text to uppercase. | `=UPPER(A1)` | v1–v3 |
-| **VALUE** | Text | Convert numeric text to a number. | `=VALUE("4.5")` | v1–v3 |
+| **VALUE** | Text | Convert locale-formatted numbers, currency, dates, and times from text. | `=VALUE("$1,000")` | v1–v3 |
 | **VALUETOTEXT** | Text | Convert one value to text, optionally with quotes. | `=VALUETOTEXT("hello",1)` | v6 |
 | **VAR** | Statistical | Sample variance. | `=VAR(A1:A10)` | v1–v3 |
 | **VAR.P** | Statistical | Population variance. | `=VAR.P(A1:A6)` | v6 |
@@ -531,9 +531,9 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 
 ## Evaluation details
 
-- Formula grammar uses a handwritten tokenizer and Pratt parser, with nested calls, arithmetic, comparisons, references, `$` reference locks and 2D ranges.
+- Formula grammar uses a handwritten tokenizer and Pratt parser, with nested calls, arithmetic, comparisons, references, `$` reference locks, 2D ranges, comma or semicolon function-argument separators, and decimal commas in semicolon-separated formulas. Localized function names, workbook-specific locale selection, and locale-specific date parsing are incomplete.
 - `IF`, `IFERROR`, `IFS`, `SWITCH` and the optional `XLOOKUP` fallback evaluate unselected branches lazily.
-- Error codes include `#PARSE!`, `#VALUE!`, `#REF!`, `#DIV/0!`, `#NUM!`, `#N/A`, `#ARG!`, `#NAME?` and `#CYCLE!`.
+- Error literals include the standard worksheet errors and newer `#SPILL!`, `#CALC!`, `#FIELD!`, `#BLOCKED!`, `#CONNECT!`, `#UNKNOWN!`, `#BUSY!`, and `#PYTHON!` codes; recognizing a code does not provide the external data, Python runtime or service that may have produced it.
 - Date functions use Excel’s 1900 serial system and UTC arithmetic. `TODAY()` and `NOW()` update when their formula is recalculated, not continuously.
 - `XLOOKUP` supports one-dimensional exact, wildcard, next-smaller and next-larger matching; forward, reverse, ascending-binary and descending-binary search; an optional not-found result; and aligned row/column return arrays. Binary searches validate sort order. Full Excel coercion, locale and dynamic-array semantics remain incomplete.
 - `XMATCH` supports exact, wildcard and approximate modes with forward/reverse or sorted binary search. Binary search requires data sorted in the requested direction.
@@ -546,10 +546,10 @@ All formulas start with `=` and use commas to separate arguments. **507** functi
 - GridForge action macros v2 support preflight-safe worksheet edits, copy/paste, fill down, sort, replace and previews. These are NOT Excel VBA.
 - Modern dotted function names such as `STDEV.S` and `NORM.DIST` are parsed as function names.
 - `SHEET()` returns the active worksheet position, `SHEET(reference)` returns the referenced worksheet position, and `SHEETS()` returns the workbook worksheet count. `SHEETS(reference)` supports a reference on one worksheet; 3D references and defined-name arguments are not implemented.
-- Array-producing functions such as `TRANSPOSE`, `MMULT` and `FREQUENCY` must be wrapped in `INDEX(...)` because GridForge does not support spilled results.
+- Dynamic-array results spill from a formula anchor into empty cells, with blocking-cell, worksheet-boundary and cycle checks. Spill results are bounded to 20,000 cells; Excel array behavior, formula coverage and interoperability are not complete.
 - Legacy distribution and security pricing functions follow documented approximations and subsets; Excel coupon schedules and date conventions may differ.
 - `OFFSET` currently supports scalar 1×1 results; no spill arrays are implemented. Direct `HYPERLINK` formulas with safe HTTP/HTTPS/mailto targets or simple in-workbook cell references are clickable in the grid; unsupported schemes, named destinations, and nested `HYPERLINK` formulas remain text-only.
-- **v10 compatibility note:** Dynamic arrays (`FILTER`, `SORT`, `UNIQUE`, `SEQUENCE`, `TEXTSPLIT` etc.) produce in-memory matrices but do **not spill**; use `INDEX` to obtain one value.
-- **v10 compatibility note:** `BYROW`, `BYCOL`, `MAP`, `SCAN`, `REDUCE`, `MAKEARRAY`, `LET`, and `LAMBDA` have deliberately limited, safe syntax and do not execute full Excel LAMBDA expressions.
+- **v12 compatibility note:** Dynamic-array results spill when the function returns a matrix. Some functions still return scalars or have narrower Excel argument/coercion behavior; use `INDEX` when a single value is required.
+- **v12 compatibility note:** `BYROW`, `BYCOL`, `MAP`, `SCAN`, `REDUCE`, `MAKEARRAY`, `LET`, and `LAMBDA` support scoped formula expressions and worksheet-local, non-recursive named LAMBDAs. Workbook-global names, recursion, other higher-order functions, nested array results in callbacks, and Excel’s full coercion rules are not implemented.
 - **v10 compatibility note:** `IMAGE` returns an image label/text placeholder; `TRANSLATE` and `DETECTLANGUAGE` are restricted offline helpers; `FORECAST.ETS` is a linear trend approximation, not exponential triple smoothing.
 - See [v4 expansion guide](V4_FUNCTION_EXPANSION.md) and [v5 macro safety and functions](V5_FUNCTIONS_AND_MACROS.md) for details.

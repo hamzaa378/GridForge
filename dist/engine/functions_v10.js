@@ -3,6 +3,7 @@
  * Lambda-taking functions support explicit safe reducer names instead of executable lambda expressions.
  */
 import { SheetError, number, text, flatten } from './functions.js';
+import { excelDateSerial, excelSerialUtcDate } from './date_serial.js';
 const fail = (c, m) => { throw new SheetError(c, m); };
 const one = (d) => Array.isArray(d) ? fail('#VALUE!', 'Expected one cell rather than a range.') : d ?? null;
 const n = (a, i) => number(one(a[i]));
@@ -20,8 +21,236 @@ const positiveInt = (x, max = 20000) => Number.isSafeInteger(x) && x > 0 && x <=
 const guard = (r, c) => { if (r * c > 20000)
     fail('#NUM!', 'Array results are limited to 20,000 elements.'); };
 const scalar = (v) => v === null ? '' : String(v);
-const unixToSerial = (dt) => dt.getTime() / 86400000 + 25569;
-const date = (serial) => new Date(Math.round((serial - 25569) * 86400000));
+const forecastSeries = (valuesArg, timelineArg, dataCompletion = 1, aggregation = 0) => {
+    const values = flatten([valuesArg ?? null]), timeline = flatten([timelineArg ?? null]);
+    if (values.length !== timeline.length)
+        fail('#N/A', 'FORECAST.ETS values and timeline must have the same number of points.');
+    if (values.length < 2)
+        fail('#NUM!', 'FORECAST.ETS needs at least two observations.');
+    if (timeline.some(value => typeof value !== 'number' || !Number.isFinite(value) || value === 0))
+        fail('#VALUE!', 'FORECAST.ETS timeline must contain nonzero numeric values.');
+    const pairs = timeline.map((x, index) => {
+        const value = values[index];
+        if (value === null)
+            return { x: x, y: null, index };
+        if (typeof value !== 'number' && typeof value !== 'string' && !(typeof value === 'boolean' && aggregation === 3))
+            fail('#VALUE!', 'FORECAST.ETS values must be numbers, or text/booleans for COUNTA aggregation, or blank cells.');
+        if (typeof value === 'number' && !Number.isFinite(value))
+            fail('#VALUE!', 'FORECAST.ETS values must be finite numbers.');
+        return { x: x, y: value, index };
+    }).sort((a, b) => a.x - b.x || a.index - b.index);
+    const grouped = [];
+    for (let start = 0; start < pairs.length;) {
+        let end = start + 1;
+        while (end < pairs.length && pairs[end].x === pairs[start].x)
+            end++;
+        const bucket = pairs.slice(start, end), numbers = bucket.flatMap(point => typeof point.y === 'number' ? [point.y] : []);
+        let value = null;
+        if (bucket.length === 1)
+            value = bucket[0].y;
+        else
+            switch (aggregation) {
+                case 0:
+                    value = numbers.length ? avg(numbers) : null;
+                    break;
+                case 1:
+                    value = sum(numbers);
+                    break;
+                case 2:
+                    value = numbers.length;
+                    break;
+                case 3:
+                    value = bucket.filter(point => point.y !== null).length;
+                    break;
+                case 4:
+                    value = numbers.length ? numbers.reduce((best, value) => Math.min(best, value), Infinity) : null;
+                    break;
+                case 5:
+                    value = numbers.length ? numbers.reduce((best, value) => Math.max(best, value), -Infinity) : null;
+                    break;
+                case 6: {
+                    const sorted = [...numbers].sort((a, b) => a - b);
+                    value = !sorted.length ? null : sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+                    break;
+                }
+                default: fail('#VALUE!', 'FORECAST.ETS aggregation must be from zero to six.');
+            }
+        if (typeof value === 'string' || typeof value === 'boolean')
+            fail('#VALUE!', 'FORECAST.ETS cannot use text or booleans with the selected aggregation option.');
+        grouped.push({ x: pairs[start].x, y: value });
+        start = end;
+    }
+    if (grouped.length < 2)
+        fail('#NUM!', 'FORECAST.ETS needs at least two unique timeline points.');
+    const completedPairs = grouped;
+    const missing = completedPairs.filter(point => point.y === null).length;
+    if (missing / completedPairs.length > 0.3)
+        fail('#NUM!', 'FORECAST.ETS can complete no more than 30% missing values.');
+    if (missing) {
+        const known = completedPairs.flatMap((point, index) => point.y === null ? [] : [{ x: point.x, index, y: point.y }]);
+        for (let index = 0; index < completedPairs.length; index++)
+            if (completedPairs[index].y === null) {
+                if (dataCompletion === 0) {
+                    completedPairs[index].y = 0;
+                    continue;
+                }
+                let before, after;
+                for (const point of known) {
+                    if (point.index < index)
+                        before = point;
+                    else if (point.index > index) {
+                        after = point;
+                        break;
+                    }
+                }
+                const point = completedPairs[index];
+                point.y = !before ? after.y : !after ? before.y : before.y + (after.y - before.y) * (point.x - before.x) / (after.x - before.x);
+            }
+    }
+    const timelineNumbers = completedPairs.map(point => point.x), valuesNumbers = completedPairs.map(point => point.y);
+    if (valuesNumbers.length < 2)
+        fail('#NUM!', 'FORECAST.ETS needs at least two numeric observations.');
+    const pairsWithValues = completedPairs.map(point => ({ x: point.x, y: point.y }));
+    const differences = pairsWithValues.slice(1).map((point, index) => point.x - pairsWithValues[index].x);
+    const step = differences[0];
+    if (!(step > 0) || differences.some(value => Math.abs(value - step) > Math.max(1, Math.abs(step)) * 1e-9))
+        fail('#NUM!', 'FORECAST.ETS timeline must use a consistent nonzero step.');
+    const x = timelineNumbers, y = valuesNumbers, meanX = avg(x), meanY = avg(y), variance = sum(x.map(value => (value - meanX) ** 2));
+    if (variance === 0)
+        fail('#DIV/0!', 'FORECAST.ETS timeline has no variation.');
+    const slope = sum(x.map((value, index) => (value - meanX) * (y[index] - meanY))) / variance, intercept = meanY - slope * meanX, predicted = x.map(value => intercept + slope * value), residual = y.map((value, index) => value - predicted[index]);
+    return { x, y, step, slope, intercept, xMean: meanX, xVariance: variance, residual, mae: avg(residual.map(Math.abs)), rmse: Math.sqrt(avg(residual.map(value => value * value))) };
+};
+const validateForecastOptions = (args, seasonalityIndex, dataCompletionIndex, aggregationIndex) => {
+    if (args.length > seasonalityIndex) {
+        const seasonality = n(args, seasonalityIndex);
+        if (!Number.isInteger(seasonality) || seasonality < 0 || seasonality > 8760)
+            fail('#NUM!', 'FORECAST.ETS seasonality must be zero or a whole number up to 8,760.');
+    }
+    if (args.length > dataCompletionIndex) {
+        const completion = n(args, dataCompletionIndex);
+        if (completion !== 0 && completion !== 1)
+            fail('#VALUE!', 'FORECAST.ETS data_completion must be zero or one.');
+    }
+    if (args.length > aggregationIndex) {
+        const aggregation = n(args, aggregationIndex);
+        if (!Number.isInteger(aggregation) || aggregation < 0 || aggregation > 6)
+            fail('#VALUE!', 'FORECAST.ETS aggregation must be an integer from zero to six.');
+    }
+};
+const forecastSeasonality = (values) => {
+    if (values.length < 6)
+        return 0;
+    const differences = values.slice(1).map((value, index) => value - values[index]);
+    let bestLag = 0, bestCorrelation = -Infinity;
+    for (let lag = 2; lag <= Math.floor(values.length / 2); lag++) {
+        const left = differences.slice(lag), right = differences.slice(0, -lag), leftMean = avg(left), rightMean = avg(right), cov = sum(left.map((value, index) => (value - leftMean) * (right[index] - rightMean))), den = Math.sqrt(sum(left.map(value => (value - leftMean) ** 2)) * sum(right.map(value => (value - rightMean) ** 2)));
+        const correlation = den ? cov / den : 0;
+        if (correlation > bestCorrelation) {
+            bestCorrelation = correlation;
+            bestLag = lag;
+        }
+    }
+    return bestCorrelation >= 0.7 ? bestLag : 0;
+};
+const forecastEtsModel = (series, seasonalityOption) => {
+    const { x, y, step, slope, intercept } = series, period = seasonalityOption === 0 ? 0 : seasonalityOption === 1 ? forecastSeasonality(y) : seasonalityOption;
+    const linearFit = y.map((_, index) => intercept + slope * x[index]), linearResidual = y.map((value, index) => value - linearFit[index]);
+    const linear = () => ({ period: 0, startIndex: 0, alpha: null, beta: null, gamma: null, fitted: linearFit, residual: linearResidual, mae: avg(linearResidual.map(Math.abs)), rmse: Math.sqrt(avg(linearResidual.map(value => value * value))), forecastAt: steps => safe(intercept + slope * (x.at(-1) + steps * step)) });
+    if (period < 2 || period * 2 > y.length || y.length > 4000)
+        return linear();
+    let best;
+    const firstLevel = avg(y.slice(0, period)), secondLevel = avg(y.slice(period, period * 2));
+    for (const alpha of [.1, .3, .5, .7, .9])
+        for (const beta of [.1, .3, .5, .7, .9])
+            for (const gamma of [.1, .3, .5, .7, .9]) {
+                let level = firstLevel, trend = (secondLevel - firstLevel) / period, seasonals = y.slice(0, period).map(value => value - firstLevel), sse = 0;
+                const fitted = Array(y.length).fill(NaN), residual = [];
+                for (let index = period; index < y.length; index++) {
+                    const phase = index % period, estimate = level + trend + seasonals[phase], error = y[index] - estimate;
+                    fitted[index] = estimate;
+                    residual.push(error);
+                    sse += error * error;
+                    const nextLevel = alpha * (y[index] - seasonals[phase]) + (1 - alpha) * (level + trend), nextTrend = beta * (nextLevel - level) + (1 - beta) * trend;
+                    seasonals[phase] = gamma * (y[index] - nextLevel) + (1 - gamma) * seasonals[phase];
+                    level = nextLevel;
+                    trend = nextTrend;
+                }
+                if (!best || sse < best.sse)
+                    best = { alpha, beta, gamma, level, trend, seasonals, fitted, residual, sse };
+            }
+    if (!best || !Number.isFinite(best.sse))
+        return linear();
+    const fit = best, phaseAt = (steps) => ((y.length + Math.max(1, Math.ceil(steps)) - 1) % period + period) % period;
+    return { period, startIndex: period, alpha: fit.alpha, beta: fit.beta, gamma: fit.gamma, fitted: fit.fitted, residual: fit.residual, mae: avg(fit.residual.map(Math.abs)), rmse: Math.sqrt(avg(fit.residual.map(value => value * value))), forecastAt: steps => safe(fit.level + fit.trend * steps + fit.seasonals[phaseAt(steps)]) };
+};
+// Acklam's rational approximation to the standard-normal quantile. This is
+// used to scale uncertainty around GridForge's bounded ETS approximation.
+const normalQuantile = (p) => {
+    if (!(p > 0 && p < 1))
+        fail('#NUM!', 'Probability must be strictly between zero and one.');
+    const a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.383577518672690e2, -3.066479806614716e1, 2.506628277459239];
+    const b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
+    const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+    const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+    const low = 0.02425, high = 1 - low;
+    if (p < low) {
+        const q = Math.sqrt(-2 * Math.log(p));
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+    }
+    if (p > high) {
+        const q = Math.sqrt(-2 * Math.log(1 - p));
+        return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+    }
+    const q = p - 0.5, r = q * q;
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+};
+const filterXml = (source, path) => {
+    if (source.length > 1_000_000 || path.length > 1024)
+        fail('#VALUE!', 'FILTERXML input exceeds the supported size.');
+    if (typeof DOMParser !== 'undefined') {
+        const document = new DOMParser().parseFromString(source, 'application/xml');
+        if (document.getElementsByTagName('parsererror').length)
+            fail('#VALUE!', 'FILTERXML source is not well-formed XML.');
+        let result;
+        try {
+            result = document.evaluate(path, document, document.createNSResolver(document.documentElement), XPathResult.ANY_TYPE, null);
+        }
+        catch {
+            fail('#VALUE!', 'FILTERXML XPath expression is invalid or unsupported.');
+        }
+        if (result.resultType === XPathResult.NUMBER_TYPE)
+            return result.numberValue;
+        if (result.resultType === XPathResult.STRING_TYPE)
+            return result.stringValue;
+        if (result.resultType === XPathResult.BOOLEAN_TYPE)
+            return result.booleanValue;
+        const values = [];
+        try {
+            let node;
+            while ((node = result.iterateNext())) {
+                if (values.length >= 20_000)
+                    fail('#VALUE!', 'FILTERXML result is limited to 20,000 values.');
+                values.push(node.textContent ?? '');
+            }
+        }
+        catch {
+            fail('#VALUE!', 'FILTERXML XPath expression could not be evaluated.');
+        }
+        if (!values.length)
+            fail('#VALUE!', 'FILTERXML XPath expression did not match any values.');
+        return values.map(value => [value]);
+    }
+    const tag = path.replace(/^\/\/?/, '').replace(/[^\w:-]/g, '');
+    if (!tag)
+        fail('#VALUE!', 'Use an XPath such as //item.');
+    const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)<\\/${tag}>`, 'i').exec(source);
+    if (!match)
+        return fail('#VALUE!', 'Matching XML tag not found.');
+    return match[1];
+};
+const unixToSerial = (dt) => excelDateSerial(dt.toISOString()) ?? NaN;
+const date = (serial) => excelSerialUtcDate(serial);
 const months = (serial) => { const d = date(serial); return d.getUTCFullYear() * 12 + d.getUTCMonth(); };
 const dayCount = (a, b, basis = 0) => {
     if (![0, 1, 2, 3, 4].includes(basis))
@@ -387,10 +616,17 @@ export function buildV10Functions(existing) {
     } return out; };
     add('Text', ['BAHTTEXT'], 'Write nonnegative baht and satang amounts in Thai words (six digits max).', (_, a) => { req(a, 1); const x = n(a, 0), baht = Math.floor(x), satang = Math.round((x - baht) * 100); if (x < 0)
         fail('#NUM!', 'BAHTTEXT requires a nonnegative amount.'); return thaiNum(baht) + 'บาท' + (satang === 0 ? 'ถ้วน' : thaiNum(satang) + 'สตางค์'); });
-    add('Information', ['INFO'], 'Return limited spreadsheet runtime information (no operating-system inspection).', (_, a) => { req(a, 1); const type = s(a, 0).toLowerCase(); if (type === 'system')
-        return 'web'; if (type === 'release')
-        return 'GridForge 10'; if (type === 'numfile')
-        return 1; return fail('#VALUE!', 'Unsupported INFO type.'); });
+    add('Information', ['INFO'], 'Return the modeled Excel-compatible runtime information for this workbook.', (_, a) => { req(a, 1); const type = s(a, 0).toLowerCase(); if (type === 'system') {
+        const agent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+        if (/Windows/i.test(agent))
+            return 'pcdos';
+        if (/Macintosh|Mac OS X/i.test(agent))
+            return 'mac';
+        return 'web';
+    } if (type === 'release')
+        return '16.0'; if (type === 'numfile')
+        return 1; if (type === 'recalc')
+        return 'Automatic'; return fail('#VALUE!', 'Unsupported INFO type.'); });
     add('Information', ['SHEET', 'SHEETS'], 'Return a worksheet position or the number of worksheets in the workbook; reference arguments support one worksheet at a time.', (name, a) => { req(a, 0, 1); return 1; });
     // Bessel series and numerical integration, bounded for browser responsiveness.
     const factorial = (k) => Math.exp(lgamma(k + 1));
@@ -465,58 +701,50 @@ export function buildV10Functions(existing) {
         const percentileName = code === 16 ? 'PERCENTILE.INC' : code === 17 ? 'QUARTILE.INC' : code === 18 ? 'PERCENTILE.EXC' : 'QUARTILE.EXC';
         return call(percentileName, [a[2], a[3]]);
     });
-    // Offline-safe data helpers. LAMBDA-dependent functions deliberately support named aggregators
-    // rather than arbitrary Excel lambda programs (see the function compatibility guide).
-    const aggregator = (name, data) => { const vals = data.filter((v) => typeof v === 'number' && Number.isFinite(v)); switch (name.toUpperCase()) {
-        case 'SUM': return sum(vals);
-        case 'AVERAGE': return avg(vals);
-        case 'COUNT': return vals.length;
-        case 'COUNTA': return data.filter(present).length;
-        case 'MAX': return vals.length ? Math.max(...vals) : 0;
-        case 'MIN': return vals.length ? Math.min(...vals) : 0;
-        case 'PRODUCT': return vals.reduce((p, v) => p * v, 1);
-        default: return fail('#NAME?', 'Expected a supported aggregate label: SUM, AVERAGE, COUNT, COUNTA, MAX, MIN or PRODUCT.');
-    } };
-    add('Lookup & Reference', ['BYROW', 'BYCOL'], 'Apply a named aggregate to every row or column (limited alternative to Excel LAMBDA).', (name, a) => { req(a, 2); const m = matrix(a, 0), operation = s(a, 1); return name === 'BYROW' ? m.map(row => [aggregator(operation, row)]) : [m[0].map((_, i) => aggregator(operation, m.map(r => r[i] ?? null)))]; }, '=INDEX(BYROW(A1:B3,"SUM"),1,1)');
-    add('Lookup & Reference', ['MAKEARRAY'], 'Generate an array by named coordinate operation (limited Lambda alternative).', (_, a) => { req(a, 3); const rows = positiveInt(n(a, 0), 200), cols = positiveInt(n(a, 1), 200), op = s(a, 2).toUpperCase(); guard(rows, cols); return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => op === 'ROW' ? r + 1 : op === 'COLUMN' ? c + 1 : op === 'SUM' ? (r + c + 2) : op === 'PRODUCT' ? (r + 1) * (c + 1) : fail('#NAME?', 'Supported MAKEARRAY operations: ROW, COLUMN, SUM, PRODUCT.'))); });
-    add('Lookup & Reference', ['MAP'], 'Map safe unary operations across an array; no code execution.', (_, a) => { req(a, 2); const m = matrix(a, 0), op = s(a, 1).toUpperCase(); return m.map(row => row.map(v => { if (op === 'UPPER')
-        return text(v).toUpperCase(); if (op === 'LOWER')
-        return text(v).toLowerCase(); if (op === 'TRIM')
-        return text(v).trim(); const x = number(v); if (op === 'ABS')
-        return Math.abs(x); if (op === 'SQRT')
-        return Math.sqrt(x); if (op === 'NEGATE')
-        return -x; return fail('#NAME?', 'Unsupported MAP operation.'); })); });
-    add('Lookup & Reference', ['REDUCE', 'SCAN'], 'Reduce or accumulate array values using a named arithmetic operation.', (name, a) => { req(a, 3); const initial = n(a, 0), values = nums(a[1]), op = s(a, 2).toUpperCase(); let state = initial; const accum = values.map(v => { if (op === 'SUM')
-        state += v;
-    else if (op === 'PRODUCT')
-        state *= v;
-    else if (op === 'MAX')
-        state = Math.max(state, v);
-    else if (op === 'MIN')
-        state = Math.min(state, v);
-    else
-        fail('#NAME?', 'Supported reducers: SUM, PRODUCT, MAX, MIN.'); return state; }); return name === 'SCAN' ? accum.map(v => [v]) : state; });
+    // Workbook evaluates LAMBDA expressions in a scoped formula context; these
+    // definitions validate non-lambda calls and provide metadata for the library.
+    add('Lookup & Reference', ['BYROW', 'BYCOL'], 'Apply a scoped LAMBDA to each row or column and return one result per row or column.', (_, a) => { req(a, 2); return fail('#VALUE!', 'BYROW and BYCOL require a LAMBDA expression.'); }, '=BYROW(A1:B3,LAMBDA(row,SUM(row)))');
+    add('Lookup & Reference', ['MAKEARRAY'], 'Generate an array by invoking a two-parameter LAMBDA for each row and column.', (_, a) => { req(a, 3); return fail('#VALUE!', 'MAKEARRAY requires a LAMBDA expression.'); }, '=MAKEARRAY(3,2,LAMBDA(row,col,row*col))');
+    add('Lookup & Reference', ['MAP'], 'Map one or more arrays with a LAMBDA and return a same-sized result array.', (_, a) => { req(a, 2); return fail('#VALUE!', 'MAP requires a LAMBDA expression as its final argument.'); }, '=MAP(A1:A3,LAMBDA(value,value*2))');
+    add('Lookup & Reference', ['REDUCE', 'SCAN'], 'Reduce an array or return intermediate accumulator values using a LAMBDA.', (name, a) => { req(a, 3); return fail('#VALUE!', `${name} requires a LAMBDA expression as its final argument.`); }, '=SCAN(0,A1:A3,LAMBDA(total,value,total+value))');
     add('Lookup & Reference', ['LET'], 'Evaluate local name/value bindings and a final calculation; bindings are resolved by the workbook formula evaluator.', () => fail('#INTERNAL!', 'LET is evaluated with local workbook formula bindings.'), '=LET(rate,0.08,amount,100,amount*rate)');
-    add('Lookup & Reference', ['LAMBDA'], 'Limited formula descriptor: returns last scalar argument, without executing code.', (_, a) => { req(a, 1, 16); return one(a[a.length - 1]); });
-    add('Information', ['ISOMITTED'], 'True for an omitted optional argument, represented as a blank.', (_, a) => { req(a, 1); return !present(one(a[0])); });
-    add('Statistical', ['FORECAST.ETS', 'FORECAST.ETS.CONFINT', 'FORECAST.ETS.SEASONALITY', 'FORECAST.ETS.STAT'], 'Offline trend forecast with linear smoothing; not full ETS exponential smoothing.', (name, a) => { req(a, name === 'FORECAST.ETS.SEASONALITY' || name === 'FORECAST.ETS.STAT' ? 2 : 3, 6); const target = n(a, 0), ys = nums(a[1]), xs = nums(a[2] ?? a[1]); if (xs.length !== ys.length || xs.length < 2)
-        fail('#N/A', 'Forecast needs matching series with two observations.'); const mx = avg(xs), my = avg(ys), den = sum(xs.map(v => (v - mx) ** 2)); if (den === 0)
-        fail('#DIV/0!', 'Timeline has no variation.'); const slope = sum(xs.map((v, i) => (v - mx) * (ys[i] - my))) / den, intercept = my - slope * mx, fit = xs.map(x => intercept + slope * x), rmse = Math.sqrt(avg(ys.map((v, i) => (v - fit[i]) ** 2))); if (name === 'FORECAST.ETS.SEASONALITY')
-        return 1; if (name === 'FORECAST.ETS.CONFINT')
-        return 1.96 * rmse; if (name === 'FORECAST.ETS.STAT')
-        return rmse; return intercept + slope * target; });
-    add('Database', ['GROUPBY', 'PIVOTBY'], 'Simple grouped sum over labels (array result, no pivot totals).', (name, a) => { req(a, name === 'GROUPBY' ? 3 : 4); const labels = matrix(a, 0).flat(), secondary = name === 'PIVOTBY' ? matrix(a, 1).flat() : null, values = nums(a[name === 'PIVOTBY' ? 2 : 1]), operation = s(a, name === 'PIVOTBY' ? 3 : 2).toUpperCase(); if (labels.length !== values.length || secondary && secondary.length !== labels.length)
-        fail('#VALUE!', 'Grouping columns must align with values.'); const groups = new Map(); labels.forEach((v, i) => { const other = secondary?.[i] ?? null, key = JSON.stringify([v, other]); if (!groups.has(key))
-        groups.set(key, { label: v, second: other, values: [] }); groups.get(key).values.push(values[i]); }); return [...groups.values()].map(g => name === 'PIVOTBY' ? [g.label, g.second, aggregator(operation, g.values)] : [g.label, aggregator(operation, g.values)]); });
+    add('Lookup & Reference', ['LAMBDA'], 'Create a scoped calculation for supported lambda-aware functions or a worksheet-local defined name.', (_, a) => { req(a, 2, 254); return fail('#CALC!', 'A LAMBDA must be invoked or passed to a lambda-aware function.'); }, '=MAP(A1:A3,LAMBDA(value,value*2))');
+    add('Information', ['ISOMITTED'], 'Check whether an optional parameter was omitted when a LAMBDA was invoked.', (_, a) => { req(a, 1); return fail('#VALUE!', 'ISOMITTED requires a LAMBDA parameter.'); }, '=LAMBDA(value,optional,ISOMITTED(optional))(1,)');
+    add('Statistical', ['FORECAST.ETS'], 'Bounded additive triple-exponential smoothing for seasonal series; nonseasonal, short, or oversized data fall back to linear regression. Blank values honor data_completion.', (_, a) => { req(a, 3, 6); validateForecastOptions(a, 3, 4, 5); const target = n(a, 0), series = forecastSeries(a[1], a[2], a.length >= 5 ? n(a, 4) : 1, a.length >= 6 ? n(a, 5) : 0); if (target < series.x.at(-1))
+        fail('#NUM!', 'FORECAST.ETS target date cannot precede the timeline end.'); const model = forecastEtsModel(series, a.length >= 4 ? n(a, 3) : 1); return model.forecastAt((target - series.x.at(-1)) / series.step); }, '=FORECAST.ETS(14,B1:B12,A1:A12)');
+    add('Statistical', ['FORECAST.ETS.CONFINT'], 'Confidence-scaled interval estimate for the bounded additive ETS model; linear fallback and approximate uncertainty remain. Blank values honor data_completion.', (_, a) => { req(a, 3, 7); validateForecastOptions(a, 4, 5, 6); const target = n(a, 0), series = forecastSeries(a[1], a[2], a.length >= 6 ? n(a, 5) : 1, a.length >= 7 ? n(a, 6) : 0); if (target < series.x.at(-1))
+        fail('#NUM!', 'FORECAST.ETS.CONFINT target date cannot precede the timeline end.'); const confidence = a.length >= 4 ? n(a, 3) : 0.95; if (!(confidence > 0 && confidence < 1))
+        fail('#NUM!', 'Confidence level must be greater than zero and less than one.'); const model = forecastEtsModel(series, a.length >= 5 ? n(a, 4) : 1), steps = Math.max(1, (target - series.x.at(-1)) / series.step), leverage = 1 + 1 / series.x.length + ((target - series.xMean) ** 2 / series.xVariance); return safe(normalQuantile((1 + confidence) / 2) * model.rmse * Math.sqrt(steps * leverage)); }, '=FORECAST.ETS.CONFINT(14,B1:B12,A1:A12)');
+    add('Statistical', ['FORECAST.ETS.SEASONALITY'], 'Estimate a repeated cycle length from equally spaced observations; returns zero when no strong cycle is detected. Blank values honor data_completion.', (_, a) => { req(a, 2, 4); if (a.length >= 3 && ![0, 1].includes(n(a, 2)))
+        fail('#VALUE!', 'Data completion must be zero or one.'); if (a.length >= 4) {
+        const aggregation = n(a, 3);
+        if (!Number.isInteger(aggregation) || aggregation < 0 || aggregation > 6)
+            fail('#VALUE!', 'Aggregation must be an integer from zero to six.');
+    } const forecast = forecastSeries(a[0], a[1], a.length >= 3 ? n(a, 2) : 1, a.length >= 4 ? n(a, 3) : 0); return forecastSeasonality(forecast.y); }, '=FORECAST.ETS.SEASONALITY(B1:B24,A1:A24)');
+    add('Statistical', ['FORECAST.ETS.STAT'], 'Return statistics from the bounded additive ETS approximation; smoothing coefficients are exposed when a seasonal model fits. Blank values honor data_completion.', (_, a) => { req(a, 3, 6); validateForecastOptions(a, 3, 4, 5); const statistic = n(a, 2); if (!Number.isInteger(statistic) || statistic < 1 || statistic > 8)
+        fail('#NUM!', 'Statistic type must be an integer from 1 to 8.'); const series = forecastSeries(a[0], a[1], a.length >= 5 ? n(a, 4) : 1, a.length >= 6 ? n(a, 5) : 0), model = forecastEtsModel(series, a.length >= 4 ? n(a, 3) : 1); switch (statistic) {
+        case 1: return model.alpha ?? fail('#N/A', 'No seasonal smoothing coefficient is available for the linear fallback.');
+        case 2: return model.beta ?? fail('#N/A', 'No seasonal smoothing coefficient is available for the linear fallback.');
+        case 3: return model.gamma ?? fail('#N/A', 'No seasonal smoothing coefficient is available for the linear fallback.');
+        case 4: {
+            const scale = avg(series.y.slice(1).map((value, index) => Math.abs(value - series.y[index])));
+            return scale ? model.mae / scale : fail('#DIV/0!', 'MASE is unavailable for a constant series.');
+        }
+        case 5: {
+            const actuals = series.y.slice(model.startIndex);
+            return avg(model.residual.map((error, index) => { const actual = actuals[index], predicted = actual - error, den = Math.abs(actual) + Math.abs(predicted); return den ? 2 * Math.abs(error) / den : 0; }));
+        }
+        case 6: return model.mae;
+        case 7: return model.rmse;
+        default: return series.step;
+    } }, '=FORECAST.ETS.STAT(B1:B12,A1:A12,7)');
+    add('Database', ['GROUPBY', 'PIVOTBY'], 'Formula-based grouping, aggregation, filtering, sorting, and grand totals; the workbook evaluator handles their array and LAMBDA arguments.', (name, a) => { req(a, name === 'GROUPBY' ? 3 : 4); return fail('#VALUE!', `${name} requires workbook-context array evaluation.`); }, '=GROUPBY(A2:A8,B2:B8,SUM)');
     add('Lookup & Reference', ['FLATTEN'], 'Flatten a rectangular array into one column (newer Excel beta-style convenience).', (_, a) => { req(a, 1); return matrix(a, 0).flat().map(v => [v]); });
     add('Logical', ['ISBETWEEN'], 'Test whether a number falls within inclusive or exclusive bounds.', (_, a) => { req(a, 3, 4); const value = n(a, 0), lo = n(a, 1), hi = n(a, 2), inclusive = a.length > 3 ? bool(one(a[3])) : true; return inclusive ? value >= lo && value <= hi : value > lo && value < hi; });
     add('Financial', ['EUROCONVERT'], 'Convert historic euro fixed-rate currencies (legacy Excel feature).', (_, a) => { req(a, 3, 5); const amount = n(a, 0), from = s(a, 1).toUpperCase(), to = s(a, 2).toUpperCase(); const rates = { EUR: 1, ATS: 13.7603, BEF: 40.3399, DEM: 1.95583, ESP: 166.386, FIM: 5.94573, FRF: 6.55957, IEP: .787564, ITL: 1936.27, LUF: 40.3399, NLG: 2.20371, PTE: 200.482, GRD: 340.750 }; if (!(from in rates) || !(to in rates))
         fail('#VALUE!', 'Unsupported historical euro currency.'); return amount / rates[from] * rates[to]; });
-    add('Information', ['FIELDVALUE'], 'Extract a field from a key=value string (no linked Excel data types).', (_, a) => { req(a, 2); const source = s(a, 0), field = s(a, 1); const found = source.split(';').find(part => part.trim().toLowerCase().startsWith(field.toLowerCase() + '=')); if (!found)
-        return fail('#FIELD!', 'Field is unavailable in simple text input.'); return found.slice(found.indexOf('=') + 1).trim(); });
-    add('Text', ['FILTERXML'], 'Extract first tag text from a simple XML snippet (limited XML XPath selector).', (_, a) => { req(a, 2); const src = s(a, 0), tag = s(a, 1).replace(/^\/?\/?/, '').replace(/[^\w:-]/g, ''); if (!tag)
-        fail('#VALUE!', 'Use an XML tag name such as item.'); const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)<\\/${tag}>`, 'i').exec(src); if (!match)
-        return fail('#VALUE!', 'Matching tag not found.'); return match[1]; });
+    add('Information', ['FIELDVALUE'], 'Read a field from a linked Excel data type (linked data types are not available in GridForge).', (_, a) => { req(a, 2); return fail('#FIELD!', 'The value does not contain a supported linked data type.'); });
+    add('Text', ['FILTERXML'], 'Evaluate bounded XPath queries against offline XML; node selections spill as a vertical list when the host provides a DOM parser.', (_, a) => { req(a, 2); return filterXml(s(a, 0), s(a, 1)); });
     add('Information', ['DETECTLANGUAGE'], 'Detect a few languages offline from written characters; unsupported text returns und.', (_, a) => { req(a, 1); const v = s(a, 0); if (/[\u0900-\u097F]/.test(v))
         return 'hi'; if (/[\u0E00-\u0E7F]/.test(v))
         return 'th'; if (/[\u3040-\u30FF]/.test(v))
@@ -527,7 +755,6 @@ export function buildV10Functions(existing) {
         fail('#N/A', 'This offline dictionary cannot translate the requested text or language.'); return dictionary[key][to]; });
     add('Information', ['IMAGE'], 'Return safe image URL as a text placeholder (GridForge cell image objects not supported).', (_, a) => { req(a, 1, 5); const value = s(a, 0); if (!/^https:\/\//i.test(value))
         fail('#VALUE!', 'IMAGE requires an HTTPS URL.'); return a.length > 1 ? s(a, 1) || value : value; });
-    add('Database', ['CUBESETCOUNT'], 'Count delimited members in a text set; OLAP connection not supported.', (_, a) => { req(a, 1); const value = s(a, 0).trim(); return value ? value.split(',').filter(Boolean).length : 0; });
     // External/network Excel functions are deliberately not registered: no false claim of live data services.
     return f;
 }

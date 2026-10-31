@@ -1,5 +1,7 @@
+import { localeNumberSeparators, parseLocaleCurrencyText, parseLocaleNumberText } from './locale_number.js';
+import { splitTrailingDateTimeText } from './time_text.js';
 import { moreFunctions } from './functions_extra.js';
-import { v5Functions, v5FunctionNames, v5Categories } from './functions_v5.js';
+import { v5Functions, v5FunctionNames, v5Categories, parseExcelDateValue, parseExcelTimeValue } from './functions_v5.js';
 import { v6Functions, v6FunctionNames, v6Categories } from './functions_v6.js';
 import { v9Functions, v9Aliases, v9FunctionNames, v9Categories } from './functions_v9.js';
 import { buildV10Functions, v10Categories } from './functions_v10.js';
@@ -41,6 +43,12 @@ const scalar = (x) => {
     return x ?? null;
 };
 const at = (xs, idx) => scalar(xs[idx]);
+// Excel treats a criteria argument that refers to an empty cell as numeric 0.
+// Keep this local to criteria functions; lookup functions still need true blanks.
+const criteriaValue = (xs, idx) => {
+    const value = at(xs, idx);
+    return value === null ? 0 : value;
+};
 const nums = (xs) => flatten(xs).filter((x) => typeof x === 'number' && Number.isFinite(x));
 const want = (xs, min, max = Infinity) => { if (xs.length < min || xs.length > max)
     error('#ARG!', `Expected ${min}${max === min ? '' : `–${Number.isFinite(max) ? max : 'more'}`} arguments; got ${xs.length}.`); };
@@ -48,6 +56,11 @@ const result = (n) => Number.isFinite(n) ? n : error('#NUM!', 'Calculation produ
 const numericArg = (xs, i) => number(at(xs, i));
 const nonEmpty = (x) => x !== null && x !== '';
 const sortNums = (xs) => nums(xs).sort((a, b) => a - b);
+const multipleRound = (value, significance, direction) => {
+    const quotient = value / significance, nearest = Math.round(quotient), tolerance = Number.EPSILON * Math.max(1, Math.abs(quotient)) * 4;
+    const stableQuotient = Math.abs(quotient - nearest) <= tolerance ? nearest : quotient;
+    return result((direction === 'up' ? Math.ceil(stableQuotient) : Math.floor(stableQuotient)) * significance);
+};
 export function matchCriterion(v, criterion) {
     const c = text(criterion);
     const m = /^(<=|>=|<>|!=|=|<|>)(.*)$/.exec(c);
@@ -73,8 +86,28 @@ export function matchCriterion(v, criterion) {
         const hit = new RegExp(pattern + '$', 'i').test(v);
         return op === '=' ? hit : !hit;
     }
-    const aNum = Number(v), bNum = Number(operand);
-    const numeric = v !== null && v !== '' && operand !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
+    const aNum = Number(v);
+    let bNum = Number(operand);
+    let numeric = v !== null && v !== '' && operand !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
+    if (!numeric && typeof v === 'number' && operand.trim() && !/[*?~]/.test(operand)) {
+        const candidate = localeNumberSeparators().normalizeDigits(operand.trim()), dateLike = /^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{1,4})?|\d{1,2}\s+[\p{L}.]{2,16}(?:,?\s+\d{2,4})?|[\p{L}.]{2,16}\s+\d{1,2}(?:,?\s+\d{2,4})?)$/u.test(candidate), timeLike = candidate.includes(':');
+        try {
+            const dateTime = splitTrailingDateTimeText(candidate);
+            if (dateTime) {
+                bNum = parseExcelDateValue(dateTime[0]) + parseExcelTimeValue(dateTime[1]);
+                numeric = Number.isFinite(bNum);
+            }
+            else if (dateLike) {
+                bNum = parseExcelDateValue(candidate);
+                numeric = Number.isFinite(bNum);
+            }
+            else if (timeLike) {
+                bNum = parseExcelTimeValue(candidate);
+                numeric = Number.isFinite(bNum);
+            }
+        }
+        catch { /* Keep ordinary text criteria on the text comparison path. */ }
+    }
     const cmp = numeric ? Math.sign(aNum - bNum) : text(v).toLowerCase().localeCompare(operand.toLowerCase());
     switch (op) {
         case '=': return cmp === 0;
@@ -105,7 +138,7 @@ export const functions = {
     AVERAGE: D('Arithmetic mean of numeric values.', '=AVERAGE(B1:B8)', a => { const n = nums(a); return n.length ? result(n.reduce((s, x) => s + x, 0) / n.length) : error('#DIV/0!', 'AVERAGE has no numeric values.'); }),
     MIN: D('Smallest numeric value.', '=MIN(A1:A10)', a => { const n = nums(a); return n.length ? Math.min(...n) : 0; }),
     MAX: D('Largest numeric value.', '=MAX(A1:A10)', a => { const n = nums(a); return n.length ? Math.max(...n) : 0; }),
-    COUNT: D('Count numeric cells.', '=COUNT(A1:A10)', a => nums(a).length),
+    COUNT: D('Count numeric cells and numeric text or logical values passed directly; text and errors in ranges are ignored.', '=COUNT(A1:A10)', a => a.reduce((count, argument) => count + (Array.isArray(argument) ? flatten([argument]).filter(value => typeof value === 'number' && Number.isFinite(value)).length : typeof argument === 'number' || typeof argument === 'boolean' || typeof argument === 'string' && parseLocaleNumberText(argument) !== null ? 1 : 0), 0)),
     COUNTA: D('Count nonempty values, including empty text and errors.', '=COUNTA(A1:A10)', a => flatten(a).filter(x => x !== null).length),
     COUNTBLANK: D('Count blank cells in a range.', '=COUNTBLANK(A1:A10)', a => flatten(a).filter(x => !nonEmpty(x)).length),
     MEDIAN: D('Median of numeric values.', '=MEDIAN(A1:A10)', a => { const n = sortNums(a); return n.length ? n.length % 2 ? n[(n.length - 1) / 2] : (n[n.length / 2 - 1] + n[n.length / 2]) / 2 : error('#NUM!', 'MEDIAN has no numeric values.'); }),
@@ -118,8 +151,9 @@ export const functions = {
     POWER: D('Exponentiation.', '=POWER(2,8)', a => { want(a, 2, 2); return result(numericArg(a, 0) ** numericArg(a, 1)); }),
     MOD: D('Remainder after division.', '=MOD(17,5)', a => { want(a, 2, 2); const d = numericArg(a, 1); return d === 0 ? error('#DIV/0!', 'Cannot divide by zero.') : result(((numericArg(a, 0) % d) + d) % d); }),
     INT: D('Round down to an integer.', '=INT(3.9)', a => { want(a, 1, 1); return Math.floor(numericArg(a, 0)); }),
-    CEILING: D('Round up to a multiple.', '=CEILING(13,5)', a => { want(a, 1, 2); const s = a.length === 1 ? 1 : numericArg(a, 1); return s === 0 ? 0 : result(Math.ceil(numericArg(a, 0) / s) * s); }),
-    FLOOR: D('Round down to a multiple.', '=FLOOR(13,5)', a => { want(a, 1, 2); const s = a.length === 1 ? 1 : numericArg(a, 1); return s === 0 ? 0 : result(Math.floor(numericArg(a, 0) / s) * s); }),
+    CEILING: D('Round up to a multiple.', '=CEILING(13,5)', a => { want(a, 1, 2); const s = a.length === 1 ? 1 : numericArg(a, 1); return s === 0 ? 0 : multipleRound(numericArg(a, 0), s, 'up'); }),
+    FLOOR: D('Round down to a multiple.', '=FLOOR(13,5)', a => { want(a, 1, 2); const value = numericArg(a, 0), s = a.length === 1 ? 1 : numericArg(a, 1); if (value !== 0 && s !== 0 && Math.sign(value) !== Math.sign(s))
+        return error('#NUM!', 'FLOOR requires number and significance to have the same sign.'); return s === 0 ? 0 : multipleRound(value, s, 'down'); }),
     SIGN: D('Sign of a number.', '=SIGN(-4)', a => { want(a, 1, 1); return Math.sign(numericArg(a, 0)); }),
     EXP: D('Exponential e raised to x.', '=EXP(1)', a => { want(a, 1, 1); return result(Math.exp(numericArg(a, 0))); }),
     LN: D('Natural logarithm.', '=LN(10)', a => { want(a, 1, 1); return result(Math.log(numericArg(a, 0))); }),
@@ -138,7 +172,29 @@ export const functions = {
     SEARCH: D('Find substring, case-insensitive.', '=SEARCH("A","cable")', a => { want(a, 2, 3); const atIndex = text(at(a, 1)).toLowerCase().indexOf(text(at(a, 0)).toLowerCase(), a.length === 3 ? Math.max(0, numericArg(a, 2) - 1) : 0); return atIndex >= 0 ? atIndex + 1 : error('#VALUE!', 'Text not found.'); }),
     SUBSTITUTE: D('Replace all matching substrings.', '=SUBSTITUTE(A1,"old","new")', a => { want(a, 3, 3); const s = text(at(a, 0)), find = text(at(a, 1)); return find ? s.split(find).join(text(at(a, 2))) : s; }),
     EXACT: D('Compare two strings with case sensitivity.', '=EXACT(A1,B1)', a => { want(a, 2, 2); return text(at(a, 0)) === text(at(a, 1)); }),
-    VALUE: D('Convert numeric text to a number.', '=VALUE("4.5")', a => { want(a, 1, 1); return number(at(a, 0)); }),
+    VALUE: D('Convert locale-formatted numbers, currency, dates, and times from text.', '=VALUE("$1,000")', a => { want(a, 1, 1); const value = at(a, 0); if (typeof value === 'string') {
+        if (!value.trim())
+            return error('#VALUE!', 'VALUE could not parse empty text.');
+        const parsed = parseLocaleNumberText(value) ?? parseLocaleCurrencyText(value);
+        if (parsed !== null)
+            return parsed;
+        const normalized = localeNumberSeparators().normalizeDigits(value.normalize('NFKC')).trim(), dateTime = /^(.+?)[ T]+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)$/i.exec(normalized);
+        if (dateTime)
+            try {
+                return parseExcelDateValue(dateTime[1]) + parseExcelTimeValue(dateTime[2]);
+            }
+            catch { }
+        try {
+            return parseExcelTimeValue(normalized);
+        }
+        catch { }
+        try {
+            return parseExcelDateValue(normalized);
+        }
+        catch {
+            return error('#VALUE!', `VALUE could not parse '${value}' using the current locale.`);
+        }
+    } return number(value); }),
     IF: D('Choose one of two branches lazily.', '=IF(A1>10,"high","low")', () => error('#INTERNAL!', 'IF is evaluated lazily by the evaluator.')),
     IFERROR: D('Fallback on a formula evaluation error.', '=IFERROR(A1/B1,0)', () => error('#INTERNAL!', 'IFERROR is evaluated lazily by the evaluator.')),
     AND: D('True if all conditions are true.', '=AND(A1>0,B1>0)', a => flatten(a).every(bool)),
@@ -147,11 +203,11 @@ export const functions = {
     ISNUMBER: D('Check if a value is numeric.', '=ISNUMBER(A1)', a => { want(a, 1, 1); return typeof at(a, 0) === 'number'; }),
     ISTEXT: D('Check if a value contains text.', '=ISTEXT(A1)', a => { want(a, 1, 1); return typeof at(a, 0) === 'string'; }),
     ISBLANK: D('Check if a cell is truly empty (a formula returning "" is not blank).', '=ISBLANK(A1)', a => { want(a, 1, 1); return at(a, 0) === null; }),
-    SUMIF: D('Sum values matching a criterion.', '=SUMIF(A1:A5,">10",B1:B5)', a => { want(a, 2, 3); const range = flatten([a[0]]), sumRange = a.length === 3 ? flatten([a[2]]) : range; if (range.length !== sumRange.length)
-        return error('#VALUE!', 'SUMIF ranges must have the same size.'); return result(range.reduce((s, x, i) => s + (matchCriterion(x, at(a, 1)) && typeof sumRange[i] === 'number' ? sumRange[i] : 0), 0)); }),
-    COUNTIF: D('Count cells matching a criterion.', '=COUNTIF(A1:A10,">10")', a => { want(a, 2, 2); return flatten([a[0]]).filter(x => matchCriterion(x, at(a, 1))).length; }),
-    AVERAGEIF: D('Average numeric matches.', '=AVERAGEIF(A1:A10,">5",B1:B10)', a => { want(a, 2, 3); const range = flatten([a[0]]), values = a.length === 3 ? flatten([a[2]]) : range; if (range.length !== values.length)
-        return error('#VALUE!', 'AVERAGEIF ranges must have the same size.'); const n = values.filter((x, i) => matchCriterion(range[i], at(a, 1)) && typeof x === 'number'); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : error('#DIV/0!', 'No numeric values matched.'); }),
+    SUMIF: D('Sum values matching a criterion; an empty-cell criterion reference is treated as zero.', '=SUMIF(A1:A5,">10",B1:B5)', a => { want(a, 2, 3); const range = flatten([a[0]]), sumRange = a.length === 3 ? flatten([a[2]]) : range, criterion = criteriaValue(a, 1); if (range.length !== sumRange.length)
+        return error('#VALUE!', 'SUMIF ranges must have the same size.'); return result(range.reduce((s, x, i) => s + (matchCriterion(x, criterion) && typeof sumRange[i] === 'number' ? sumRange[i] : 0), 0)); }),
+    COUNTIF: D('Count cells matching a criterion; an empty-cell criterion reference is treated as zero.', '=COUNTIF(A1:A10,">10")', a => { want(a, 2, 2); const criterion = criteriaValue(a, 1); return flatten([a[0]]).filter(x => matchCriterion(x, criterion)).length; }),
+    AVERAGEIF: D('Average numeric matches; an empty-cell criterion reference is treated as zero.', '=AVERAGEIF(A1:A10,">5",B1:B10)', a => { want(a, 2, 3); const range = flatten([a[0]]), values = a.length === 3 ? flatten([a[2]]) : range, criterion = criteriaValue(a, 1); if (range.length !== values.length)
+        return error('#VALUE!', 'AVERAGEIF ranges must have the same size.'); const n = values.filter((x, i) => matchCriterion(range[i], criterion) && typeof x === 'number'); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : error('#DIV/0!', 'No numeric values matched.'); }),
     VLOOKUP: D('Find an exact match or an approximate next-smaller match in the first table column.', '=VLOOKUP(E2,A2:C8,3,FALSE)', a => {
         want(a, 3, 4);
         const table = a[1];

@@ -1,0 +1,27 @@
+{
+  "release": "GridForge 11.30.0 Windows desktop release",
+  "build_method": "desktop/build_windows.ps1 -SkipTests on Windows x64",
+  "windows_tests_run": false,
+  "live_ui_test_run": false,
+  "automated_tests_run": false,
+  "verification_scope": "npm run check, Python syntax check, TypeScript production build, and Windows packaging passed; no Windows runtime, application launch, live UI, automated, or Excel GUI tests were run.",
+  "features": [
+    "OneDrive, Google Drive, and Dropbox root-level workbook browse, open, explicit save, and save-copy actions.",
+    "OAuth authorization code with PKCE and DPAPI-protected refresh credentials in the Windows desktop app.",
+    "Provider revision checks reduce accidental cloud overwrites.",
+    "Local spreadsheet use remains offline; provider app registrations are required."
+  ],
+  "limitations": [
+    "No cloud folders, background sync, real-time collaboration, or native Google Sheets import.",
+    "Cloud file size is capped at 80 MB and listings are root-only."
+  ],
+  "artifacts": {
+    "installer": {
+      "file": "GridForge-Setup-11.30.0-win64.exe",
+      "size_bytes": 23498316,
+      "sha256": "E8F471E34DEA65694365C778BA24792FEA8BE245D0D8A992AF0A2635CDBD9E50"
+    },
+    "source_archive": "GridForge-v11.30.0-source.zip",
+    "github_repository_archive": "GridForge-v11.30.0-GitHub-Repository.zip"
+  }
+}

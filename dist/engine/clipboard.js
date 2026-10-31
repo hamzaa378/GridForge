@@ -1,7 +1,11 @@
 import { display } from './workbook.js';
 import { colToName, shiftFormula } from './parser.js';
 const addr = (r, c) => `${colToName(c)}${r + 1}`;
+export const MAX_CLIPBOARD_CELLS = 50_000;
 export function snapshotCells(book, area, sourceSheet, cut = false) {
+    const cellCount = (area.r2 - area.r1 + 1) * (area.c2 - area.c1 + 1);
+    if (!Number.isSafeInteger(cellCount) || cellCount < 1 || cellCount > MAX_CLIPBOARD_CELLS)
+        throw Error(`Copy and cut are limited to ${MAX_CLIPBOARD_CELLS.toLocaleString()} cells per operation.`);
     const rows = [];
     for (let r = area.r1; r <= area.r2; r++) {
         const line = [];
@@ -18,6 +22,11 @@ export function snapshotCells(book, area, sourceSheet, cut = false) {
  * Cuts are only cleared when pasted back into the same worksheet.
  */
 export function pasteSnapshot(book, s, destination, sheetId, valuesOnly = false) {
+    if (!Array.isArray(s.rows) || !s.rows.length || s.rows.some(row => !Array.isArray(row)))
+        throw Error('Clipboard data is invalid. Copy the range again.');
+    const cellCount = s.rows.reduce((count, row) => count + row.length, 0);
+    if (!Number.isSafeInteger(cellCount) || cellCount > MAX_CLIPBOARD_CELLS)
+        throw Error(`Paste is limited to ${MAX_CLIPBOARD_CELLS.toLocaleString()} cells per operation.`);
     if (destination.row < 0 || destination.col < 0 || destination.row + s.rows.length > book.rows || destination.col + Math.max(...s.rows.map(x => x.length)) > book.cols) {
         throw new Error('Paste destination is outside the worksheet.');
     }

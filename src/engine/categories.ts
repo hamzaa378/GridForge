@@ -16,7 +16,7 @@ const groups:Record<string,string[]>={
 };
 // Accept newly registered functions even if a category map has an omission.
 const membership=new Map<string,string>();
-for(const name of ['CUBEKPIMEMBER','CUBEMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','CUBESET','CUBEVALUE','RTD','STOCKHISTORY','WEBSERVICE']) groups['External & Connected']!.push(name);
+for(const name of ['CUBEKPIMEMBER','CUBEMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','CUBESET','CUBESETCOUNT','CUBEVALUE','RTD','STOCKHISTORY','WEBSERVICE']) groups['External & Connected']!.push(name);
 for(const [category,names]of Object.entries(groups))for(const name of names)if(functions[name]&&!membership.has(name))membership.set(name,category);
 for(const [category,names]of Object.entries(v10Categories))for(const name of names)if(functions[name]&&!membership.has(name))membership.set(name,category);
 for(const [category,names]of Object.entries(v9Categories))for(const name of names)if(functions[name]&&!membership.has(name))membership.set(name,category);
