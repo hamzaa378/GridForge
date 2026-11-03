@@ -176,5 +176,5 @@ test('Goal Seek previews a solution on a clone without changing the workbook',()
 
 test('box-and-whisker chart draws quartiles and flags Tukey outliers',()=>{
   const book=new Workbook(30,10);book.applyEdits([{ref:'A1',raw:'Sample A'},{ref:'B1',raw:'Sample B'},{ref:'A2',raw:'1'},{ref:'A3',raw:'2'},{ref:'A4',raw:'3'},{ref:'A5',raw:'4'},{ref:'A6',raw:'100'},{ref:'B2',raw:'10'},{ref:'B3',raw:'12'},{ref:'B4',raw:'14'},{ref:'B5',raw:'16'},{ref:'B6',raw:'18'}]);
-  const svg=chartSvg(book,{id:'chart-box',kind:'box-whisker',title:'Samples',range:'A1:B6',x:0,y:0,width:500,height:300});assert.match(svg,/<rect/);assert.match(svg,/<circle/);assert.match(svg,/Sample A/);
+  const svg=chartSvg(book,{id:'chart-box',kind:'box-whisker',title:'Samples',range:'A1:B6',x:0,y:0,width:500,height:300,boxShowOutliers:true});assert.match(svg,/<rect/);assert.match(svg,/<circle/);assert.match(svg,/Sample A/);
 });

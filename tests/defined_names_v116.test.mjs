@@ -9,7 +9,7 @@ test('worksheet defined names resolve to cells/ranges and participate in recalcu
  const book=new Workbook(20,10);book.applyEdits([{ref:'A1',raw:'10'},{ref:'A2',raw:'20'},{ref:'B1',raw:'=SUM(Sales)'},{ref:'B2',raw:'=TaxRate'}],false);
  book.setDefinedNames([{name:'Sales',ref:'A1:A2'},{name:'TaxRate',ref:'A1'}],false);
  assert.equal(value(book,'B1'),'30');assert.equal(value(book,'B2'),'10');
- assert.deepEqual(book.inspect('B1').dependencies,['A1','A2']);
+ assert.deepEqual(book.inspect('B1').dependencies,['A1:A2']);
  book.setDefinedNames([{name:'Sales',ref:'A1:A2'},{name:'TaxRate',ref:'A1'}]);assert.equal(value(book,'B2'),'10');
  book.setCell('A1','12');assert.equal(value(book,'B1'),'32');assert.equal(value(book,'B2'),'12');
 });
@@ -21,7 +21,7 @@ test('defined names validate, persist as GridForge JSON and participate in undo/
  assert.throws(()=>book.setDefinedNames([{name:'bad-name',ref:'A1'}]),/valid defined name/);
  assert.throws(()=>book.setDefinedNames([{name:'X',ref:'A1'},{name:'x',ref:'B1'}]),/already defined/);
  assert.throws(()=>book.setDefinedNames([{name:'FarAway',ref:'Z99'}]),/outside this worksheet/);
- assert.equal(book.undo(),true);assert.equal(book.getDefinedNames().length,0);assert.equal(value(book,'B1'),'#PARSE!');
+ assert.equal(book.undo(),true);assert.equal(book.getDefinedNames().length,0);assert.equal(value(book,'B1'),'#NAME?');
  assert.equal(book.redo(),true);assert.equal(value(book,'B1'),'14');
 });
 test('worksheet-scoped names export through native XLSX definedNames',async()=>{

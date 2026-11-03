@@ -2,6 +2,7 @@ import { Workbook, display } from './workbook.js';
 import { filterVisibleRows, freshTools, validateTools } from './sheettools.js';
 import { colToName, parseRef, rewriteSheetReferences } from './parser.js';
 import { error, text } from './functions.js';
+import { MAX_WORKBOOK_POPULATED_CELLS, MAX_WORKBOOK_SHEETS } from './limits.js';
 import { matchesPivotLabelFilter, pivotDateGroupLabel, pivotDateSerial, pivotNumberGroupLabel, pivotNumberGroupUsesIntegerLabels, pivotSourceFieldHeaders, resolvePivotNumberGroupRange } from './pivot.js';
 const validTabColor = (value) => { if (value === undefined || value === '')
     return undefined; if (!/^#[0-9a-f]{6}$/i.test(value))
@@ -40,8 +41,8 @@ export class SpreadsheetDocument {
         return n;
     }
     addSheet(name, book, deferRecalculation = false) {
-        if (this.items.length >= 12)
-            throw Error('This version supports a maximum of 12 sheets.');
+        if (this.items.length >= MAX_WORKBOOK_SHEETS)
+            throw Error(`A workbook can contain at most ${MAX_WORKBOOK_SHEETS} sheets.`);
         let title = name;
         if (!title) {
             let n = 1;
@@ -525,8 +526,25 @@ export class SpreadsheetDocument {
         if (!Array.isArray(data.sheets)) {
             return new SpreadsheetDocument(Workbook.fromJSON(raw, options), options.deferCalculation === true);
         }
-        if (data.format !== 'gridforge' || ![2, 3, 4, 5].includes(data.version) || !data.sheets.length || data.sheets.length > 12)
+        if (data.format !== 'gridforge' || ![2, 3, 4, 5].includes(data.version) || !data.sheets.length || data.sheets.length > MAX_WORKBOOK_SHEETS)
             throw Error('Invalid GridForge document.');
+        let workbookCells = 0, workbookStyles = 0;
+        for (const rawSheet of data.sheets) {
+            if (!rawSheet || typeof rawSheet !== 'object')
+                continue;
+            const rawWorkbook = rawSheet.workbook;
+            if (!rawWorkbook || typeof rawWorkbook !== 'object')
+                continue;
+            const parts = rawWorkbook, cells = parts.cells, styles = parts.styles;
+            if (cells && typeof cells === 'object' && !Array.isArray(cells))
+                workbookCells += Object.keys(cells).length;
+            if (styles && typeof styles === 'object' && !Array.isArray(styles))
+                workbookStyles += Object.keys(styles).length;
+            if (workbookCells > MAX_WORKBOOK_POPULATED_CELLS)
+                throw Error(`Workbook exceeds GridForge's ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()} total populated-cell limit.`);
+            if (workbookStyles > MAX_WORKBOOK_POPULATED_CELLS)
+                throw Error(`Workbook exceeds GridForge's ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()} total styled-cell limit.`);
+        }
         const doc = new SpreadsheetDocument();
         doc.items = [];
         doc.nextId = 1;

@@ -29,7 +29,7 @@ APP_VERSION = "12.0.55"
 # stale GridForge processes without exposing the local site on the network.
 PORT = 0
 MAX_SAVE_BYTES = 80 * 1024 * 1024
-ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".csv", ".json", ".svg"}
+ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".ods", ".csv", ".json", ".svg"}
 REQUIRED = ("index.html", "main.js", "styles.css", "engine/workbook.js")
 _desktop_window: Any | None = None
 _cloud_auth_callbacks: dict[str, tuple[Any, threading.Event, dict[str, str]]] = {}
@@ -59,7 +59,7 @@ def safe_suggested_name(name: str) -> str:
     if not clean:
         clean = "GridForge.xlsx"
     if Path(clean).suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise ValueError("Only XLSX, XLSM, CSV, JSON and SVG files can be saved")
+        raise ValueError("Only XLSX, XLSM, ODS, CSV, JSON and SVG files can be saved")
     return clean
 
 
@@ -115,7 +115,7 @@ class DesktopAPI:
         if len(data) > MAX_SAVE_BYTES:
             raise ValueError("Workbook too large to save")
         suffix = Path(name).suffix.lower()
-        if suffix in (".xlsx", ".xlsm") and not data.startswith(b"PK"):
+        if suffix in (".xlsx", ".xlsm", ".ods") and not data.startswith(b"PK"):
             raise ValueError("Expected an Office ZIP workbook")
         if suffix == ".svg":
             svg = data.lstrip().lower()
@@ -124,6 +124,7 @@ class DesktopAPI:
         masks = {
             ".xlsx": "Excel workbook (*.xlsx)",
             ".xlsm": "Macro-enabled Excel workbook (*.xlsm)",
+            ".ods": "OpenDocument spreadsheet (*.ods)",
             ".csv": "Comma-separated values (*.csv)",
             ".json": "GridForge workbook (*.json)",
             ".svg": "SVG chart (*.svg)",

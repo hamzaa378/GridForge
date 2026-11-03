@@ -1,17 +1,20 @@
 import { display } from './workbook.js';
-import { parseRef, colToName, nameToCol } from './parser.js';
+import { parseRef, colToName, nameToCol, parseFormula, shiftFormula } from './parser.js';
 import { validateChart } from './charts.js';
 import { validateTable, tableRange, intersectTables } from './tables.js';
 import { validatePivotSummary } from './pivot.js';
 import { excelDateSerial } from './date_serial.js';
 import { validateQuerySpec } from './power_query.js';
-export const defaultPageSetup = () => ({ orientation: 'portrait', paper: 'letter', pageOrder: 'downThenOver', centerHorizontally: false, centerVertically: false, fitWidth: 1, fitHeight: 0, printGridlines: false, printHeadings: false, marginTop: 0.75, marginBottom: 0.75, marginLeft: 0.7, marginRight: 0.7 });
-export const freshTools = () => ({ freezeRows: 0, freezeCols: 0, filter: null, conditional: [], dataValidations: [], hyperlinks: [], charts: [], drawings: [], tables: [], pivotTables: [], pivotSlicers: [], queries: [], pageSetup: defaultPageSetup(), columnWidths: {}, rowHeights: {}, hiddenRows: [], hiddenColumns: [] });
+import { validateMergedRanges } from './merged_cells.js';
+export const defaultPageSetup = () => ({ orientation: 'portrait', paper: 'letter', pageOrder: 'downThenOver', centerHorizontally: false, centerVertically: false, fitWidth: 1, fitHeight: 0, rowBreaks: [], columnBreaks: [], printGridlines: false, printHeadings: false, marginTop: 0.75, marginBottom: 0.75, marginLeft: 0.7, marginRight: 0.7 });
+export const freshTools = () => ({ freezeRows: 0, freezeCols: 0, filter: null, conditional: [], dataValidations: [], hyperlinks: [], charts: [], drawings: [], tables: [], pivotTables: [], pivotSlicers: [], queries: [], mergedRanges: [], pageSetup: defaultPageSetup(), columnWidths: {}, rowHeights: {}, hiddenRows: [], hiddenColumns: [] });
+export const nextConditionalPriority = (rules) => Math.min(1000, Math.max(0, ...rules.map((rule, index) => rule.priority ?? index + 1)) + 1);
 export function validateTools(data, rows, cols) {
     const t = freshTools();
     if (!data || typeof data !== 'object')
         return t;
     const obj = data;
+    t.mergedRanges = validateMergedRanges(obj.mergedRanges, rows, cols);
     if (obj.pageSetup !== undefined) {
         const p = obj.pageSetup;
         if (!p || typeof p !== 'object' || !['portrait', 'landscape'].includes(p.orientation) || !['letter', 'legal', 'a3', 'a4', 'tabloid'].includes(p.paper) || (p.pageOrder !== undefined && !['downThenOver', 'overThenDown'].includes(p.pageOrder)) || ![p.fitWidth, p.fitHeight].every(v => Number.isInteger(v) && v >= 0 && v <= 4) || ![p.printGridlines, p.printHeadings].every(v => typeof v === 'boolean') || [p.centerHorizontally, p.centerVertically].some(v => v !== undefined && typeof v !== 'boolean') || ![p.marginTop, p.marginBottom, p.marginLeft, p.marginRight].every(v => Number.isFinite(v) && v >= 0 && v <= 2))
@@ -41,6 +44,12 @@ export function validateTools(data, rows, cols) {
             repeatColumns = `${colToName(start)}:${colToName(end)}`;
         }
         t.pageSetup = { ...p, pageOrder: p.pageOrder ?? 'downThenOver', centerHorizontally: p.centerHorizontally ?? false, centerVertically: p.centerVertically ?? false, ...(printArea ? { printArea: `${colToName(parseRef(printArea.split(':')[0]).col)}${parseRef(printArea.split(':')[0]).row + 1}:${colToName(parseRef(printArea.split(':')[1] ?? printArea.split(':')[0]).col)}${parseRef(printArea.split(':')[1] ?? printArea.split(':')[0]).row + 1}` } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}) };
+        const normalizeBreaks = (value, limit, label) => { if (!Array.isArray(value) || value.length > 100 || value.some(item => !Number.isInteger(item) || item < 1 || item > limit))
+            throw Error(`${label} must contain no more than 100 unique break positions inside the worksheet.`); return [...new Set(value)].sort((a, b) => a - b); };
+        if (p.rowBreaks !== undefined)
+            t.pageSetup.rowBreaks = normalizeBreaks(p.rowBreaks, rows - 1, 'Row breaks');
+        if (p.columnBreaks !== undefined)
+            t.pageSetup.columnBreaks = normalizeBreaks(p.columnBreaks, cols - 1, 'Column breaks');
     }
     for (const [key, max, limit] of [['columnWidths', 8, 600], ['rowHeights', 12, 400]]) {
         const values = obj[key];
@@ -92,9 +101,82 @@ export function validateTools(data, rows, cols) {
             throw Error('Too many conditional rules');
         for (const rule of obj.conditional) {
             const a = parseRef(rule.start), b = parseRef(rule.end);
-            if (!a || !b || a.row >= rows || b.row >= rows || a.col >= cols || b.col >= cols || !['gt', 'gte', 'lt', 'lte', 'eq', 'ne', 'between', 'notBetween', 'scale', 'dataBar'].includes(rule.operator) || !Number.isFinite(rule.threshold) || !/^#[0-9a-f]{6}$/i.test(rule.color) || (rule.operator === 'between' || rule.operator === 'notBetween') && (!Number.isFinite(rule.threshold2) || rule.threshold > rule.threshold2) || (rule.operator === 'scale' && ((rule.startColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.startColor)) || (rule.midColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.midColor)))) || (rule.operator === 'dataBar' && ((rule.barStyle !== undefined && !['solid', 'gradient'].includes(rule.barStyle)) || (rule.negativeColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.negativeColor)) || (rule.minValue !== undefined && !Number.isFinite(rule.minValue)) || (rule.maxValue !== undefined && !Number.isFinite(rule.maxValue)) || (rule.minValue !== undefined && rule.maxValue !== undefined && rule.minValue >= rule.maxValue) || (rule.showValue !== undefined && typeof rule.showValue !== 'boolean'))))
+            if (!a || !b || a.row >= rows || b.row >= rows || a.col >= cols || b.col >= cols || !['gt', 'gte', 'lt', 'lte', 'eq', 'ne', 'between', 'notBetween', 'scale', 'dataBar', 'formula', 'iconSet'].includes(rule.operator) || !Number.isFinite(rule.threshold) || !/^#[0-9a-f]{6}$/i.test(rule.color) || (rule.priority !== undefined && (!Number.isInteger(rule.priority) || rule.priority < 1 || rule.priority > 1000)) || (rule.stopIfTrue !== undefined && typeof rule.stopIfTrue !== 'boolean') || (rule.operator === 'between' || rule.operator === 'notBetween') && (!Number.isFinite(rule.threshold2) || rule.threshold > rule.threshold2) || (rule.operator === 'formula' && (typeof rule.formula !== 'string' || rule.formula.length > 8192 || !rule.formula.trim().startsWith('='))) || (rule.operator === 'scale' && ((rule.startColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.startColor)) || (rule.midColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.midColor)))) || (rule.operator === 'dataBar' && ((rule.barStyle !== undefined && !['solid', 'gradient'].includes(rule.barStyle)) || (rule.negativeColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.negativeColor)) || (rule.minValue !== undefined && !Number.isFinite(rule.minValue)) || (rule.maxValue !== undefined && !Number.isFinite(rule.maxValue)) || (rule.minValue !== undefined && rule.maxValue !== undefined && rule.minValue >= rule.maxValue) || (rule.showValue !== undefined && typeof rule.showValue !== 'boolean') || (rule.barAxis !== undefined && !['automatic', 'middle', 'none'].includes(rule.barAxis)) || (rule.barAxisColor !== undefined && !/^#[0-9a-f]{6}$/i.test(rule.barAxisColor)) || (rule.barMinLength !== undefined && (!Number.isInteger(rule.barMinLength) || rule.barMinLength < 0 || rule.barMinLength > 100)) || (rule.barMaxLength !== undefined && (!Number.isInteger(rule.barMaxLength) || rule.barMaxLength < 0 || rule.barMaxLength > 100)) || (rule.barMinLength ?? 0) > (rule.barMaxLength ?? 100))))
                 throw Error('Invalid conditional formatting rule');
-            t.conditional.push({ ...rule });
+            const validateConditionalThreshold = (item, label) => { if (item === undefined)
+                return; if (!item || !['min', 'max', 'num', 'percent', 'percentile', 'formula'].includes(item.type))
+                throw Error(`Invalid ${label} threshold.`); if (item.type === 'min' || item.type === 'max') {
+                if (item.value !== undefined)
+                    throw Error(`Invalid ${label} threshold.`);
+            }
+            else if (item.type === 'formula') {
+                if (typeof item.value !== 'string' || item.value.length > 8192)
+                    throw Error(`Invalid ${label} threshold formula.`);
+                try {
+                    parseFormula(item.value.startsWith('=') ? item.value : `=${item.value}`);
+                }
+                catch {
+                    throw Error(`${label} threshold formula is invalid.`);
+                }
+            }
+            else if (typeof item.value !== 'number' || !Number.isFinite(item.value) || (item.type === 'percent' || item.type === 'percentile') && (item.value < 0 || item.value > 100))
+                throw Error(`Invalid ${label} threshold value.`); };
+            if (rule.operator === 'scale' && rule.scaleThresholds !== undefined) {
+                const expected = rule.midColor ? 3 : 2;
+                if (!Array.isArray(rule.scaleThresholds) || rule.scaleThresholds.length !== expected)
+                    throw Error('Color-scale thresholds must match the number of scale colors.');
+                for (const item of rule.scaleThresholds)
+                    validateConditionalThreshold(item, 'color-scale');
+            }
+            if (rule.operator === 'dataBar') {
+                validateConditionalThreshold(rule.barLowerThreshold, 'data-bar lower');
+                validateConditionalThreshold(rule.barUpperThreshold, 'data-bar upper');
+                if (rule.barLowerThreshold?.type === 'max' || rule.barUpperThreshold?.type === 'min')
+                    throw Error('Data-bar lower/upper thresholds use an incompatible minimum/maximum type.');
+                if (rule.barLowerThreshold && rule.minValue !== undefined || rule.barUpperThreshold && rule.maxValue !== undefined)
+                    throw Error('Data-bar bounds cannot combine legacy fixed limits with typed limits.');
+                const lowerNumber = rule.barLowerThreshold?.type === 'num' ? rule.barLowerThreshold.value : rule.minValue, upperNumber = rule.barUpperThreshold?.type === 'num' ? rule.barUpperThreshold.value : rule.maxValue;
+                if (typeof lowerNumber === 'number' && typeof upperNumber === 'number' && lowerNumber >= upperNumber)
+                    throw Error('Data-bar lower bound must be less than its upper bound.');
+            }
+            if (rule.operator === 'formula') {
+                try {
+                    parseFormula(rule.formula);
+                }
+                catch {
+                    throw Error('Conditional formatting formula is invalid.');
+                }
+            }
+            if (rule.operator === 'iconSet') {
+                const counts = { '3Arrows': 3, '3ArrowsGray': 3, '3Flags': 3, '3TrafficLights1': 3, '3TrafficLights2': 3, '3Signs': 3, '3Symbols': 3, '3Symbols2': 3, '3Stars': 3, '3Triangles': 3, '4Arrows': 4, '4ArrowsGray': 4, '4RedToBlack': 4, '4Rating': 4, '4TrafficLights': 4, '5Arrows': 5, '5ArrowsGray': 5, '5Rating': 5, '5Quarters': 5 };
+                if (!rule.iconSet || !(rule.iconSet in counts) || rule.reverseIcons !== undefined && typeof rule.reverseIcons !== 'boolean' || rule.iconsOnly !== undefined && typeof rule.iconsOnly !== 'boolean')
+                    throw Error('Invalid conditional icon-set rule.');
+                if (rule.iconThresholds !== undefined) {
+                    if (!Array.isArray(rule.iconThresholds) || rule.iconThresholds.length !== counts[rule.iconSet])
+                        throw Error('Invalid conditional icon-set rule.');
+                    for (const item of rule.iconThresholds) {
+                        if (!item || !['min', 'max', 'num', 'percent', 'percentile', 'formula'].includes(item.type))
+                            throw Error('Invalid conditional icon-set rule.');
+                        if (item.type === 'min' || item.type === 'max') {
+                            if (item.value !== undefined)
+                                throw Error('Invalid conditional icon-set rule.');
+                        }
+                        else if (item.type === 'formula') {
+                            if (typeof item.value !== 'string' || item.value.length > 8192)
+                                throw Error('Invalid conditional icon-set rule.');
+                            try {
+                                parseFormula(item.value);
+                            }
+                            catch {
+                                throw Error('Conditional icon-set threshold formula is invalid.');
+                            }
+                        }
+                        else if (typeof item.value !== 'number' || !Number.isFinite(item.value) || (['percent', 'percentile'].includes(item.type) && (item.value < 0 || item.value > 100)))
+                            throw Error('Invalid conditional icon-set rule.');
+                    }
+                }
+            }
+            t.conditional.push({ ...rule, ...(rule.scaleThresholds ? { scaleThresholds: rule.scaleThresholds.map(item => ({ ...item })) } : {}), ...(rule.iconThresholds ? { iconThresholds: rule.iconThresholds.map(item => ({ ...item })) } : {}), ...(rule.barLowerThreshold ? { barLowerThreshold: { ...rule.barLowerThreshold } } : {}), ...(rule.barUpperThreshold ? { barUpperThreshold: { ...rule.barUpperThreshold } } : {}) });
         }
     }
     if (obj.dataValidations !== undefined) {
@@ -361,11 +443,9 @@ export function filterVisibleRows(book, spec) {
     }
     return shown;
 }
-/** Cell-is and Excel-style 2-color scale rules, computed against live numeric cell results.
- *  Cache min/max by rule during a render so virtualization stays responsive. */
-export function ruleColor(ref, value, rules, book, cache = new Map()) {
-    if (typeof value !== 'number')
-        return null;
+/** Cell-is and Excel-style color scales, computed against live numeric cell results.
+ *  Cache range extents and percentile samples by rule during a render. */
+export function ruleColor(ref, value, rules, book, cache = new Map(), sortedCache = new Map()) {
     const p = parseRef(ref);
     if (!p)
         return null;
@@ -374,29 +454,122 @@ export function ruleColor(ref, value, rules, book, cache = new Map()) {
         const a = parseRef(rule.start), b = parseRef(rule.end);
         if (p.row < Math.min(a.row, b.row) || p.row > Math.max(a.row, b.row) || p.col < Math.min(a.col, b.col) || p.col > Math.max(a.col, b.col))
             continue;
+        if (rule.operator === 'formula' && book) {
+            try {
+                const formula = shiftFormula(rule.formula, p.row - a.row, p.col - a.col), result = book.evaluateFormulaAt(formula, ref);
+                if (!result.error && (result.value === true || typeof result.value === 'number' && result.value !== 0 || typeof result.value === 'string' && result.value !== ''))
+                    return rule.color;
+            }
+            catch { /* Invalid runtime results do not apply formatting. */ }
+            continue;
+        }
+        if (typeof value !== 'number')
+            continue;
         if (rule.operator === 'scale' && book) {
             let extents = cache.get(rule);
             if (!extents) {
                 let min = Infinity, max = -Infinity;
-                for (let r = Math.min(a.row, b.row); r <= Math.max(a.row, b.row); r++)
-                    for (let c = Math.min(a.col, b.col); c <= Math.max(a.col, b.col); c++) {
-                        const res = book.getValue(`${colToName(c)}${r + 1}`);
-                        if (!res.error && typeof res.value === 'number' && Number.isFinite(res.value)) {
-                            min = Math.min(min, res.value);
-                            max = Math.max(max, res.value);
-                        }
-                    }
+                const values = book.getNumericValuesInRange(rule.start, rule.end);
+                for (const numeric of values) {
+                    min = Math.min(min, numeric);
+                    max = Math.max(max, numeric);
+                }
+                if (rule.scaleThresholds?.some(item => item.type === 'percentile') || !rule.scaleThresholds && !!rule.midColor)
+                    sortedCache.set(rule, [...values].sort((x, y) => x - y));
                 extents = [min, max];
                 cache.set(rule, extents);
             }
             if (!Number.isFinite(extents[0]))
                 return null;
-            const ratio = extents[1] === extents[0] ? .5 : Math.max(0, Math.min(1, (value - extents[0]) / (extents[1] - extents[0])));
-            const start = rgb(rule.startColor ?? '#ffffff'), end = rgb(rule.color), middle = rule.midColor ? rgb(rule.midColor) : null, localRatio = middle ? (ratio <= .5 ? ratio * 2 : (ratio - .5) * 2) : ratio, from = middle && ratio > .5 ? middle : start, to = middle && ratio <= .5 ? middle : end;
-            return '#' + from.map((v, i) => Math.round(v + (to[i] - v) * localRatio).toString(16).padStart(2, '0')).join('');
+            const colors = [rule.startColor ?? '#ffffff', ...(rule.midColor ? [rule.midColor] : []), rule.color], thresholds = rule.scaleThresholds ?? (colors.length === 2 ? [{ type: 'min' }, { type: 'max' }] : [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }]);
+            const bound = (item) => { if (item.type === 'min')
+                return extents[0]; if (item.type === 'max')
+                return extents[1]; if (item.type === 'num' && typeof item.value === 'number')
+                return item.value; if ((item.type === 'percent' || item.type === 'percentile') && typeof item.value === 'number') {
+                if (item.type === 'percent')
+                    return extents[0] + (extents[1] - extents[0]) * item.value / 100;
+                let sorted = sortedCache.get(rule);
+                if (!sorted) {
+                    sorted = book.getNumericValuesInRange(rule.start, rule.end).sort((x, y) => x - y);
+                    sortedCache.set(rule, sorted);
+                }
+                if (!sorted.length)
+                    return extents[0];
+                const rank = (sorted.length - 1) * item.value / 100, low = Math.floor(rank), high = Math.ceil(rank);
+                return sorted[low] + (sorted[high] - sorted[low]) * (rank - low);
+            } if (item.type === 'formula' && typeof item.value === 'string') {
+                try {
+                    const formula = shiftFormula(item.value.startsWith('=') ? item.value : `=${item.value}`, p.row - a.row, p.col - a.col), result = book.evaluateFormulaAt(formula, ref);
+                    if (!result.error && typeof result.value === 'number' && Number.isFinite(result.value))
+                        return result.value;
+                }
+                catch { /* Invalid threshold formulas fall back to the range minimum. */ }
+            } return extents[0]; };
+            const stops = thresholds.map(bound), colorsRgb = colors.map(rgb);
+            let segment = 0;
+            while (segment < stops.length - 2 && value > stops[segment + 1])
+                segment++;
+            const width = stops[segment + 1] - stops[segment], ratio = width === 0 ? (value >= stops[segment + 1] ? 1 : 0) : Math.max(0, Math.min(1, (value - stops[segment]) / width)), from = colorsRgb[segment], to = colorsRgb[segment + 1];
+            return '#' + from.map((v, i) => Math.round(v + (to[i] - v) * ratio).toString(16).padStart(2, '0')).join('');
         }
         if (rule.operator === 'gt' && value > rule.threshold || rule.operator === 'gte' && value >= rule.threshold || rule.operator === 'lt' && value < rule.threshold || rule.operator === 'lte' && value <= rule.threshold || rule.operator === 'eq' && value === rule.threshold || rule.operator === 'ne' && value !== rule.threshold || rule.operator === 'between' && value >= rule.threshold && value <= rule.threshold2 || rule.operator === 'notBetween' && (value < rule.threshold || value > rule.threshold2))
             return rule.color;
+    }
+    return null;
+}
+const iconSetCount = (iconSet) => Number(iconSet[0]);
+export function conditionalIcon(ref, value, rules, book, cache = new Map()) {
+    if (typeof value !== 'number' || !Number.isFinite(value))
+        return null;
+    const point = parseRef(ref);
+    if (!point)
+        return null;
+    for (const rule of rules) {
+        if (rule.operator !== 'iconSet' || !rule.iconSet)
+            continue;
+        const from = parseRef(rule.start), to = parseRef(rule.end);
+        if (point.row < Math.min(from.row, to.row) || point.row > Math.max(from.row, to.row) || point.col < Math.min(from.col, to.col) || point.col > Math.max(from.col, to.col))
+            continue;
+        let values = cache.get(rule);
+        if (!values) {
+            values = book.getNumericValuesInRange(rule.start, rule.end).sort((a, b) => a - b);
+            cache.set(rule, values);
+        }
+        if (!values.length)
+            return null;
+        const count = iconSetCount(rule.iconSet), thresholds = rule.iconThresholds ?? (count === 3 ? [{ type: 'min' }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] : count === 4 ? [{ type: 'min' }, { type: 'percent', value: 25 }, { type: 'percent', value: 50 }, { type: 'percent', value: 75 }] : [{ type: 'min' }, { type: 'percent', value: 20 }, { type: 'percent', value: 40 }, { type: 'percent', value: 60 }, { type: 'percent', value: 80 }]);
+        let iconIndex = 0;
+        for (let index = 1; index < count; index++) {
+            const threshold = thresholds[index];
+            if (!threshold)
+                continue;
+            let bound;
+            if (threshold.type === 'min')
+                bound = values[0];
+            else if (threshold.type === 'max')
+                bound = values.at(-1);
+            else if (threshold.type === 'num' && typeof threshold.value === 'number')
+                bound = threshold.value;
+            else if ((threshold.type === 'percent' || threshold.type === 'percentile') && typeof threshold.value === 'number') {
+                const p = Math.max(0, Math.min(100, threshold.value)) / 100;
+                if (threshold.type === 'percentile') {
+                    const rank = (values.length - 1) * p, low = Math.floor(rank), high = Math.ceil(rank);
+                    bound = values[low] + (values[high] - values[low]) * (rank - low);
+                }
+                else
+                    bound = values[0] + (values.at(-1) - values[0]) * p;
+            }
+            else if (threshold.type === 'formula' && typeof threshold.value === 'string') {
+                const formula = shiftFormula(threshold.value.startsWith('=') ? threshold.value : `=${threshold.value}`, point.row - from.row, point.col - from.col), result = book.evaluateFormulaAt(formula, ref);
+                if (!result.error && typeof result.value === 'number' && Number.isFinite(result.value))
+                    bound = result.value;
+            }
+            if (bound !== undefined && value >= bound)
+                iconIndex = index;
+        }
+        if (rule.reverseIcons)
+            iconIndex = count - 1 - iconIndex;
+        return { iconSet: rule.iconSet, index: iconIndex, count, iconsOnly: rule.iconsOnly === true };
     }
     return null;
 }
@@ -414,30 +587,43 @@ export function dataBarFill(ref, value, rules, book, cache = new Map()) {
             continue;
         let extent = cache.get(rule);
         if (!extent) {
-            let min = rule.minValue ?? Infinity, max = rule.maxValue ?? -Infinity;
-            for (let r = Math.min(a.row, b.row); r <= Math.max(a.row, b.row); r++)
-                for (let c = Math.min(a.col, b.col); c <= Math.max(a.col, b.col); c++) {
-                    const x = book.getValue(`${colToName(c)}${r + 1}`);
-                    if (!x.error && typeof x.value === 'number' && Number.isFinite(x.value)) {
-                        if (rule.minValue === undefined)
-                            min = Math.min(min, x.value);
-                        if (rule.maxValue === undefined)
-                            max = Math.max(max, x.value);
-                    }
+            const values = book.getNumericValuesInRange(rule.start, rule.end);
+            let min = Infinity, max = -Infinity;
+            for (const numeric of values) {
+                min = Math.min(min, numeric);
+                max = Math.max(max, numeric);
+            }
+            const needsPercentile = rule.barLowerThreshold?.type === 'percentile' || rule.barUpperThreshold?.type === 'percentile', sorted = needsPercentile ? [...values].sort((x, y) => x - y) : [], autoMin = Math.min(0, min), autoMax = Math.max(0, max), bound = (item, edge) => { if (!item)
+                return edge === 'min' ? autoMin : autoMax; if (item.type === 'min')
+                return autoMin; if (item.type === 'max')
+                return autoMax; if (item.type === 'num' && typeof item.value === 'number')
+                return item.value; if ((item.type === 'percent' || item.type === 'percentile') && typeof item.value === 'number') {
+                const percent = Math.max(0, Math.min(100, item.value)) / 100;
+                if (item.type === 'percent')
+                    return autoMin + (autoMax - autoMin) * percent;
+                if (!sorted.length)
+                    return edge === 'min' ? autoMin : autoMax;
+                const rank = (sorted.length - 1) * percent, low = Math.floor(rank), high = Math.ceil(rank);
+                return sorted[low] + (sorted[high] - sorted[low]) * (rank - low);
+            } if (item.type === 'formula' && typeof item.value === 'string') {
+                try {
+                    const formula = shiftFormula(item.value.startsWith('=') ? item.value : `=${item.value}`, 0, 0), result = book.evaluateFormulaAt(formula, rule.start);
+                    if (!result.error && typeof result.value === 'number' && Number.isFinite(result.value))
+                        return result.value;
                 }
-            if (rule.minValue === undefined && min > 0)
-                min = 0;
-            if (rule.maxValue === undefined && max < 0)
-                max = 0;
+                catch { /* Invalid saved formulas fall back to automatic bounds. */ }
+            } return edge === 'min' ? autoMin : autoMax; };
+            min = rule.barLowerThreshold ? bound(rule.barLowerThreshold, 'min') : (rule.minValue ?? bound(undefined, 'min'));
+            max = rule.barUpperThreshold ? bound(rule.barUpperThreshold, 'max') : (rule.maxValue ?? bound(undefined, 'max'));
             extent = [min, max];
             cache.set(rule, extent);
         }
         const [min, max] = extent;
-        if (!Number.isFinite(min) || !Number.isFinite(max) || min === max)
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max)
             return { background: '', hideValue: rule.showValue === false };
-        const zero = max === min ? 0 : Math.max(0, Math.min(100, 100 * (0 - min) / (max - min))), scale = 100 / Math.max(1e-12, max - min), amount = Math.max(0, Math.min(100, value < 0 ? Math.abs(value) * scale : value * scale)), from = value < 0 ? Math.max(0, zero - amount) : zero, to = value < 0 ? zero : Math.min(100, zero + amount), color = value < 0 ? (rule.negativeColor ?? rule.color) : rule.color;
-        const fill = rule.barStyle === 'gradient' ? (value < 0 ? `linear-gradient(to right, transparent ${from}%, ${color} ${zero}%, transparent ${zero}%)` : `linear-gradient(to right, transparent ${zero}%, ${color} ${to}%, transparent ${to}%)`) : `linear-gradient(to right, transparent ${from}%, ${color} ${from}%, ${color} ${to}%, transparent ${to}%)`;
-        return { background: fill, hideValue: rule.showValue === false };
+        const zero = rule.barAxis === 'middle' ? 50 : min >= 0 ? 0 : max <= 0 ? 100 : 100 * Math.abs(min) / (Math.abs(min) + max), ratio = min >= 0 ? (value - min) / (max - min) : max <= 0 ? (max - value) / (max - min) : value < 0 ? Math.abs(value) / Math.abs(min) : value / max, minLength = rule.barMinLength ?? 0, maxLength = rule.barMaxLength ?? 100, side = value < 0 ? zero : 100 - zero, desired = ratio > 0 ? minLength + Math.max(0, Math.min(1, ratio)) * (maxLength - minLength) : 0, amount = Math.max(0, Math.min(side, desired)), from = value < 0 ? Math.max(0, zero - amount) : zero, to = value < 0 ? zero : Math.min(100, zero + amount), color = value < 0 ? (rule.negativeColor ?? rule.color) : rule.color;
+        const fill = rule.barStyle === 'gradient' ? (value < 0 ? `linear-gradient(to right, transparent ${from}%, ${color} ${zero}%, transparent ${zero}%)` : `linear-gradient(to right, transparent ${zero}%, ${color} ${to}%, transparent ${to}%)`) : `linear-gradient(to right, transparent ${from}%, ${color} ${from}%, ${color} ${to}%, transparent ${to}%)`, drawAxis = rule.barAxis === 'middle' || rule.barAxis !== 'none' && min < 0 && max > 0, axisColor = rule.barAxisColor ?? '#808080', background = drawAxis ? `linear-gradient(to right, transparent calc(${zero}% - .5px), ${axisColor} calc(${zero}% - .5px), ${axisColor} calc(${zero}% + .5px), transparent calc(${zero}% + .5px)), ${fill}` : fill;
+        return { background, hideValue: rule.showValue === false };
     }
     return null;
 }

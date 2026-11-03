@@ -591,7 +591,7 @@ def run() -> None:
                     page.locator('[data-ribbon="Data"]').click()
                     page.locator('#btn-data-studio').click()
                     assert page.locator('#data-studio-dialog').is_visible()
-                    assert '100 actions' in page.locator('#data-studio-dialog h2').inner_text()
+                    assert '103 actions' in page.locator('#data-studio-dialog h2').inner_text()
                     assert_eq(page.locator('#studio-category option').count(),11)
                     page.locator('#studio-category').select_option('Text & case')
                     assert_eq(page.locator('#studio-action option').count(),10)
@@ -606,7 +606,7 @@ def run() -> None:
                     assert_eq(cell('Z130').inner_text(),'hELLO wORLD')
                     page.locator('#btn-redo').click()
                     assert_eq(cell('Z130').inner_text(),'Hello World')
-                verify('v8 Data Studio 100 actions, search, preview, atomic edit and undo/redo', v8_studio_catalogue_and_edit)
+                verify('Data Studio 103 actions, search, preview, atomic edit and undo/redo', v8_studio_catalogue_and_edit)
 
                 def v8_studio_formula_and_bounds():
                     edit('Z131','2')

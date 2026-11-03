@@ -1,0 +1,1 @@
+# GridForge v12.0.130 — Locale-aware number display`n`nBuilt-in integer, number and percent formats and supported custom numeric formats now display decimal and grouping separators using the runtime locale. Currency remains the explicit USD preset. This improves localized display without changing stored values or XLSX format codes.

@@ -4,7 +4,7 @@
  * dates use Excel's 1900 date system
  * with UTC arithmetic; unsupported advanced Excel options are documented.
  */
-import {SheetError, flatten, number, text, bool, matchCriterion, type Datum, type FunctionDefinition} from './functions.js';
+import {SheetError, flatten, number, text, bool, isSheetError, matchCriterion, type Datum, type FunctionDefinition} from './functions.js';
 import {parseLocaleNumberText} from './locale_number.js';
 import {parseTimeOfDayText} from './time_text.js';
 import type {Value} from './parser.js';
@@ -61,6 +61,20 @@ const factorial=(v:number):number=>{
 };
 const gcd=(a:number,b:number):number=>{a=Math.abs(Math.trunc(a));b=Math.abs(Math.trunc(b));while(b){const r=a%b;a=b;b=r;}return a;};
 const one=(name:string,example:string,fn:(v:number)=>number)=>def(name,example,a=>{req(a,1);return finite(fn(n(a,0)));});
+const logicalXor=(args:Datum[]):boolean=>{
+ if(args.length<1||args.length>255)fail('#ARG!','XOR requires 1 to 255 arguments.');
+ let found=false,parity=false;
+ const visit=(value:Datum,fromArray:boolean):void=>{
+  if(Array.isArray(value)){for(const row of value)for(const cell of row)visit(cell,true);return;}
+  if(isSheetError(value))throw value;
+  if(value===null||value===''){if(fromArray)return;found=true;return;}
+  if(typeof value==='string'){if(fromArray)return;fail('#VALUE!','XOR direct arguments must be logical values or numbers.');}
+  found=true;parity=parity!==(typeof value==='boolean'?value:value!==0);
+ };
+ args.forEach(value=>visit(value,false));
+ if(!found)fail('#VALUE!','XOR requires at least one logical value.');
+ return parity;
+};
 // Excel 1900 serial dates: serial 60 is Excel's fictitious 1900-02-29.
 const dayMs=86400000,epoch=Date.UTC(1899,11,31);
 const excelDate=(v:Date):number=>{const t=v.getTime();if(!Number.isFinite(t))fail('#NUM!','Date is outside Excel’s supported range.');const result=(t-epoch)/dayMs+(t>=Date.UTC(1900,2,1)?1:0);if(result<0||result>2_958_465)fail('#NUM!','Date is outside Excel’s supported range.');return result;};
@@ -209,7 +223,7 @@ export const moreFunctions:Record<string,FunctionDefinition>={
  NETWORKDAYS:def('Count weekdays inclusively, excluding optional holidays.','=NETWORKDAYS(A1,B1)',a=>{req(a,2,3);let start=integer(a,0),end=integer(a,1),sign=1;if(start<0||end<0||start>2_958_465||end>2_958_465)fail('#NUM!','Date serial must be within Excel’s supported range.');if(start>end){[start,end]=[end,start];sign=-1;}if(end-start>365250)fail('#NUM!','Date interval too large.');const holidays=a.length===3?holidaySet(a[2]!):new Set<number>();let total=0;for(let d=start;d<=end;d++){const day=excelWeekday(d);if(day!==0&&day!==6&&!holidays.has(d))total++;}return total*sign;}),
  WORKDAY:def('Move a number of weekdays, skipping optional holidays.','=WORKDAY(A1,10)',a=>{req(a,2,3);const start=integer(a,0),steps=integer(a,1),holidays=a.length===3?holidaySet(a[2]!):new Set<number>();if(start<0||start>2_958_465)fail('#NUM!','Date serial must be within Excel’s supported range.');if(Math.abs(steps)>100000)fail('#NUM!','Offset too large.');let serial=start,left=Math.abs(steps),iterations=0;while(left>0){serial+=Math.sign(steps);if(serial<0||serial>2_958_465)fail('#NUM!','Result date is outside Excel’s supported range.');const day=excelWeekday(serial);if(day!==0&&day!==6&&!holidays.has(serial))left--;if(++iterations>200000)fail('#NUM!','WORKDAY too many iterations.');}return serial;}),
  // 8 logical / conditional aggregations / lookup functions
- XOR:def('TRUE for an odd number of truthy arguments.','=XOR(TRUE,FALSE,TRUE)',a=>flatten(a).reduce<number>((acc,v)=>acc+(bool(v)?1:0),0)%2===1),
+ XOR:def('TRUE for an odd number of logical arguments; text and blanks in referenced arrays are ignored.','=XOR(TRUE,FALSE,TRUE)',logicalXor),
  IFS:def('First true condition and corresponding value, lazily evaluated.','=IFS(A1>90,"A",A1>80,"B",TRUE,"C")',()=>fail('#INTERNAL!','IFS must be evaluated lazily.')),
  SWITCH:def('Match expression against cases, with optional default, lazily.','=SWITCH(A1,1,"one",2,"two","other")',()=>fail('#INTERNAL!','SWITCH must be evaluated lazily.')),
  SUMIFS:def('Sum values matching multiple criteria ranges.','=SUMIFS(C1:C5,A1:A5,"North",B1:B5,">3")',a=>{const x=multipleCriteria(a,true);return finite(sum(x.values.filter((v,i)=>matchesAll(x.ranges,x.criteria,i)&&typeof v==='number') as number[]));}),
@@ -221,7 +235,7 @@ export const moreFunctions:Record<string,FunctionDefinition>={
    if(!lookupMatrix.length||!lookupMatrix[0]!.length||!returnMatrix.length||!returnMatrix[0]!.length)fail('#VALUE!','XLOOKUP arrays must not be empty.');
    const vertical=lookupMatrix.length>1&&lookupMatrix[0]!.length===1,horizontal=lookupMatrix.length===1&&lookupMatrix[0]!.length>1;
    if(lookupMatrix.some(row=>row.length!==lookupMatrix[0]!.length)||lookupMatrix.length>1&&lookupMatrix[0]!.length>1)fail('#VALUE!','XLOOKUP lookup_array must be a single row or column.');
-   if(vertical?returnMatrix.length!==lookup.length:horizontal?returnMatrix.some(row=>row.length!==lookup.length):returnMatrix.length!==1&&returnMatrix[0]!.length!==1)fail('#VALUE!','XLOOKUP return_array must align with lookup_array.');
+   if(vertical?returnMatrix.length!==lookup.length:horizontal?returnMatrix.some(row=>row.length!==lookup.length):returnMatrix.length!==1||returnMatrix[0]!.length!==1)fail('#VALUE!','XLOOKUP return_array must align with lookup_array.');
    if(returnMatrix.some(row=>row.length!==returnMatrix[0]!.length))fail('#VALUE!','XLOOKUP return_array must be rectangular.');
    const key=val(a,0),matchMode=a.length>=5?n(a,4):0,searchMode=a.length===6?n(a,5):1;
    if(![-1,0,1,2].includes(matchMode))fail('#VALUE!','XLOOKUP match_mode must be -1, 0, 1 or 2.');

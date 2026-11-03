@@ -1,15 +1,15 @@
 # GridForge cloud workbook setup
 
-GridForge can browse, open, and explicitly save XLSX workbooks through OneDrive, Google Drive, Dropbox, and Box. Cloud connections are optional; ordinary local workbook use remains available offline. The connector runs in the installed Windows desktop app so refresh tokens and the Box client secret can be encrypted with Windows DPAPI for the current user.
+GridForge can browse, open, and explicitly save XLSX workbooks through OneDrive, Google Drive, Dropbox, and Box. Cloud connections are optional; ordinary local workbook use remains available offline. The connector runs in the installed Windows desktop app so refresh tokens and the Box client secret can be encrypted with Windows DPAPI for the current user. ODS is supported for local import/export but is not yet offered in cloud file browsing or cloud save.
 
 ## First-time setup
 
 1. Open **File → Cloud**, select a provider, and register a public desktop OAuth application with that provider.
 2. Enable the provider's file API and use the exact loopback redirect required below.
-3. Paste the provider's OAuth client ID in GridForge, then choose **Connect account**. Sign-in opens in the system browser.
+3. Paste the provider's OAuth app ID once, then choose **Connect account**. GridForge opens the official provider sign-in page in your system browser. Enter your email/password there; the provider performs any MFA/2-step check and returns to GridForge automatically. You never copy or paste a sign-in code, and GridForge never receives your account password or MFA code.
 4. Browse folders and the XLSX/JSON files they contain. Select a folder and choose **Open folder**, or double-click it; use the breadcrumb path to move back up. Save a new copy into the folder currently open. Opening a file only downloads it to the local GridForge session. Use **Save selected workbook** to explicitly update a cloud workbook or **Save a new copy** to create another XLSX file.
 
-The shipped GridForge source contains no provider client IDs or application secrets. You supply your own app credentials; Box's client secret and provider refresh tokens are protected locally with Windows DPAPI. Each provider needs its own app registration and consent configuration.
+The shipped GridForge source contains no provider client IDs or application secrets. You supply your own OAuth app ID and provider configuration; Box's app secret and provider refresh tokens are protected locally with Windows DPAPI. Each provider needs its own app registration and consent configuration. OAuth state is checked, authorization codes are returned through a loopback callback, and PKCE is used for providers configured for it. Do not enter your cloud account password or MFA code into GridForge.
 
 ## Provider registration
 

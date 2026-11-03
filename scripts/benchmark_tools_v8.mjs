@@ -21,6 +21,6 @@ assert.equal(book.getRaw('A1'),'2');assert.equal(book.getRaw('AX200'),'20000');
 assert.equal(book.getRaw('AZ400'),'UNRELATED');
 assert.equal(book.undo(),true);assert.equal(book.getRaw('A1'),'1');
 assert.equal(book.getRaw('AX200'),'10000');assert.equal(book.getRaw('AZ400'),'UNRELATED');
-assert.equal(DATA_TOOLS.length,100);
+assert.equal(DATA_TOOLS.length,103);
 assert.throws(()=>previewDataTool(book,{r1:0,r2:399,c1:0,c2:49},'double'),/12,000/);
 console.log(JSON.stringify({features:DATA_TOOLS.length,selectedCells:10000,edited:preview.edits.length,previewMs:+previewMs.toFixed(2),applyMs:+applyMs.toFixed(2),undoVerified:true,unrelatedPreserved:true,oversizeRejected:true},null,2));

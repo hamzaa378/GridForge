@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {functions,functionNames,connectedFunctionNames,connectedFunctionRequirements,SheetError} from '../dist/engine/functions.js';
 import {functionCategory,categorizedFunctions} from '../dist/engine/categories.js';
-const expected=['CUBEKPIMEMBER','CUBEMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','CUBESET','CUBEVALUE','RTD','STOCKHISTORY','WEBSERVICE'].sort();
+const expected=['CUBEKPIMEMBER','CUBEMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','CUBESET','CUBESETCOUNT','CUBEVALUE','RTD','STOCKHISTORY','WEBSERVICE'].sort();
 test('Connected function list excludes workbook-aware GETPIVOTDATA',()=>{
  assert.equal(functionNames.length,516);
- assert.equal(connectedFunctionNames.length,9);
+ assert.equal(connectedFunctionNames.length,10);
  assert.deepEqual(connectedFunctionNames,expected);
- assert.equal(Object.keys(connectedFunctionRequirements).length,9);
+ assert.equal(Object.keys(connectedFunctionRequirements).length,10);
  assert.deepEqual(categorizedFunctions['External & Connected'],expected);
 });
 for(const name of expected){
@@ -16,7 +16,7 @@ for(const name of expected){
   const def=functions[name];assert.ok(def?.example.startsWith('='+name+'('));
   const fake=[null,null,null,null,null];
   // Too many? all have at least one allowed arity; adapt function-specific minima
-  const required=['CUBEKPIMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','CUBESET','RTD'].includes(name)?3:name==='WEBSERVICE'?1:2;
+  const required=['CUBEKPIMEMBER','CUBEMEMBERPROPERTY','CUBERANKEDMEMBER','RTD'].includes(name)?3:name==='CUBESET'?2:['CUBESETCOUNT','WEBSERVICE'].includes(name)?1:2;
   const args=fake.slice(0,required);
   assert.throws(()=>def.run(args),err=>err instanceof SheetError && ['#NAME?','#REF!','#CONNECT!','#N/A'].includes(err.code)&&err.message.includes(name));
  });

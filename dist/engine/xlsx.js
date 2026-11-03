@@ -4,14 +4,15 @@
  */
 import { SpreadsheetDocument } from './document.js';
 import { Workbook, display } from './workbook.js';
-import { normalizeFormulaLocale, parseRef, colToName, nameToCol, shiftFormula, tokenize } from './parser.js';
-import { cleanStyle, isExcelDateNumberFormat } from './format.js';
+import { normalizeFormulaLocale, parseFormula, parseRef, colToName, nameToCol, shiftFormula, tokenize } from './parser.js';
+import { cleanStyle, isSafeFontFamily, isExcelDateNumberFormat } from './format.js';
 import { zipWrite, zipRead } from './zip.js';
 import { freshTools, validateTools } from './sheettools.js';
 import { nativeChartXml, nativeDrawingXml, nativeDrawingRelationships, drawingRelationshipType, isNativeChartEx } from './ooxml_charts.js';
-import { CHART_PALETTES, validateChart, chartRange } from './charts.js';
+import { CHART_PALETTES, MAX_CHART_SOURCE_POINTS, validateChart, chartRange } from './charts.js';
 import { tableRange, tableColumns, validateTable } from './tables.js';
-import { MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_ROWS, MAX_XLSX_CELLS_PER_SHEET } from './limits.js';
+import { MAX_WORKBOOK_POPULATED_CELLS, MAX_WORKBOOK_SHEETS, MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_ROWS, MAX_XLSX_CELLS_PER_SHEET } from './limits.js';
+import { addMergedRange } from './merged_cells.js';
 import { buildPivotSummary, pivotChartRange, pivotSourceFieldHeaders, validatePivotSummary } from './pivot.js';
 import { nativePivotParts } from './ooxml_pivots.js';
 import { nativeSlicerCacheXml, nativeSlicerViewXml, nativeSlicerListExtension } from './ooxml_slicers.js';
@@ -111,6 +112,8 @@ function parseXml(text) {
         throw Error('Invalid XML inside XLSX.');
     return doc;
 }
+/** Shared safe XML parser for bounded spreadsheet interchange formats. */
+export function parseSpreadsheetXml(text) { return parseXml(text); }
 const attr = (n, name, def = '') => n.getAttribute(name) ?? def;
 function parseHeaderFooter(value) { const parts = ['', '', '']; let current = 1; const segments = value.split(/(&[LCR])/); for (const segment of segments) {
     if (segment === '&L') {
@@ -188,15 +191,21 @@ function styleCatalog(doc) {
         fillMap.set(s.background, fills.length + 1);
         fills.push(s.background);
     } return fillMap.get(s.background); }
-    const borderNames = ['', 'all', 'bottom', 'top', 'left', 'right'], borderId = (name) => name ? Math.max(1, borderNames.indexOf(name)) : 0;
+    const borderStyles = [{}], borderIds = new Map(), borderId = (s) => { if (!s.border && !s.borderEdges && !s.borderDiagonal)
+        return 0; const key = JSON.stringify({ edges: s.borderEdges ?? [s.border, s.borderStyle ?? 'solid', s.borderWeight ?? 'thin', s.borderColor ?? '#000000'], diagonal: s.borderDiagonal ?? null }); if (!borderIds.has(key)) {
+        borderIds.set(key, borderStyles.length);
+        borderStyles.push(s);
+    } return borderIds.get(key); };
     const xfs = styles.map(s => { const font = fontId(s), fill = fillId(s); let numFmtId = ({ general: 0, number: 2, integer: 1, currency: 164, percent: 10 })[s.numberFormat ?? 'general']; if (s.dateFormatCode)
         numFmtId = customFormatId(s.dateFormatCode);
     else if (s.customNumberFormatCode)
-        numFmtId = customFormatId(s.customNumberFormatCode); return `<xf numFmtId="${numFmtId}" fontId="${font}" fillId="${fill}" borderId="${borderId(s.border)}" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyAlignment="1">${s.align || s.verticalAlign || s.wrap || s.indent ? `<alignment${s.align ? ` horizontal="${s.align}"` : ''}${s.verticalAlign ? ` vertical="${s.verticalAlign}"` : ''}${s.indent ? ` indent="${s.indent}"` : ''}${s.wrap ? ' wrapText="1"' : ''}/>` : ''}</xf>`; });
+        numFmtId = customFormatId(s.customNumberFormatCode); return `<xf numFmtId="${numFmtId}" fontId="${font}" fillId="${fill}" borderId="${borderId(s)}" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyAlignment="1">${s.align || s.verticalAlign || s.wrap || s.indent ? `<alignment${s.align ? ` horizontal="${s.align}"` : ''}${s.verticalAlign ? ` vertical="${s.verticalAlign}"` : ''}${s.indent ? ` indent="${s.indent}"` : ''}${s.wrap ? ' wrapText="1"' : ''}/>` : ''}</xf>`; });
+    const borderXml = borderStyles.map(s => { const active = s.border === 'all' ? ['left', 'right', 'top', 'bottom'] : s.border ? [s.border] : [], side = (name) => { const edge = s.borderEdges?.[name], enabled = edge ?? (active.includes(name) ? { style: s.borderStyle ?? 'solid', weight: s.borderWeight ?? 'thin', color: s.borderColor } : undefined); if (!enabled)
+        return `<${name}/>`; const weight = enabled.weight ?? 'thin', line = enabled.style === 'dashed' ? (weight === 'thin' ? 'dashed' : 'mediumDashed') : enabled.style === 'dotted' ? 'dotted' : enabled.style === 'double' ? 'double' : weight, color = enabled.color ?? s.borderColor ?? '#000000'; return `<${name} style="${line}"><color rgb="FF${color.slice(1).toUpperCase()}"/></${name}>`; }, diagonal = s.borderDiagonal, diagonalStyle = diagonal?.style === 'dashed' ? (diagonal.weight === 'thin' ? 'dashed' : 'mediumDashed') : diagonal?.style === 'dotted' ? 'dotted' : diagonal?.style === 'double' ? 'double' : diagonal?.weight ?? 'thin', diagonalXml = diagonal ? `<diagonal style="${diagonalStyle}"><color rgb="FF${(diagonal.color ?? '#000000').slice(1).toUpperCase()}"/></diagonal>` : '<diagonal/>'; return `<border${diagonal?.up ? ' diagonalUp="1"' : ''}${diagonal?.down ? ' diagonalDown="1"' : ''}>${side('left')}${side('right')}${side('top')}${side('bottom')}${diagonalXml}</border>`; }).join('');
     const customFormatXml = [...customFormatIds].map(([code, id]) => `<numFmt numFmtId="${id}" formatCode="${esc(code)}"/>`).join('');
     const fontXML = fonts.map(f => `<font><sz val="${f.fontSize}"/><name val="${f.fontFamily}"/>${f.bold ? '<b/>' : ''}${f.italic ? '<i/>' : ''}${f.underline ? '<u/>' : ''}${f.strike ? '<strike/>' : ''}${f.color ? `<color rgb="FF${f.color.slice(1).toUpperCase()}"/>` : '<color theme="1"/>'}</font>`).join('');
     const fillXML = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>', ...fills.slice(1).map(f => `<fill><patternFill patternType="solid"><fgColor rgb="FF${f.slice(1).toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`)].join('');
-    return { xml: xml(`<styleSheet xmlns="${ns}"><numFmts count="${1 + customFormatIds.size}"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/>${customFormatXml}</numFmts><fonts count="${fonts.length}">${fontXML}</fonts><fills count="${fills.length + 1}">${fillXML}</fills><borders count="6"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border><border><left/><right/><top/><bottom style="thin"/><diagonal/></border><border><left/><right/><top style="thin"/><bottom/><diagonal/></border><border><left style="thin"/><right/><top/><bottom/><diagonal/></border><border><left/><right style="thin"/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`), index: map };
+    return { xml: xml(`<styleSheet xmlns="${ns}"><numFmts count="${1 + customFormatIds.size}"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/>${customFormatXml}</numFmts><fonts count="${fonts.length}">${fontXML}</fonts><fills count="${fills.length + 1}">${fillXML}</fills><borders count="${borderStyles.length}">${borderXml}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`), index: map };
 }
 function styleFromXlsx(parts) {
     const file = parts.get('xl/styles.xml');
@@ -221,9 +230,9 @@ function styleFromXlsx(parts) {
             s.underline = true;
         if (font?.strike)
             s.strike = true;
-        if (font && font.fontSize >= 8 && font.fontSize <= 36)
+        if (font && font.fontSize >= 6 && font.fontSize <= 72)
             s.fontSize = font.fontSize;
-        if (['Aptos', 'Calibri', 'Arial', 'Segoe UI', 'Georgia', 'Consolas', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Times New Roman', 'Cambria', 'Garamond'].includes(font?.fontFamily ?? ''))
+        if (isSafeFontFamily(font?.fontFamily))
             s.fontFamily = font.fontFamily;
         if (font?.color)
             s.color = font.color;
@@ -232,20 +241,39 @@ function styleFromXlsx(parts) {
         const alignment = direct(x, 'alignment');
         if (alignment?.getAttribute('wrapText') === '1')
             s.wrap = true;
-        if (alignment && ['center', 'right'].includes(attr(alignment, 'horizontal')))
+        if (alignment && ['center', 'right', 'justify'].includes(attr(alignment, 'horizontal')))
             s.align = attr(alignment, 'horizontal');
-        if (alignment && ['top', 'center'].includes(attr(alignment, 'vertical')))
+        if (alignment && ['top', 'center', 'bottom'].includes(attr(alignment, 'vertical')))
             s.verticalAlign = attr(alignment, 'vertical');
         const indent = alignment ? Number(attr(alignment, 'indent')) : NaN;
         if (Number.isInteger(indent) && indent > 0 && indent <= 250)
             s.indent = indent;
         const borderId = int(attr(x, 'borderId')), border = nodes(direct(root, 'borders') ?? root, 'border')[borderId];
-        if (borderId === 1)
-            s.border = 'all';
-        else if (border) {
-            const active = ['left', 'right', 'top', 'bottom'].filter(edge => { const node = direct(border, edge); return !!node && !!attr(node, 'style'); });
-            if (active.length === 1 && ['bottom', 'top', 'left', 'right'].includes(active[0]))
-                s.border = active[0];
+        if (border) {
+            const sides = ['left', 'right', 'top', 'bottom'].map(edge => { const node = direct(border, edge), line = node ? attr(node, 'style') : '', rgb = node ? color(direct(node, 'color')) : undefined; return line ? { edge, line, color: rgb, style: (line.toLowerCase().includes('double') ? 'double' : line.toLowerCase().includes('dashed') ? 'dashed' : line.toLowerCase().includes('dotted') ? 'dotted' : 'solid'), weight: (line.toLowerCase().startsWith('thick') ? 'thick' : line.toLowerCase().startsWith('medium') ? 'medium' : 'thin') } : null; }).filter((value) => !!value), same = sides.length > 0 && sides.length === 4 && sides.every(side => side.style === sides[0].style && side.color === sides[0].color && side.weight === sides[0].weight);
+            if (same) {
+                s.border = 'all';
+                s.borderStyle = sides[0].style;
+                s.borderWeight = sides[0].weight;
+                if (sides[0].color)
+                    s.borderColor = sides[0].color;
+            }
+            else if (sides.length) {
+                if (sides.length === 1) {
+                    s.border = sides[0].edge;
+                    s.borderStyle = sides[0].style;
+                    s.borderWeight = sides[0].weight;
+                    if (sides[0].color)
+                        s.borderColor = sides[0].color;
+                }
+                else
+                    s.borderEdges = Object.fromEntries(sides.map(side => [side.edge, { style: side.style, weight: side.weight, ...(side.color ? { color: side.color } : {}) }]));
+            }
+            const diagonal = direct(border, 'diagonal'), up = attr(border, 'diagonalUp') === '1', down = attr(border, 'diagonalDown') === '1';
+            if (diagonal && (up || down)) {
+                const line = attr(diagonal, 'style'), rgb = color(direct(diagonal, 'color'));
+                s.borderDiagonal = { up, down, style: line.toLowerCase().includes('double') ? 'double' : line.toLowerCase().includes('dashed') ? 'dashed' : line.toLowerCase().includes('dotted') ? 'dotted' : 'solid', weight: line.toLowerCase().startsWith('thick') ? 'thick' : line.toLowerCase().startsWith('medium') ? 'medium' : 'thin', ...(rgb ? { color: rgb } : {}) };
+            }
         }
         const fmtId = int(attr(x, 'numFmtId')), rawFormat = formats.get(fmtId) ?? builtInDateCodes[fmtId] ?? '', fmt = rawFormat.toLowerCase();
         if (rawFormat && isExcelDateNumberFormat(rawFormat))
@@ -328,7 +356,9 @@ function sheetXML(book, tool, styles, viewOptions) {
     // Table filters belong in the table XML; a second sheet-wide filter over the same range would conflict in Excel.
     const tableOwnsFilter = tool.filter && tool.tables.some(t => t.range.toUpperCase() === `${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}`);
     const filter = tool.filter && !tableOwnsFilter ? `<autoFilter ref="${colToName(tool.filter.startCol)}${tool.filter.startRow + 1}:${colToName(tool.filter.endCol)}${tool.filter.endRow + 1}">${excelFilterColumns(tool.filter)}</autoFilter>` : '';
-    const cf = tool.conditional.map((r, i) => r.operator === 'scale' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="colorScale" priority="${i + 1}"><colorScale><cfvo type="min"/>${r.midColor ? '<cfvo type="percentile" val="50"/>' : ''}<cfvo type="max"/><color rgb="FF${(r.startColor ?? '#ffffff').slice(1).toUpperCase()}"/>${r.midColor ? `<color rgb="FF${r.midColor.slice(1).toUpperCase()}"/>` : ''}<color rgb="FF${r.color.slice(1).toUpperCase()}"/></colorScale></cfRule></conditionalFormatting>` : r.operator === 'dataBar' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="dataBar" priority="${i + 1}"><dataBar showValue="${r.showValue === false ? 0 : 1}" gradient="${r.barStyle === 'solid' ? 0 : 1}"><cfvo type="${r.minValue === undefined ? 'min' : 'num'}"${r.minValue === undefined ? '' : ` val="${r.minValue}"`}/><cfvo type="${r.maxValue === undefined ? 'max' : 'num'}"${r.maxValue === undefined ? '' : ` val="${r.maxValue}"`}/><color rgb="FF${r.color.slice(1).toUpperCase()}"/>${r.negativeColor ? `<negativeFillColor rgb="FF${r.negativeColor.slice(1).toUpperCase()}"/>` : ''}</dataBar></cfRule></conditionalFormatting>` : `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="cellIs" priority="${i + 1}" operator="${{ gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', eq: 'equal', ne: 'notEqual', between: 'between', notBetween: 'notBetween' }[r.operator]}" dxfId="${i}"><formula>${r.threshold}</formula>${r.operator === 'between' || r.operator === 'notBetween' ? `<formula>${r.threshold2}</formula>` : ''}</cfRule></conditionalFormatting>`).join('');
+    const serializeScaleRule = (r, i) => { const colors = [r.startColor ?? '#ffffff', ...(r.midColor ? [r.midColor] : []), r.color], defaults = colors.length === 2 ? [{ type: 'min' }, { type: 'max' }] : [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }], thresholds = r.scaleThresholds ?? defaults, cfvo = thresholds.map(item => `<cfvo type="${item.type}"${item.value === undefined ? '' : ` val="${esc(String(item.value).replace(/^=/, ''))}"`}/>`).join(''), colorXml = colors.map(color => `<color rgb="FF${color.slice(1).toUpperCase()}"/>`).join(''); return `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="colorScale" priority="${r.priority ?? i + 1}"${r.stopIfTrue ? ' stopIfTrue="1"' : ''}><colorScale>${cfvo}${colorXml}</colorScale></cfRule></conditionalFormatting>`; };
+    const serializeDataBarRule = (r, i) => { const lower = r.barLowerThreshold ?? (r.minValue === undefined ? { type: 'min' } : { type: 'num', value: r.minValue }), upper = r.barUpperThreshold ?? (r.maxValue === undefined ? { type: 'max' } : { type: 'num', value: r.maxValue }), cfvo = (item) => `<cfvo type="${item.type}"${item.value === undefined ? '' : ` val="${esc(String(item.value).replace(/^=/, ''))}"`}/>`; return `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="dataBar" priority="${r.priority ?? i + 1}"${r.stopIfTrue ? ' stopIfTrue="1"' : ''}><dataBar showValue="${r.showValue === false ? 0 : 1}" gradient="${r.barStyle === 'solid' ? 0 : 1}" minLength="${r.barMinLength ?? 0}" maxLength="${r.barMaxLength ?? 100}" axisPosition="${r.barAxis === 'middle' ? 'middle' : r.barAxis === 'none' ? 'none' : 'auto'}">${cfvo(lower)}${cfvo(upper)}<color rgb="FF${r.color.slice(1).toUpperCase()}"/>${r.negativeColor ? `<negativeFillColor rgb="FF${r.negativeColor.slice(1).toUpperCase()}"/>` : ''}${r.barAxisColor ? `<axisColor rgb="FF${r.barAxisColor.slice(1).toUpperCase()}"/>` : ''}</dataBar></cfRule></conditionalFormatting>`; };
+    const cf = tool.conditional.map((r, i) => r.operator === 'scale' ? serializeScaleRule(r, i) : r.operator === 'iconSet' ? (() => { const count = Number(r.iconSet?.[0]), defaults = count === 3 ? [{ type: 'min' }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] : count === 4 ? [{ type: 'min' }, { type: 'percent', value: 25 }, { type: 'percent', value: 50 }, { type: 'percent', value: 75 }] : [{ type: 'min' }, { type: 'percent', value: 20 }, { type: 'percent', value: 40 }, { type: 'percent', value: 60 }, { type: 'percent', value: 80 }], thresholds = r.iconThresholds ?? defaults, cfvo = thresholds.map(item => `<cfvo type="${item.type}"${item.value === undefined ? '' : ` val="${esc(String(item.value).replace(/^=/, ''))}"`}/>`).join(''), percent = thresholds.some(item => item.type === 'percent' || item.type === 'percentile'); return `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="iconSet" priority="${r.priority ?? i + 1}"${r.stopIfTrue ? ' stopIfTrue="1"' : ''}><iconSet iconSet="${r.iconSet}"${r.reverseIcons ? ' reverse="1"' : ''}${r.iconsOnly ? ' showValue="0"' : ''}${percent ? ' percent="1"' : ''}>${cfvo}</iconSet></cfRule></conditionalFormatting>`; })() : r.operator === 'formula' ? `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="expression" priority="${r.priority ?? i + 1}"${r.stopIfTrue ? ' stopIfTrue="1"' : ''} dxfId="${i}"><formula>${esc(r.formula.replace(/^=/, ''))}</formula></cfRule></conditionalFormatting>` : r.operator === 'dataBar' ? serializeDataBarRule(r, i) : `<conditionalFormatting sqref="${esc(r.start + ':' + r.end)}"><cfRule type="cellIs" priority="${r.priority ?? i + 1}"${r.stopIfTrue ? ' stopIfTrue="1"' : ''} operator="${{ gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', eq: 'equal', ne: 'notEqual', between: 'between', notBetween: 'notBetween' }[r.operator]}" dxfId="${i}"><formula>${r.threshold}</formula>${r.operator === 'between' || r.operator === 'notBetween' ? `<formula>${r.threshold2}</formula>` : ''}</cfRule></conditionalFormatting>`).join('');
     const dataValidations = tool.dataValidations.length ? `<dataValidations count="${tool.dataValidations.length}">${tool.dataValidations.map(rule => {
         const sqref = rule.start === rule.end ? rule.start : `${rule.start}:${rule.end}`;
         const prompt = rule.promptMessage || rule.promptTitle, showInput = rule.showInputMessage ?? Boolean(prompt), alert = ` errorStyle="${rule.errorStyle ?? 'stop'}" allowBlank="${rule.allowBlank ? 1 : 0}" showErrorMessage="${(rule.showErrorMessage ?? true) ? 1 : 0}"${showInput ? ' showInputMessage="1"' : ''}${rule.promptTitle ? ` promptTitle="${esc(rule.promptTitle)}"` : ''}${rule.promptMessage ? ` prompt="${esc(rule.promptMessage)}"` : ''}${rule.errorTitle ? ` errorTitle="${esc(rule.errorTitle)}"` : ''}${rule.errorMessage ? ` error="${esc(rule.errorMessage)}"` : ''}`;
@@ -341,11 +371,13 @@ function sheetXML(book, tool, styles, viewOptions) {
     }).join('')}</dataValidations>` : '';
     const page = tool.pageSetup, paperSize = { letter: 1, legal: 5, a3: 8, a4: 9, tabloid: 3 }[page.paper];
     const headerFooter = (kind) => { const fields = kind === 'header' ? [page.headerLeft, page.headerCenter, page.headerRight] : [page.footerLeft, page.footerCenter, page.footerRight], markers = ['&L', '&C', '&R']; return fields.some(Boolean) ? `<odd${kind[0].toUpperCase() + kind.slice(1)}>${fields.map((value, index) => markers[index] + esc(value ?? '')).join('')}</odd${kind[0].toUpperCase() + kind.slice(1)}>` : ''; };
-    const pageOptions = `<printOptions gridLines="${page.printGridlines ? 1 : 0}" headings="${page.printHeadings ? 1 : 0}" horizontalCentered="${page.centerHorizontally ? 1 : 0}" verticalCentered="${page.centerVertically ? 1 : 0}"/><pageMargins left="${page.marginLeft}" right="${page.marginRight}" top="${page.marginTop}" bottom="${page.marginBottom}" header="0.3" footer="0.3"/><pageSetup paperSize="${paperSize}" orientation="${page.orientation}" pageOrder="${page.pageOrder}" fitToWidth="${page.fitWidth}" fitToHeight="${page.fitHeight}"/>${page.headerLeft || page.headerCenter || page.headerRight || page.footerLeft || page.footerCenter || page.footerRight ? `<headerFooter>${headerFooter('header')}${headerFooter('footer')}</headerFooter>` : ''}`;
+    const rowBreaks = page.rowBreaks ?? [], columnBreaks = page.columnBreaks ?? [], rowBreakXml = rowBreaks.length ? `<rowBreaks count="${rowBreaks.length}" manualBreakCount="${rowBreaks.length}">${rowBreaks.map(id => `<brk id="${id}" max="16383" man="1"/>`).join('')}</rowBreaks>` : '', columnBreakXml = columnBreaks.length ? `<colBreaks count="${columnBreaks.length}" manualBreakCount="${columnBreaks.length}">${columnBreaks.map(id => `<brk id="${id}" max="1048575" man="1"/>`).join('')}</colBreaks>` : '';
+    const pageOptions = `<printOptions gridLines="${page.printGridlines ? 1 : 0}" headings="${page.printHeadings ? 1 : 0}" horizontalCentered="${page.centerHorizontally ? 1 : 0}" verticalCentered="${page.centerVertically ? 1 : 0}"/><pageMargins left="${page.marginLeft}" right="${page.marginRight}" top="${page.marginTop}" bottom="${page.marginBottom}" header="0.3" footer="0.3"/><pageSetup paperSize="${paperSize}" orientation="${page.orientation}" pageOrder="${page.pageOrder}" fitToWidth="${page.fitWidth}" fitToHeight="${page.fitHeight}"/>${page.headerLeft || page.headerCenter || page.headerRight || page.footerLeft || page.footerCenter || page.footerRight ? `<headerFooter>${headerFooter('header')}${headerFooter('footer')}</headerFooter>` : ''}${rowBreakXml}${columnBreakXml}`;
     const colIndices = new Set([...Object.keys(tool.columnWidths).map(Number), ...tool.hiddenColumns]);
     const cols = [...colIndices].sort((a, b) => a - b).map(col => { const width = tool.columnWidths[col] ?? 126, hidden = tool.hiddenColumns.includes(col); return `<col min="${col + 1}" max="${col + 1}" width="${((width - 5) / 7).toFixed(2)}" customWidth="1"${hidden ? ' hidden="1"' : ''}/>`; }).join('');
     const viewAttributes = `${viewOptions?.showGridLines === false ? ' showGridLines="0"' : ''}${viewOptions?.zoomScale !== undefined ? ` zoomScale="${viewOptions.zoomScale}"` : ''}${viewOptions?.zoomScaleNormal !== undefined ? ` zoomScaleNormal="${viewOptions.zoomScaleNormal}"` : ''}`;
-    return xml(`<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0"${viewAttributes}>${pane}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="22.5"/>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rows}</sheetData>${filter}${cf}${dataValidations}${pageOptions}</worksheet>`);
+    const mergeCells = tool.mergedRanges.length ? `<mergeCells count="${tool.mergedRanges.length}">${tool.mergedRanges.map(ref => `<mergeCell ref="${esc(ref)}"/>`).join('')}</mergeCells>` : '';
+    return xml(`<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0"${viewAttributes}>${pane}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="22.5"/>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rows}</sheetData>${filter}${mergeCells}${cf}${dataValidations}${pageOptions}</worksheet>`);
 }
 export function exportXlsx(doc) {
     // Build a consistent, refreshed snapshot without mutating the open document.
@@ -1022,7 +1054,7 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                     }
                     const uniqueRanges = [...new Map(formulaRanges.map(range => [`${range.r1}:${range.r2}:${range.c1}:${range.c2}`, range])).values()];
                     if (kind !== 'histogram') {
-                        const rowCounts = new Set(uniqueRanges.map(range => range.r2 - range.r1 + 1)), valueRanges = uniqueRanges.filter(range => range.c1 === range.c2), categoryRanges = uniqueRanges.filter(range => range.c2 < Math.max(...valueRanges.map(range => range.c1)));
+                        const rowCounts = new Set(uniqueRanges.map(range => range.r2 - range.r1 + 1)), lastValueColumn = Math.max(...uniqueRanges.map(range => range.c2)), valueRanges = uniqueRanges.filter(range => range.c1 === lastValueColumn && range.c2 === lastValueColumn), categoryRanges = uniqueRanges.filter(range => range.c2 < lastValueColumn);
                         if (uniqueRanges.length !== 2 || rowCounts.size !== 1 || valueRanges.length !== 1 || categoryRanges.length !== 1 || categoryRanges[0].r1 !== valueRanges[0].r1 || categoryRanges[0].r2 !== valueRanges[0].r2) {
                             warnings.push(`${sheetName}: ${kind} ChartEx uses disconnected, multi-value, or mismatched source ranges and was omitted rather than imported with altered data.`);
                             continue;
@@ -1149,7 +1181,7 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                 const categoryIntervalNode = catAxis ? nodes(catAxis, 'tickLblSkip')[0] : undefined, categoryIntervalRaw = categoryIntervalNode ? Number(attr(categoryIntervalNode, 'val')) : NaN, categoryInterval = Number.isInteger(categoryIntervalRaw) && categoryIntervalRaw >= 1 && categoryIntervalRaw <= 250 ? categoryIntervalRaw : undefined;
                 const axTitle = (node) => node ? nodes(nodes(node, 'title')[0] ?? node, 't').map(n => n.textContent ?? '').join('').slice(0, 70) : '';
                 const chartSeriesNodes = nodes(plot, 'ser').map((ser, index) => ({ ser, index, order: Number(attr(nodes(ser, 'idx')[0] ?? ser, 'val', String(index))) })).sort((a, b) => (Number.isFinite(a.order) ? a.order : a.index) - (Number.isFinite(b.order) ? b.order : b.index));
-                const seriesOptions = chartSeriesNodes.map(({ ser }) => { const group = ser.parentElement, axisIds = group ? nodes(group, 'axId').map(n => attr(n, 'val')) : [], trend = nodes(ser, 'trendline')[0], error = nodes(ser, 'errBars')[0], marker = nodes(ser, 'marker')[0], colorNode = nodes(nodes(ser, 'spPr')[0] ?? ser, 'srgbClr')[0]; let trendline; if (trend) {
+                const seriesOptions = chartSeriesNodes.map(({ ser }) => { const group = ser.parentElement, axisIds = group ? nodes(group, 'axId').map(n => attr(n, 'val')) : [], trend = nodes(ser, 'trendline')[0], error = nodes(ser, 'errBars')[0], marker = nodes(ser, 'marker')[0], markerSymbol = marker ? attr(nodes(marker, 'symbol')[0] ?? marker, 'val') : '', colorNode = nodes(nodes(ser, 'spPr')[0] ?? ser, 'srgbClr')[0]; let trendline; if (trend) {
                     const type = attr(nodes(trend, 'trendlineType')[0] ?? trend, 'val'), tt = type === 'movingAvg' ? 'movingAverage' : type;
                     if (['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].includes(tt)) {
                         const numeric = (name) => { const n = Number(attr(nodes(trend, name)[0] ?? trend, 'val')); return Number.isInteger(n) && n > 0 ? n : undefined; };
@@ -1161,7 +1193,7 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                         errorBars = { type: 'standardError', value: 0, ...(direction !== 'both' ? { direction } : {}), ...(errorAxis === 'x' || errorAxis === 'y' ? { axis: errorAxis } : {}), ...(cap ? {} : { endCap: false }) };
                     else if (['fixedVal', 'percentage', 'stdDev'].includes(type) && Number.isFinite(value))
                         errorBars = { type: type === 'fixedVal' ? 'fixed' : type === 'percentage' ? 'percentage' : 'standardDeviation', value, ...(direction !== 'both' ? { direction } : {}), ...(errorAxis === 'x' || errorAxis === 'y' ? { axis: errorAxis } : {}), ...(cap ? {} : { endCap: false }) };
-                } return { ...(kind === 'combo' && group?.localName === 'lineChart' ? { kind: 'line' } : kind === 'combo' && group?.localName === 'barChart' ? { kind: 'column' } : {}), ...(axisIds.includes('404') ? { axis: 'secondary' } : {}), ...(colorNode && /^([0-9a-f]{6})$/i.test(attr(colorNode, 'val')) ? { color: `#${attr(colorNode, 'val').toLowerCase()}` } : {}), ...(marker ? { marker: attr(nodes(marker, 'symbol')[0] ?? marker, 'val') !== 'none' } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline: trendline } : {}) }; });
+                } return { ...(kind === 'combo' && group?.localName === 'lineChart' ? { kind: 'line' } : kind === 'combo' && group?.localName === 'barChart' ? { kind: 'column' } : {}), ...(axisIds.includes('404') ? { axis: 'secondary' } : {}), ...(colorNode && /^([0-9a-f]{6})$/i.test(attr(colorNode, 'val')) ? { color: `#${attr(colorNode, 'val').toLowerCase()}` } : {}), ...(marker ? { marker: markerSymbol !== 'none', ...(['circle', 'square', 'diamond', 'triangle', 'plus', 'x', 'star'].includes(markerSymbol) ? { markerStyle: markerSymbol } : {}) } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline: trendline } : {}) }; });
                 const firstColor = seriesOptions[0]?.color?.slice(1) ?? (nodes(typeNode, 'srgbClr')[0] ? attr(nodes(typeNode, 'srgbClr')[0], 'val').toLowerCase() : '');
                 const theme = Object.keys(CHART_PALETTES).find(name => seriesOptions.length > 0 && seriesOptions.every((option, index) => !option.color || option.color.toLowerCase() === CHART_PALETTES[name][index % CHART_PALETTES[name].length].toLowerCase())) ?? Object.keys(CHART_PALETTES).find(name => CHART_PALETTES[name][0].slice(1).toLowerCase() === firstColor);
                 const piePointColors = new Map();
@@ -1169,7 +1201,7 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                     const firstSer = chartSeriesNodes[0]?.ser;
                     for (const point of firstSer ? nodes(firstSer, 'dPt') : []) {
                         const indexNode = nodes(point, 'idx')[0], index = indexNode ? Number(attr(indexNode, 'val')) : NaN, colorNode = nodes(nodes(point, 'spPr')[0] ?? point, 'srgbClr')[0], value = colorNode ? attr(colorNode, 'val').toLowerCase() : '';
-                        if (Number.isInteger(index) && index >= 0 && index < 250 && /^[0-9a-f]{6}$/.test(value))
+                        if (Number.isInteger(index) && index >= 0 && index < MAX_CHART_SOURCE_POINTS && /^[0-9a-f]{6}$/.test(value))
                             piePointColors.set(index, `#${value}`);
                     }
                 }
@@ -1177,11 +1209,12 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
                 const bound = (node, name) => { if (!node)
                     return undefined; const scaling = nodes(node, 'scaling')[0], boundNode = scaling ? nodes(scaling, name)[0] : undefined; if (!boundNode)
                     return undefined; const value = Number(attr(boundNode, 'val')); return Number.isFinite(value) ? value : undefined; };
+                const rawLogBase = valAxis ? Number(attr(nodes(nodes(valAxis, 'scaling')[0] ?? valAxis, 'logBase')[0] ?? valAxis, 'val')) : NaN, yAxisLogBase = Number.isInteger(rawLogBase) && rawLogBase >= 2 && rawLogBase <= 1000 ? rawLogBase : undefined;
                 const majorUnitNode = valAxis ? nodes(valAxis, 'majorUnit')[0] : undefined, majorUnit = majorUnitNode ? Number(attr(majorUnitNode, 'val')) : undefined, secondaryMajorUnitNode = secondaryAxis ? nodes(secondaryAxis, 'majorUnit')[0] : undefined, secondaryMajorUnit = secondaryMajorUnitNode ? Number(attr(secondaryMajorUnitNode, 'val')) : undefined;
                 const xMajorUnitNode = kind === 'scatter' && catAxis ? nodes(catAxis, 'majorUnit')[0] : undefined, xMajorUnit = xMajorUnitNode ? Number(attr(xMajorUnitNode, 'val')) : undefined, xNumFmt = kind === 'scatter' && catAxis ? attr(nodes(catAxis, 'numFmt')[0] ?? catAxis, 'formatCode') : '', xAxisFormat = xNumFmt === '$#,##0.00' ? 'currency' : xNumFmt === '0%' ? 'percent' : xNumFmt === '0.00' ? 'number' : 'general', xAxisFormatCode = xNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(xNumFmt) ? xNumFmt : undefined;
                 const yNumFmt = valAxis ? attr(nodes(valAxis, 'numFmt')[0] ?? valAxis, 'formatCode') : '', axisFormat = yNumFmt === '$#,##0.00' ? 'currency' : yNumFmt === '0%' ? 'percent' : yNumFmt === '0.00' ? 'number' : 'general', yAxisFormatCode = yNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(yNumFmt) ? yNumFmt : undefined, secondaryNumFmt = secondaryAxis ? attr(nodes(secondaryAxis, 'numFmt')[0] ?? secondaryAxis, 'formatCode') : '', secondaryAxisFormat = secondaryNumFmt === '$#,##0.00' ? 'currency' : secondaryNumFmt === '0%' ? 'percent' : secondaryNumFmt === '0.00' ? 'number' : 'general', secondaryYAxisFormatCode = secondaryNumFmt && !['General', '$#,##0.00', '0%', '0.00'].includes(secondaryNumFmt) ? secondaryNumFmt : undefined;
                 const rawDataLabelPosition = attr(nodes(typeNode, 'dLblPos')[0] ?? typeNode, 'val'), dataLabelPosition = { ctr: 'center', inBase: 'insideBase', inEnd: 'insideEnd', outEnd: 'outsideEnd', bestFit: 'bestFit', t: 'above', b: 'below', l: 'left', r: 'right' }[rawDataLabelPosition], dataLabelsNode = nodes(typeNode, 'dLbls')[0], showLabel = (name) => attr(nodes(dataLabelsNode ?? typeNode, name)[0] ?? typeNode, 'val', '0') === '1', sliceAngleNode = nodes(typeNode, 'firstSliceAng')[0], sliceAngle = sliceAngleNode ? Number(attr(sliceAngleNode, 'val')) : undefined, holeSizeNode = nodes(typeNode, 'holeSize')[0], holeSize = holeSizeNode ? Number(attr(holeSizeNode, 'val')) : undefined, dataLabelSeparatorNode = dataLabelsNode ? nodes(dataLabelsNode, 'separator')[0] : undefined, dataLabelSeparator = dataLabelSeparatorNode?.textContent ?? undefined, dataLabelFormatNode = dataLabelsNode ? nodes(dataLabelsNode, 'numFmt')[0] : undefined, dataLabelFormatCode = dataLabelFormatNode ? attr(dataLabelFormatNode, 'formatCode') : undefined;
-                const c = { ...(theme ? { theme } : {}), id: `chart-import-${result.length + 1}`, kind, title: titleText.slice(0, 100), ...(chartDescription ? { accessibilityDescription: chartDescription } : {}), range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: leg ? (lp === 'r' ? 'right' : lp === 'l' ? 'left' : lp === 't' ? 'top' : 'bottom') : 'none', ...(includeHiddenData ? { includeHiddenData: true } : {}), ...(dataTable ? { dataTable: true, dataTableShowKeys } : {}), ...(['gap', 'zero', 'span'].includes(attr(nodes(chartDoc, 'dispBlanksAs')[0] ?? chartDoc.documentElement, 'val')) ? { displayBlanksAs: attr(nodes(chartDoc, 'dispBlanksAs')[0] ?? chartDoc.documentElement, 'val') } : {}), ...(kind !== 'scatter' && catAxis && attr(nodes(catAxis, 'orientation')[0] ?? catAxis, 'val') === 'maxMin' ? { reverseCategories: true } : {}), dataLabels: dataLabelsNode ? showLabel('showVal') : false, dataLabelCategoryName: showLabel('showCatName'), dataLabelSeriesName: showLabel('showSerName'), dataLabelPercent: showLabel('showPercent'), ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator ? { dataLabelSeparator } : {}), ...(dataLabelFormatCode ? { dataLabelFormatCode } : {}), ...(dataPointColors ? { dataPointColors } : {}), ...(switchRowsColumns ? { switchRowsColumns: true } : {}), xAxisTitle: axTitle(catAxis), ...(categoryAngle !== undefined ? { xAxisLabelAngle: categoryAngle } : {}), ...(categoryInterval !== undefined ? { xAxisLabelInterval: categoryInterval } : {}), ...(kind === 'scatter' && bound(catAxis, 'min') !== undefined ? { xAxisMin: bound(catAxis, 'min') } : {}), ...(kind === 'scatter' && bound(catAxis, 'max') !== undefined ? { xAxisMax: bound(catAxis, 'max') } : {}), ...(kind === 'scatter' && xMajorUnit !== undefined && Number.isFinite(xMajorUnit) && xMajorUnit > 0 ? { xAxisMajorUnit: xMajorUnit } : {}), ...(kind === 'scatter' && xAxisFormat !== 'general' ? { xAxisNumberFormat: xAxisFormat } : {}), ...(kind === 'scatter' && xAxisFormatCode ? { xAxisFormatCode } : {}), yAxisTitle: axTitle(valAxis), ...(secondaryAxis ? { secondaryYAxisTitle: axTitle(secondaryAxis) } : {}), ...(bound(valAxis, 'min') !== undefined ? { yAxisMin: bound(valAxis, 'min') } : {}), ...(bound(valAxis, 'max') !== undefined ? { yAxisMax: bound(valAxis, 'max') } : {}), ...(majorUnit !== undefined && Number.isFinite(majorUnit) && majorUnit > 0 ? { yAxisMajorUnit: majorUnit } : {}), ...(secondaryAxis && bound(secondaryAxis, 'min') !== undefined ? { secondaryYAxisMin: bound(secondaryAxis, 'min') } : {}), ...(secondaryAxis && bound(secondaryAxis, 'max') !== undefined ? { secondaryYAxisMax: bound(secondaryAxis, 'max') } : {}), ...(secondaryMajorUnit !== undefined && Number.isFinite(secondaryMajorUnit) && secondaryMajorUnit > 0 ? { secondaryYAxisMajorUnit: secondaryMajorUnit } : {}), ...(axisFormat !== 'general' ? { yAxisNumberFormat: axisFormat } : {}), ...(secondaryAxisFormat !== 'general' ? { secondaryYAxisNumberFormat: secondaryAxisFormat } : {}), ...(yAxisFormatCode ? { yAxisFormatCode } : {}), ...(secondaryYAxisFormatCode ? { secondaryYAxisFormatCode } : {}), ...(holeSize !== undefined && Number.isInteger(holeSize) ? { doughnutHoleSize: holeSize } : {}), ...(sliceAngle !== undefined && Number.isInteger(sliceAngle) ? { firstSliceAngle: sliceAngle } : {}), ...(valAxis ? { majorGridlines: nodes(valAxis, 'majorGridlines').length > 0, minorGridlines: nodes(valAxis, 'minorGridlines').length > 0 } : {}), ...(kind === 'combo' || seriesOptions.some(o => o.axis === 'secondary' || o.trendline || o.errorBars || o.color || o.marker !== undefined) ? { seriesOptions } : {}) };
+                const c = { ...(theme ? { theme } : {}), id: `chart-import-${result.length + 1}`, kind, title: titleText.slice(0, 100), ...(chartDescription ? { accessibilityDescription: chartDescription } : {}), range, x: Math.max(0, Math.min(15000, x)), y: Math.max(0, Math.min(30000, y)), width: Math.max(300, Math.min(900, width)), height: Math.max(210, Math.min(650, height)), legend: leg ? (lp === 'r' ? 'right' : lp === 'l' ? 'left' : lp === 't' ? 'top' : 'bottom') : 'none', ...(includeHiddenData ? { includeHiddenData: true } : {}), ...(dataTable ? { dataTable: true, dataTableShowKeys } : {}), ...(['gap', 'zero', 'span'].includes(attr(nodes(chartDoc, 'dispBlanksAs')[0] ?? chartDoc.documentElement, 'val')) ? { displayBlanksAs: attr(nodes(chartDoc, 'dispBlanksAs')[0] ?? chartDoc.documentElement, 'val') } : {}), ...(kind !== 'scatter' && catAxis && attr(nodes(catAxis, 'orientation')[0] ?? catAxis, 'val') === 'maxMin' ? { reverseCategories: true } : {}), dataLabels: dataLabelsNode ? showLabel('showVal') : false, dataLabelCategoryName: showLabel('showCatName'), dataLabelSeriesName: showLabel('showSerName'), dataLabelPercent: showLabel('showPercent'), ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator ? { dataLabelSeparator } : {}), ...(dataLabelFormatCode ? { dataLabelFormatCode } : {}), ...(dataPointColors ? { dataPointColors } : {}), ...(switchRowsColumns ? { switchRowsColumns: true } : {}), xAxisTitle: axTitle(catAxis), ...(categoryAngle !== undefined ? { xAxisLabelAngle: categoryAngle } : {}), ...(categoryInterval !== undefined ? { xAxisLabelInterval: categoryInterval } : {}), ...(kind === 'scatter' && bound(catAxis, 'min') !== undefined ? { xAxisMin: bound(catAxis, 'min') } : {}), ...(kind === 'scatter' && bound(catAxis, 'max') !== undefined ? { xAxisMax: bound(catAxis, 'max') } : {}), ...(kind === 'scatter' && xMajorUnit !== undefined && Number.isFinite(xMajorUnit) && xMajorUnit > 0 ? { xAxisMajorUnit: xMajorUnit } : {}), ...(kind === 'scatter' && xAxisFormat !== 'general' ? { xAxisNumberFormat: xAxisFormat } : {}), ...(kind === 'scatter' && xAxisFormatCode ? { xAxisFormatCode } : {}), yAxisTitle: axTitle(valAxis), ...(yAxisLogBase !== undefined ? { yAxisLogBase } : {}), ...(secondaryAxis ? { secondaryYAxisTitle: axTitle(secondaryAxis) } : {}), ...(bound(valAxis, 'min') !== undefined ? { yAxisMin: bound(valAxis, 'min') } : {}), ...(bound(valAxis, 'max') !== undefined ? { yAxisMax: bound(valAxis, 'max') } : {}), ...(majorUnit !== undefined && Number.isFinite(majorUnit) && majorUnit > 0 ? { yAxisMajorUnit: majorUnit } : {}), ...(secondaryAxis && bound(secondaryAxis, 'min') !== undefined ? { secondaryYAxisMin: bound(secondaryAxis, 'min') } : {}), ...(secondaryAxis && bound(secondaryAxis, 'max') !== undefined ? { secondaryYAxisMax: bound(secondaryAxis, 'max') } : {}), ...(secondaryMajorUnit !== undefined && Number.isFinite(secondaryMajorUnit) && secondaryMajorUnit > 0 ? { secondaryYAxisMajorUnit: secondaryMajorUnit } : {}), ...(axisFormat !== 'general' ? { yAxisNumberFormat: axisFormat } : {}), ...(secondaryAxisFormat !== 'general' ? { secondaryYAxisNumberFormat: secondaryAxisFormat } : {}), ...(yAxisFormatCode ? { yAxisFormatCode } : {}), ...(secondaryYAxisFormatCode ? { secondaryYAxisFormatCode } : {}), ...(holeSize !== undefined && Number.isInteger(holeSize) ? { doughnutHoleSize: holeSize } : {}), ...(sliceAngle !== undefined && Number.isInteger(sliceAngle) ? { firstSliceAngle: sliceAngle } : {}), ...(valAxis ? { majorGridlines: nodes(valAxis, 'majorGridlines').length > 0, minorGridlines: nodes(valAxis, 'minorGridlines').length > 0 } : {}), ...(kind === 'combo' || seriesOptions.some(o => o.axis === 'secondary' || o.trendline || o.errorBars || o.color || o.marker !== undefined) ? { seriesOptions } : {}) };
                 const chart = validateChart(c, book.rows, book.cols);
                 result.push(chart);
                 if (pivotSourceName)
@@ -1195,6 +1228,22 @@ function importNativeCharts(parts, sheetPath, sheet, book, sheetName, warnings, 
     return result;
 }
 function pivotSourceTableName(value) { const tail = value.slice(value.lastIndexOf('!') + 1).trim(); return tail.replace(/^['"]|['"]$/g, ''); }
+function conditionalRuleFlags(rule) { const priority = Number(attr(rule, 'priority', 'NaN')); return { ...(Number.isInteger(priority) && priority >= 1 && priority <= 1000 ? { priority } : {}), ...(attr(rule, 'stopIfTrue', '0') === '1' ? { stopIfTrue: true } : {}) }; }
+function conditionalThreshold(node) { if (!node)
+    return null; const type = attr(node, 'type'), raw = attr(node, 'val'); if (!['min', 'max', 'num', 'percent', 'percentile', 'formula'].includes(type))
+    return null; if (type === 'min' || type === 'max')
+    return { type }; if (type === 'formula') {
+    const formula = raw.trim() ? (raw.startsWith('=') ? raw : `=${raw}`) : '';
+    if (!formula || formula.length > 8192)
+        return null;
+    try {
+        parseFormula(formula);
+        return { type, value: formula };
+    }
+    catch {
+        return null;
+    }
+} const value = Number(raw); return Number.isFinite(value) && (!['percent', 'percentile'].includes(type) || value >= 0 && value <= 100) ? { type, value } : null; }
 export async function importXlsx(bytes, options = {}) {
     if (bytes.length > 25 * 1024 * 1024)
         throw Error('XLSX exceeds the 25 MB import limit.');
@@ -1206,8 +1255,8 @@ export async function importXlsx(bytes, options = {}) {
     const workbook = parseXml(workbookData), workbookProperties = nodes(workbook, 'workbookPr')[0], date1904 = ['1', 'true'].includes(attr(workbookProperties ?? workbook.documentElement, 'date1904').toLowerCase()), rels = parseXml(parts.get('xl/_rels/workbook.xml.rels') ?? '<Relationships/>');
     const relation = new Map(nodes(rels, 'Relationship').map(n => [attr(n, 'Id'), attr(n, 'Target')]));
     const sheets = nodes(workbook, 'sheet');
-    if (!sheets.length || sheets.length > 12)
-        throw Error('XLSX must contain between 1 and 12 worksheets.');
+    if (!sheets.length || sheets.length > MAX_WORKBOOK_SHEETS)
+        throw Error(`XLSX must contain between 1 and ${MAX_WORKBOOK_SHEETS} worksheets.`);
     const shared = parts.get('xl/sharedStrings.xml') ? nodes(parseXml(parts.get('xl/sharedStrings.xml')), 'si').map(si => nodes(si, 't').map(t => t.textContent ?? '').join('')) : [];
     const catalog = styleFromXlsx(parts), dateFormatStyleIds = dateFormatStyleIdsFromXlsx(parts);
     const dxfXml = parts.get('xl/styles.xml'), dxfs = dxfXml ? nodes(direct(parseXml(dxfXml).documentElement, 'dxfs') ?? parseXml(dxfXml).documentElement, 'dxf').map(node => color(nodes(node, 'fgColor')[0]) ?? '#ffe0a2') : [];
@@ -1240,7 +1289,7 @@ export async function importXlsx(bytes, options = {}) {
     catch (error) {
         warnings.push(`Workbook-scoped defined names were skipped (${error instanceof Error ? error.message : 'invalid names'}).`);
     }
-    let first = true, sheetIndex = 0;
+    let first = true, sheetIndex = 0, workbookCellCount = 0;
     const importedSheetPaths = [], importedSheetDocuments = [], pivotChartSourcesBySheet = new Map();
     for (const item of sheets) {
         const name = attr(item, 'name'), relId = item.getAttributeNS(relns, 'id') ?? attr(item, 'r:id');
@@ -1269,6 +1318,9 @@ export async function importXlsx(bytes, options = {}) {
         }
         if (cells.length > MAX_XLSX_CELLS_PER_SHEET)
             throw Error(`${name} has more than ${MAX_XLSX_CELLS_PER_SHEET.toLocaleString()} cells. Split this workbook before importing.`);
+        workbookCellCount += cells.length;
+        if (workbookCellCount > MAX_WORKBOOK_POPULATED_CELLS)
+            throw Error(`This XLSX workbook exceeds GridForge's ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()} total imported-cell limit. Split the workbook before importing.`);
         for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
             const c = cells[cellIndex];
             const ref = attr(c, 'r'), p = parseRef(ref);
@@ -1371,6 +1423,35 @@ export async function importXlsx(bytes, options = {}) {
             if (point && point.row < MAX_WORKSHEET_ROWS && point.col < MAX_WORKSHEET_COLUMNS) {
                 maxR = Math.max(maxR, point.row + 1);
                 maxC = Math.max(maxC, point.col + 1);
+            }
+        }
+        const readManualBreaks = (elementName, limit) => { const container = direct(sheet.documentElement, elementName); if (!container)
+            return []; const result = [], seen = new Set(); let ignored = 0; for (const node of nodes(container, 'brk')) {
+            if (!['1', 'true'].includes(attr(node, 'man').toLowerCase()))
+                continue;
+            const id = Number(attr(node, 'id'));
+            if (!Number.isInteger(id) || id < 1 || id > limit) {
+                ignored++;
+                continue;
+            }
+            if (!seen.has(id)) {
+                seen.add(id);
+                result.push(id);
+            }
+        } if (result.length > 100) {
+            ignored += result.length - 100;
+            result.length = 100;
+        } if (ignored)
+            warnings.push(`${name}: ${ignored} invalid or excess manual ${elementName === 'rowBreaks' ? 'row' : 'column'} page break${ignored === 1 ? '' : 's'} were ignored.`); return result.sort((a, b) => a - b); }, importedRowBreaks = readManualBreaks('rowBreaks', MAX_WORKSHEET_ROWS - 1), importedColumnBreaks = readManualBreaks('colBreaks', MAX_WORKSHEET_COLUMNS - 1);
+        for (const id of importedRowBreaks)
+            maxR = Math.max(maxR, id + 1);
+        for (const id of importedColumnBreaks)
+            maxC = Math.max(maxC, id + 1);
+        for (const node of nodes(sheet, 'mergeCell')) {
+            const [first, last = ''] = attr(node, 'ref').replace(/\$/g, '').split(':'), a = parseRef(first ?? ''), b = parseRef(last);
+            if (a && b && a.row < MAX_WORKSHEET_ROWS && b.row < MAX_WORKSHEET_ROWS && a.col < MAX_WORKSHEET_COLUMNS && b.col < MAX_WORKSHEET_COLUMNS) {
+                maxR = Math.max(maxR, Math.max(a.row, b.row) + 1);
+                maxC = Math.max(maxC, Math.max(a.col, b.col) + 1);
             }
         }
         const book = new Workbook(maxR, maxC);
@@ -1506,6 +1587,17 @@ export async function importXlsx(bytes, options = {}) {
             tool.freezeRows = Math.min(maxR - 1, Math.max(0, int(attr(pane, 'ySplit'))));
             tool.freezeCols = Math.min(maxC - 1, Math.max(0, int(attr(pane, 'xSplit'))));
         }
+        let merges = [];
+        for (const node of nodes(sheet, 'mergeCell')) {
+            const ref = attr(node, 'ref');
+            try {
+                merges = addMergedRange(merges, ref, MAX_WORKSHEET_ROWS, MAX_WORKSHEET_COLUMNS);
+            }
+            catch (error) {
+                warnings.push(`${name}: invalid or overlapping merged range “${ref}” was ignored (${error instanceof Error ? error.message : 'invalid range'}).`);
+            }
+        }
+        tool.mergedRanges = merges;
         const hyperlinkRelationships = new Map();
         try {
             const relationPath = path.replace(/\/[^/]+$/, '/_rels/') + path.split('/').at(-1) + '.rels', relationText = parts.get(relationPath);
@@ -1562,7 +1654,7 @@ export async function importXlsx(bytes, options = {}) {
             warnings.push(`${name}: print area exceeded the imported worksheet range and was ignored.`);
         const margin = (key, fallback) => { const value = Number(attr(margins ?? sheet.documentElement, key, String(fallback))); return Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : fallback; };
         const order = attr(setup ?? sheet.documentElement, 'pageOrder');
-        tool.pageSetup = { ...tool.pageSetup, ...(orient === 'portrait' || orient === 'landscape' ? { orientation: orient } : {}), ...(paper ? { paper } : {}), ...(order === 'downThenOver' || order === 'overThenDown' ? { pageOrder: order } : {}), ...(setup ? { fitWidth: Math.max(0, Math.min(4, int(attr(setup, 'fitToWidth'), tool.pageSetup.fitWidth))), fitHeight: Math.max(0, Math.min(4, int(attr(setup, 'fitToHeight'), tool.pageSetup.fitHeight))) } : {}), ...(printArea ? { printArea } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}), ...(printOptions ? { printGridlines: attr(printOptions, 'gridLines') === '1', printHeadings: attr(printOptions, 'headings') === '1', centerHorizontally: attr(printOptions, 'horizontalCentered') === '1', centerVertically: attr(printOptions, 'verticalCentered') === '1' } : {}), ...(margins ? { marginTop: margin('top', tool.pageSetup.marginTop), marginBottom: margin('bottom', tool.pageSetup.marginBottom), marginLeft: margin('left', tool.pageSetup.marginLeft), marginRight: margin('right', tool.pageSetup.marginRight) } : {}), ...(headerParts.some(Boolean) ? { headerLeft: headerParts[0], headerCenter: headerParts[1], headerRight: headerParts[2] } : {}), ...(footerParts.some(Boolean) ? { footerLeft: footerParts[0], footerCenter: footerParts[1], footerRight: footerParts[2] } : {}) };
+        tool.pageSetup = { ...tool.pageSetup, ...(orient === 'portrait' || orient === 'landscape' ? { orientation: orient } : {}), ...(paper ? { paper } : {}), ...(order === 'downThenOver' || order === 'overThenDown' ? { pageOrder: order } : {}), ...(setup ? { fitWidth: Math.max(0, Math.min(4, int(attr(setup, 'fitToWidth'), tool.pageSetup.fitWidth))), fitHeight: Math.max(0, Math.min(4, int(attr(setup, 'fitToHeight'), tool.pageSetup.fitHeight))) } : {}), ...(printArea ? { printArea } : {}), ...(repeatRows ? { repeatRows } : {}), ...(repeatColumns ? { repeatColumns } : {}), rowBreaks: importedRowBreaks, columnBreaks: importedColumnBreaks, ...(printOptions ? { printGridlines: attr(printOptions, 'gridLines') === '1', printHeadings: attr(printOptions, 'headings') === '1', centerHorizontally: attr(printOptions, 'horizontalCentered') === '1', centerVertically: attr(printOptions, 'verticalCentered') === '1' } : {}), ...(margins ? { marginTop: margin('top', tool.pageSetup.marginTop), marginBottom: margin('bottom', tool.pageSetup.marginBottom), marginLeft: margin('left', tool.pageSetup.marginLeft), marginRight: margin('right', tool.pageSetup.marginRight) } : {}), ...(headerParts.some(Boolean) ? { headerLeft: headerParts[0], headerCenter: headerParts[1], headerRight: headerParts[2] } : {}), ...(footerParts.some(Boolean) ? { footerLeft: footerParts[0], footerCenter: footerParts[1], footerRight: footerParts[2] } : {}) };
         for (const col of nodes(sheet, 'col')) {
             const from = int(attr(col, 'min')) - 1, to = int(attr(col, 'max')) - 1, width = Number(attr(col, 'width'));
             if (Number.isFinite(width) && width > 0 && from >= 0 && to < maxC)
@@ -1597,35 +1689,52 @@ export async function importXlsx(bytes, options = {}) {
             }
         }
         for (const node of nodes(sheet, 'conditionalFormatting')) {
-            const ranges = attr(node, 'sqref').split(/\s+/).filter(Boolean), rule = nodes(node, 'cfRule')[0];
-            if (!rule)
-                continue;
-            for (const range of ranges) {
-                const m = /^([A-Z]+\d+):([A-Z]+\d+)$/i.exec(range);
-                if (!m)
-                    continue;
-                if (attr(rule, 'type') === 'colorScale') {
-                    const colors = nodes(rule, 'color').map(x => attr(x, 'rgb')).filter(x => /^[a-f0-9]{8}$/i.test(x));
-                    if (colors.length === 2 || colors.length === 3)
-                        tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'scale', threshold: 0, startColor: '#' + colors[0].slice(2), ...(colors.length === 3 ? { midColor: '#' + colors[1].slice(2) } : {}), color: '#' + colors.at(-1).slice(2) });
-                    continue;
-                }
-                if (attr(rule, 'type') === 'dataBar') {
-                    const bar = nodes(rule, 'dataBar')[0], colorNode = bar ? nodes(bar, 'color')[0] : undefined, color = colorNode ? attr(colorNode, 'rgb') : '';
-                    if (bar && /^[a-f0-9]{8}$/i.test(color)) {
-                        const limits = nodes(bar, 'cfvo'), min = limits[0], max = limits[1], minValue = attr(min ?? bar, 'type') === 'num' ? Number(attr(min, 'val')) : undefined, maxValue = attr(max ?? bar, 'type') === 'num' ? Number(attr(max, 'val')) : undefined, negativeNode = nodes(bar, 'negativeFillColor')[0], negativeRgb = negativeNode ? attr(negativeNode, 'rgb') : '';
-                        tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'dataBar', threshold: 0, color: '#' + color.slice(2), showValue: attr(bar, 'showValue', '1') !== '0', barStyle: attr(bar, 'gradient', '1') === '0' ? 'solid' : 'gradient', ...(negativeRgb && /^[a-f0-9]{8}$/i.test(negativeRgb) ? { negativeColor: '#' + negativeRgb.slice(2) } : {}), ...(Number.isFinite(minValue) ? { minValue } : {}), ...(Number.isFinite(maxValue) ? { maxValue } : {}) });
+            const ranges = attr(node, 'sqref').split(/\s+/).filter(Boolean);
+            for (const rule of nodes(node, 'cfRule'))
+                for (const range of ranges) {
+                    const m = /^([A-Z]+\d+):([A-Z]+\d+)$/i.exec(range);
+                    if (!m)
+                        continue;
+                    if (attr(rule, 'type') === 'colorScale') {
+                        const scale = nodes(rule, 'colorScale')[0], colors = nodes(rule, 'color').map(x => attr(x, 'rgb')).filter(x => /^[a-f0-9]{8}$/i.test(x)), thresholds = scale ? nodes(scale, 'cfvo').map(node => conditionalThreshold(node)) : [], validTypes = new Set(['min', 'max', 'num', 'percent', 'percentile', 'formula']);
+                        if ((colors.length === 2 || colors.length === 3) && thresholds.length === colors.length && thresholds.every((item) => item !== null && validTypes.has(item.type))) {
+                            const first = colors[0], last = colors.at(-1);
+                            tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'scale', threshold: 0, ...conditionalRuleFlags(rule), startColor: '#' + first.slice(2), ...(colors.length === 3 ? { midColor: '#' + colors[1].slice(2) } : {}), color: '#' + last.slice(2), scaleThresholds: thresholds });
+                        }
+                        continue;
                     }
-                    continue;
+                    if (attr(rule, 'type') === 'dataBar') {
+                        const bar = nodes(rule, 'dataBar')[0], colorNode = bar ? nodes(bar, 'color')[0] : undefined, color = colorNode ? attr(colorNode, 'rgb') : '';
+                        if (bar && /^[a-f0-9]{8}$/i.test(color)) {
+                            const limits = nodes(bar, 'cfvo'), lowerThreshold = conditionalThreshold(limits[0]), upperThreshold = conditionalThreshold(limits[1]), negativeNode = nodes(bar, 'negativeFillColor')[0], negativeRgb = negativeNode ? attr(negativeNode, 'rgb') : '', axisNode = nodes(bar, 'axisColor')[0], axisRgb = axisNode ? attr(axisNode, 'rgb') : '', axisRaw = attr(bar, 'axisPosition', 'auto'), axis = axisRaw === 'middle' || axisRaw === 'none' ? axisRaw : 'automatic', minLength = Number(attr(bar, 'minLength', '0')), maxLength = Number(attr(bar, 'maxLength', '100')), validLengths = Number.isInteger(minLength) && Number.isInteger(maxLength) && minLength >= 0 && maxLength <= 100 && minLength <= maxLength;
+                            if (!lowerThreshold || !upperThreshold || lowerThreshold.type === 'max' || upperThreshold.type === 'min' || lowerThreshold.type === 'num' && upperThreshold.type === 'num' && typeof lowerThreshold.value === 'number' && typeof upperThreshold.value === 'number' && lowerThreshold.value >= upperThreshold.value)
+                                continue;
+                            tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'dataBar', threshold: 0, ...conditionalRuleFlags(rule), color: '#' + color.slice(2), showValue: attr(bar, 'showValue', '1') !== '0', barStyle: attr(bar, 'gradient', '1') === '0' ? 'solid' : 'gradient', ...(negativeRgb && /^[a-f0-9]{8}$/i.test(negativeRgb) ? { negativeColor: '#' + negativeRgb.slice(2) } : {}), ...(lowerThreshold?.type === 'num' && typeof lowerThreshold.value === 'number' ? { minValue: lowerThreshold.value } : lowerThreshold && lowerThreshold.type !== 'min' ? { barLowerThreshold: lowerThreshold } : {}), ...(upperThreshold?.type === 'num' && typeof upperThreshold.value === 'number' ? { maxValue: upperThreshold.value } : upperThreshold && upperThreshold.type !== 'max' ? { barUpperThreshold: upperThreshold } : {}), ...(axis !== 'automatic' ? { barAxis: axis } : {}), ...(axisRgb && /^[a-f0-9]{8}$/i.test(axisRgb) ? { barAxisColor: '#' + axisRgb.slice(2) } : {}), ...(validLengths && minLength !== 0 ? { barMinLength: minLength } : {}), ...(validLengths && maxLength !== 100 ? { barMaxLength: maxLength } : {}) });
+                        }
+                        continue;
+                    }
+                    if (attr(rule, 'type') === 'iconSet') {
+                        const icon = nodes(rule, 'iconSet')[0], iconSet = attr(icon ?? rule, 'iconSet', '3TrafficLights1'), known = new Set(['3Arrows', '3ArrowsGray', '3Flags', '3TrafficLights1', '3TrafficLights2', '3Signs', '3Symbols', '3Symbols2', '3Stars', '3Triangles', '4Arrows', '4ArrowsGray', '4RedToBlack', '4Rating', '4TrafficLights', '5Arrows', '5ArrowsGray', '5Rating', '5Quarters']), thresholds = icon ? nodes(icon, 'cfvo').map(node => conditionalThreshold(node)) : [];
+                        if (icon && known.has(iconSet) && thresholds.length === Number(iconSet[0]) && thresholds.every((item) => item !== null)) {
+                            tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'iconSet', threshold: 0, ...conditionalRuleFlags(rule), color: '#000000', iconSet, iconThresholds: thresholds, reverseIcons: attr(icon, 'reverse', '0') === '1', iconsOnly: attr(icon, 'showValue', '1') === '0' });
+                        }
+                        continue;
+                    }
+                    if (attr(rule, 'type') === 'expression') {
+                        const formula = nodes(rule, 'formula')[0]?.textContent?.trim();
+                        if (formula)
+                            tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: 'formula', formula: formula.startsWith('=') ? formula : `=${formula}`, threshold: 0, ...conditionalRuleFlags(rule), color: dxfs[int(attr(rule, 'dxfId'))] ?? '#ffe0a2' });
+                        continue;
+                    }
+                    if (attr(rule, 'type') !== 'cellIs')
+                        continue;
+                    const op = { greaterThan: 'gt', greaterThanOrEqual: 'gte', lessThan: 'lt', lessThanOrEqual: 'lte', equal: 'eq', notEqual: 'ne', between: 'between', notBetween: 'notBetween' }[attr(rule, 'operator')], formulas = nodes(rule, 'formula'), threshold = Number(formulas[0]?.textContent ?? 'NaN'), threshold2 = Number(formulas[1]?.textContent ?? 'NaN');
+                    if (!op || !Number.isFinite(threshold) || (op === 'between' || op === 'notBetween') && !Number.isFinite(threshold2))
+                        continue;
+                    tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: op, threshold, ...(op === 'between' || op === 'notBetween' ? { threshold2 } : {}), ...conditionalRuleFlags(rule), color: dxfs[int(attr(rule, 'dxfId'))] ?? '#ffe0a2' });
                 }
-                if (attr(rule, 'type') !== 'cellIs')
-                    continue;
-                const op = { greaterThan: 'gt', greaterThanOrEqual: 'gte', lessThan: 'lt', lessThanOrEqual: 'lte', equal: 'eq', notEqual: 'ne', between: 'between', notBetween: 'notBetween' }[attr(rule, 'operator')], formulas = nodes(rule, 'formula'), threshold = Number(formulas[0]?.textContent ?? 'NaN'), threshold2 = Number(formulas[1]?.textContent ?? 'NaN');
-                if (!op || !Number.isFinite(threshold) || (op === 'between' || op === 'notBetween') && !Number.isFinite(threshold2))
-                    continue;
-                tool.conditional.push({ start: m[1].toUpperCase(), end: m[2].toUpperCase(), operator: op, threshold, ...(op === 'between' || op === 'notBetween' ? { threshold2 } : {}), color: dxfs[int(attr(rule, 'dxfId'))] ?? '#ffe0a2' });
-            }
         }
+        tool.conditional.sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER));
         const resolveValidationNamedRange = (expression) => { const token = expression.trim().replace(/^=/, '').trim(); if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(token))
             return undefined; const matching = nodes(workbook, 'definedName').filter(item => attr(item, 'name').toLocaleLowerCase() === token.toLocaleLowerCase()), local = matching.filter(item => attr(item, 'localSheetId') === String(sheetIndex)), candidates = local.length ? local : matching.filter(item => !item.hasAttribute('localSheetId')); if (candidates.length !== 1)
             return undefined; const target = candidates[0], reference = (target.textContent ?? '').trim().replace(/^=/, '').trim(), qualified = /^(?:'((?:[^']|'')+)'|([^!]+))!\s*(\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?)$/i.exec(reference); let range; if (qualified) {

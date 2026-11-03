@@ -13,12 +13,12 @@ test('v10.3: 418 previously Excel-matching functions do not regress',()=>{
  const failures=old.filter(v=>v.status==='MATCH'&&!equals(calc(byFunction.get(v.function)),expected.get(v.function))).map(v=>v.function);
  assert.deepEqual(failures,[]);
 });
-test('v10.3: repair at least 32 of 34 original mismatches against actual Excel 16.0 snapshot',()=>{
+test('v10.3: repair at least 33 of 34 original mismatches against actual Excel 16.0 snapshot',()=>{
  const diff=old.filter(v=>v.status==='DIFFERENCE');assert.equal(diff.length,34);
  const corrected=diff.filter(v=>equals(calc(byFunction.get(v.function)),expected.get(v.function)));
- assert.ok(corrected.length>=32,`Only ${corrected.length}/34 repaired`);
+ assert.ok(corrected.length>=33,`Only ${corrected.length}/34 repaired`);
  const unresolved=diff.filter(v=>!equals(calc(byFunction.get(v.function)),expected.get(v.function))).map(v=>v.function);
- assert.deepEqual(unresolved,['IMPOWER','XNPV']);
+ assert.deepEqual(unresolved,['IMPOWER']);
 });
 test('v10.3: key calculation and error semantics',()=>{
  for(const [formula,expectedValue] of [['=CHISQ.INV(0.5,3)',2.3659738843753377],['=BESSELY(1,0)',0.08825697139770806],['=PRICE(45000,45600,0.05,0.06,100,2)',98.45612123392543],['=YIELD(45000,45600,0.05,99,100,2)',0.05643959259888173],['=DISC(45000,45100,98,100)',0.0734693877551021]]){

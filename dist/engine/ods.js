@@ -1,0 +1,2579 @@
+/** Bounded OpenDocument Spreadsheet import/export.
+ * Supported formulas round-trip through OpenFormula; formulas outside the
+ * translatable subset retain cached values. Common charts use native ODF chart
+ * objects, every chart includes a preview and GridForge metadata, and supported
+ * native chart types can be imported back.
+ */
+import { SpreadsheetDocument } from './document.js';
+import { Workbook, display } from './workbook.js';
+import { cleanStyle, isSafeFontFamily } from './format.js';
+import { colToName, nameToCol, parseRef, parseFormula, shiftFormula } from './parser.js';
+import { excelDateSerial, excelSerialDateIso } from './date_serial.js';
+import { zipReadBytes, zipWrite } from './zip.js';
+import { parseSpreadsheetXml } from './xlsx.js';
+import { MAX_ODS_DIMENSION_ROWS_PER_SHEET, MAX_WORKBOOK_POPULATED_CELLS, MAX_WORKBOOK_SHEETS, MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_POPULATED_CELLS, MAX_WORKSHEET_ROWS } from './limits.js';
+import { addMergedRange, mergeContaining, mergedRangeBounds } from './merged_cells.js';
+import { validateTools } from './sheettools.js';
+import { chartSvg, extractChartData, histogramData, paretoData, stockData, waterfallTotalPointIndexes, chartRange, validateChart, CHART_PALETTES, MAX_CHART_SOURCE_POINTS } from './charts.js';
+import { connectedFunctionNames } from './functions_connected.js';
+import { isSheetError } from './functions.js';
+import { pivotDateSerial, pivotSourceFieldHeaders, resolvePivotNumberGroupRange } from './pivot.js';
+const office = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
+const table = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
+const text = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
+const style = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0';
+const fo = 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0';
+const number = 'urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0';
+const xlink = 'http://www.w3.org/1999/xlink';
+const mediaType = 'application/vnd.oasis.opendocument.spreadsheet';
+const chartMediaType = 'application/vnd.oasis.opendocument.chart';
+const chartNs = 'urn:oasis:names:tc:opendocument:xmlns:chart:1.0';
+const drawNs = 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0';
+const gridforgeNs = 'urn:gridforge:ods:extensions:1.0';
+const calcextNs = 'urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0';
+const te = new TextEncoder(), td = new TextDecoder('utf-8', { fatal: false });
+const odsCalcMicrosoftFunctions = new Set('FORECAST.LINEAR Z.TEST CEILING.MATH FLOOR.MATH CEILING.PRECISE FLOOR.PRECISE ISO.CEILING IFS SWITCH LET LAMBDA ISOMITTED STDEV.S STDEV.P VAR.S VAR.P RANK.EQ RANK.AVG MODE.SNGL PERCENTILE.INC PERCENTILE.EXC PERCENTRANK.INC PERCENTRANK.EXC QUARTILE.INC QUARTILE.EXC BINOM.DIST BINOM.INV CONFIDENCE.NORM CONFIDENCE.T NORM.DIST NORM.INV NORM.S.DIST NORM.S.INV LOGNORM.DIST LOGNORM.INV POISSON.DIST EXPON.DIST WEIBULL.DIST CHISQ.DIST CHISQ.DIST.RT CHISQ.INV CHISQ.INV.RT CHISQ.TEST F.DIST F.DIST.RT F.INV F.INV.RT F.TEST T.DIST T.DIST.2T T.DIST.RT T.INV T.INV.2T T.TEST BETA.DIST BETA.INV GAMMA.DIST GAMMA.INV HYPGEOM.DIST GAMMALN.PRECISE MAXIFS MINIFS CONCAT TEXTJOIN FILTER SORT SORTBY UNIQUE TEXTSPLIT XLOOKUP XMATCH SEQUENCE RANDARRAY TAKE DROP CHOOSECOLS CHOOSEROWS HSTACK VSTACK TOCOL TOROW WRAPROWS WRAPCOLS EXPAND'.split(' '));
+const odsFormulaRecoveryFunctions = new Set(['REGEXEXTRACT', 'REGEXREPLACE', 'REGEXTEST']);
+const odsNonStandardFunctions = new Set([...connectedFunctionNames, ...'XLOOKUP XMATCH FILTER SORT SORTBY UNIQUE SEQUENCE RANDARRAY TAKE DROP CHOOSECOLS CHOOSEROWS HSTACK VSTACK TEXTSPLIT TOCOL TOROW WRAPROWS WRAPCOLS BYROW BYCOL MAP REDUCE SCAN LAMBDA LET MAKEARRAY EXPAND TRIMRANGE GROUPBY PIVOTBY STDEV.S STDEV.P VAR.S VAR.P RANK.EQ RANK.AVG MODE.SNGL PERCENTILE.INC PERCENTILE.EXC PERCENTRANK.INC PERCENTRANK.EXC QUARTILE.INC QUARTILE.EXC BINOM.DIST BINOM.INV CONFIDENCE.NORM CONFIDENCE.T NORM.DIST NORM.INV NORM.S.DIST NORM.S.INV LOGNORM.DIST LOGNORM.INV POISSON.DIST EXPON.DIST WEIBULL.DIST CHISQ.DIST CHISQ.DIST.RT CHISQ.INV CHISQ.INV.RT CHISQ.TEST F.DIST F.DIST.RT F.INV F.INV.RT F.TEST T.DIST T.DIST.2T T.DIST.RT T.INV T.INV.2T T.TEST BETA.DIST BETA.INV GAMMA.DIST GAMMA.INV HYPGEOM.DIST GAMMALN.PRECISE MAXIFS MINIFS CONCAT TEXTJOIN PERCENTOF ISOMITTED TRANSLATE IMAGE FIELDVALUE DETECTLANGUAGE REGEXTEST REGEXREPLACE REGEXEXTRACT'.split(' ')]);
+const esc = (value) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char])).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+const countAttr = (node, namespace, name, fallback = 1) => { const raw = node.getAttributeNS(namespace, name); if (!raw)
+    return fallback; const value = Number(raw); return Number.isSafeInteger(value) && value > 0 ? value : fallback; };
+function textXml(value) { return value.split(/(\n|\t| +)/).map((part, index, parts) => part === '\n' ? '<text:line-break/>' : part === '\t' ? '<text:tab/>' : /^ +$/.test(part) ? part.length > 1 || index === 0 || index === parts.length - 1 ? `<text:s${part.length > 1 ? ` text:c="${part.length}"` : ''}/>` : part : esc(part)).join(''); }
+function durationXml(value) { let seconds = Math.round(Math.abs(value) * 86_400); const days = Math.floor(seconds / 86_400); seconds -= days * 86_400; const hours = Math.floor(seconds / 3600); seconds -= hours * 3600; const minutes = Math.floor(seconds / 60); seconds -= minutes * 60; return `${value < 0 ? '-' : ''}P${days ? `${days}D` : ''}T${hours ? `${hours}H` : ''}${minutes ? `${minutes}M` : ''}${seconds || (!hours && !minutes) ? `${seconds}S` : ''}`; }
+function clockXml(value) { const seconds = Math.max(0, Math.min(86_399, Math.round((value - Math.floor(value)) * 86_400))); return `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; }
+const odsSheetLocator = (name) => `$${/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `'${name.replaceAll("'", "''")}'`}`;
+function excelRefToOds(ref, sheet) { const parsed = parseRef(ref); if (!parsed)
+    return null; return `${sheet ? odsSheetLocator(sheet) : ''}.${parsed.colLock ? '$' : ''}${colToName(parsed.col)}${parsed.rowLock ? '$' : ''}${parsed.row + 1}`; }
+function formulaToOds(raw) {
+    if (!raw.startsWith('=') || raw.length > 8192)
+        return null;
+    try {
+        const expression = (node) => {
+            switch (node.type) {
+                case 'literal': return node.value === null ? '' : typeof node.value === 'string' ? `"${node.value.replaceAll('"', '""')}"` : typeof node.value === 'boolean' ? node.value ? 'TRUE()' : 'FALSE()' : String(node.value);
+                case 'error': return node.code;
+                case 'ref': {
+                    const ref = excelRefToOds(node.ref, node.sheet);
+                    return ref ? `[${ref}]` : null;
+                }
+                case 'range': {
+                    const from = excelRefToOds(node.from, node.sheet), to = excelRefToOds(node.to, node.sheet);
+                    return from && to ? `[${from}:${to}]` : null;
+                }
+                case 'spillRef': return null;
+                case 'definedName': return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(node.name) ? node.name : null;
+                case 'unary': {
+                    const inner = expression(node.expr);
+                    if (inner === null || node.op === '@')
+                        return null;
+                    return node.op === '%' ? `(${inner})%` : `${node.op}(${inner})`;
+                }
+                case 'binary': {
+                    const left = expression(node.left), right = expression(node.right);
+                    if (left === null || right === null)
+                        return null;
+                    return `(${left}${node.op === '!=' ? '<>' : node.op}${right})`;
+                }
+                case 'call': {
+                    const normalized = node.name.toUpperCase().replace(/^_XLFN\.|^_XLWS\./, ''), args = node.args.map(expression);
+                    if (args.some(arg => arg === null))
+                        return null;
+                    const converted = args;
+                    // Calc's REGEX is application-specific rather than OpenFormula. Emit it only
+                    // for the Excel forms whose defaults map directly to Calc's documented API.
+                    if (normalized === 'REGEXEXTRACT' && converted.length === 2)
+                        return `ORG.LIBREOFFICE.REGEX(${converted.join(';')})`;
+                    if (normalized === 'REGEXREPLACE' && converted.length === 3)
+                        return `ORG.LIBREOFFICE.REGEX(${converted.join(';')};"g")`;
+                    if (normalized === 'REGEXTEST' && converted.length === 2) {
+                        const regex = `ORG.LIBREOFFICE.REGEX(${converted.join(';')})`;
+                        return `IF(ISNA(${regex}),FALSE(),IF(ISERROR(${regex}),${regex},TRUE()))`;
+                    }
+                    if (/^_XLFN\.|^_XLWS\./i.test(node.name) && !odsCalcMicrosoftFunctions.has(normalized) || odsNonStandardFunctions.has(normalized) && !odsCalcMicrosoftFunctions.has(normalized))
+                        return null;
+                    return `${odsCalcMicrosoftFunctions.has(normalized) ? `COM.MICROSOFT.${normalized}` : normalized}(${converted.join(';')})`;
+                }
+            }
+        };
+        const body = expression(parseFormula(raw));
+        return body === null ? null : `of:=${body}`;
+    }
+    catch {
+        return null;
+    }
+}
+function formulaNeedsGridForgeSource(raw) {
+    if (!raw.startsWith('=') || raw.length > 8192 || !/(?:^|[^A-Z0-9_.])(?:_XLFN\.)?(?:REGEXEXTRACT|REGEXREPLACE|REGEXTEST)\s*\(/i.test(raw))
+        return false;
+    const contains = (node) => node.type === 'call' ? (odsFormulaRecoveryFunctions.has(node.name.toUpperCase().replace(/^_XLFN\.|^_XLWS\./, '')) || node.args.some(contains)) : node.type === 'unary' ? contains(node.expr) : node.type === 'binary' ? contains(node.left) || contains(node.right) : false;
+    try {
+        return contains(parseFormula(raw));
+    }
+    catch {
+        return false;
+    }
+}
+function odsNamedExpressions(names) {
+    const entries = names.slice(0, 500).flatMap(item => { const expression = formulaToOds(item.ref.startsWith('=') ? item.ref : `=${item.ref}`); return expression ? [`<table:named-expression table:name="${esc(item.name)}" table:expression="${esc(expression)}"/>`] : []; });
+    return entries.length ? `<table:named-expressions>${entries.join('')}</table:named-expressions>` : '';
+}
+function splitOdfReferencePart(part) {
+    let quoted = false, dot = -1;
+    for (let index = 0; index < part.length; index++) {
+        const char = part[index];
+        if (char === "'") {
+            if (quoted && part[index + 1] === "'") {
+                index++;
+                continue;
+            }
+            quoted = !quoted;
+        }
+        else if (char === '.' && !quoted)
+            dot = index;
+    }
+    if (quoted)
+        return null;
+    const rawSheet = dot >= 0 ? part.slice(0, dot) : '', ref = dot >= 0 ? part.slice(dot + 1) : part;
+    if (!/^\$?[A-Z]{1,3}\$?[1-9]\d*$/i.test(ref))
+        return null;
+    if (!rawSheet)
+        return { ref: ref.toUpperCase() };
+    let sheet = rawSheet.startsWith('$') ? rawSheet.slice(1) : rawSheet;
+    if (sheet.startsWith("'") && sheet.endsWith("'"))
+        sheet = sheet.slice(1, -1).replaceAll("''", "'");
+    if (!sheet)
+        return null;
+    return { sheet, ref: ref.toUpperCase() };
+}
+function odsReferenceToExcel(source) {
+    const parts = source.split(':');
+    if (parts.length > 2)
+        return null;
+    const first = splitOdfReferencePart(parts[0] ?? '');
+    if (!first)
+        return null;
+    let result = first.sheet ? `${first.sheet.includes(' ') ? `'${first.sheet.replaceAll("'", "''")}'` : first.sheet}!${first.ref}` : first.ref;
+    if (parts.length === 2) {
+        const last = splitOdfReferencePart(parts[1] ?? '');
+        if (!last || last.sheet && last.sheet.toLocaleLowerCase() !== (first.sheet ?? '').toLocaleLowerCase())
+            return null;
+        result += `:${last.ref}`;
+    }
+    return result;
+}
+function formulaFromOds(raw) {
+    if (raw.length > 8192)
+        return null;
+    const prefix = /^(?:of|oooc|msoxl):=/i.exec(raw);
+    if (!prefix)
+        return null;
+    const source = raw.slice(prefix[0].length);
+    let output = '', quoted = false;
+    for (let index = 0; index < source.length; index++) {
+        const char = source[index];
+        if (char === '"') {
+            output += char;
+            if (quoted && source[index + 1] === '"') {
+                output += '"';
+                index++;
+                continue;
+            }
+            quoted = !quoted;
+            continue;
+        }
+        if (!quoted) {
+            const microsoftFunction = /^COM\.MICROSOFT\.[A-Z_][A-Z0-9_.]*(?=\s*\()/i.exec(source.slice(index));
+            if (microsoftFunction) {
+                index += `COM.MICROSOFT.`.length - 1;
+                continue;
+            }
+        }
+        if (!quoted && char === '[') {
+            const end = source.indexOf(']', index + 1);
+            if (end < 0)
+                return null;
+            const reference = odsReferenceToExcel(source.slice(index + 1, end));
+            if (!reference)
+                return null;
+            output += reference;
+            index = end;
+            continue;
+        }
+        if (!quoted && char === ';') {
+            output += ',';
+            continue;
+        }
+        output += char;
+    }
+    const formula = `=${output}`;
+    try {
+        const root = parseFormula(formula), rewrites = [];
+        let unsupportedLibreOfficeRegex = false;
+        const argsText = (args) => args.map(arg => output.slice(arg.start, arg.end));
+        const isLibreOfficeRegex = (node) => node.type === 'call' && node.name.toUpperCase() === 'ORG.LIBREOFFICE.REGEX';
+        const visit = (node) => {
+            if (node.type === 'call' && node.name.toUpperCase() === 'NOT' && node.args.length === 1) {
+                const check = node.args[0];
+                if (check?.type === 'call' && check.name.toUpperCase() === 'ISERROR' && check.args.length === 1 && isLibreOfficeRegex(check.args[0])) {
+                    const regex = check.args[0];
+                    if (regex.args.length === 2) {
+                        rewrites.push({ start: node.start, end: node.end, text: `REGEXTEST(${argsText(regex.args).join(',')})` });
+                        return;
+                    }
+                }
+            }
+            if (node.type === 'call' && node.name.toUpperCase() === 'IF' && node.args.length === 3) {
+                const isNoMatch = node.args[0], noMatch = node.args[1], other = node.args[2], isOtherError = other?.type === 'call' && other.name.toUpperCase() === 'IF' ? other.args[0] : undefined, propagate = other?.type === 'call' && other.name.toUpperCase() === 'IF' ? other.args[1] : undefined, validMatch = other?.type === 'call' && other.name.toUpperCase() === 'IF' ? other.args[2] : undefined, regex = isNoMatch?.type === 'call' && isNoMatch.name.toUpperCase() === 'ISNA' ? isNoMatch.args[0] : undefined, regexError = isOtherError?.type === 'call' && isOtherError.name.toUpperCase() === 'ISERROR' ? isOtherError.args[0] : undefined;
+                if (regex && regexError && propagate && validMatch && noMatch?.type === 'call' && noMatch.name.toUpperCase() === 'FALSE' && validMatch.type === 'call' && validMatch.name.toUpperCase() === 'TRUE' && isLibreOfficeRegex(regex) && isLibreOfficeRegex(regexError) && isLibreOfficeRegex(propagate)) {
+                    const first = regex, second = regexError, third = propagate, firstArgs = argsText(first.args);
+                    if (first.args.length === 2 && firstArgs.join('\u0000') === argsText(second.args).join('\u0000') && firstArgs.join('\u0000') === argsText(third.args).join('\u0000')) {
+                        rewrites.push({ start: node.start, end: node.end, text: `REGEXTEST(${firstArgs.join(',')})` });
+                        return;
+                    }
+                }
+            }
+            if (isLibreOfficeRegex(node)) {
+                const regex = node, args = argsText(regex.args);
+                if (regex.args.length === 2) {
+                    rewrites.push({ start: node.start, end: node.end, text: `REGEXEXTRACT(${args.join(',')})` });
+                    return;
+                }
+                if (regex.args.length === 4 && regex.args[3]?.type === 'literal' && regex.args[3].value === 'g') {
+                    rewrites.push({ start: node.start, end: node.end, text: `REGEXREPLACE(${args.slice(0, 3).join(',')})` });
+                    return;
+                }
+                unsupportedLibreOfficeRegex = true;
+                return;
+            }
+            if (node.type === 'call')
+                node.args.forEach(visit);
+            else if (node.type === 'unary')
+                visit(node.expr);
+            else if (node.type === 'binary') {
+                visit(node.left);
+                visit(node.right);
+            }
+        };
+        visit(root);
+        if (unsupportedLibreOfficeRegex)
+            return null;
+        for (const rewrite of rewrites.sort((left, right) => right.start - left.start))
+            output = output.slice(0, rewrite.start) + rewrite.text + output.slice(rewrite.end);
+        const translated = `=${output}`;
+        parseFormula(translated);
+        return translated;
+    }
+    catch {
+        return null;
+    }
+}
+function odsCachedErrorFormula(value) {
+    const normalized = value.trim().toUpperCase();
+    return /^#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|DATA!|CYCLE!|FIELD!|BLOCKED!|CONNECT!|UNKNOWN!|BUSY!|PYTHON!)$/.test(normalized) ? `=${normalized}` : null;
+}
+function importOdfNames(container) {
+    if (!container)
+        return [];
+    return children(container).filter(node => node.namespaceURI === table && node.localName === 'named-expression').flatMap(node => { const name = node.getAttributeNS(table, 'name'), formula = formulaFromOds(node.getAttributeNS(table, 'expression') ?? ''); return name && formula ? [{ name, ref: formula }] : []; }).slice(0, 500);
+}
+function importOdfValidations(container) {
+    const result = new Map();
+    if (!container)
+        return result;
+    for (const node of children(container).filter(item => item.namespaceURI === table && item.localName === 'content-validation').slice(0, 1200)) {
+        const name = node.getAttributeNS(table, 'name'), raw = node.getAttributeNS(table, 'condition') ?? '', condition = raw.replace(/^of:=/i, 'of:'), allowBlank = node.getAttributeNS(table, 'allow-empty-cell') !== 'false';
+        if (!name || raw.length > 2048)
+            continue;
+        const help = children(node).find(item => item.namespaceURI === table && item.localName === 'help-message'), error = children(node).find(item => item.namespaceURI === table && item.localName === 'error-message'), promptMessage = help ? cellText(help) : undefined, errorMessage = error ? cellText(error) : undefined;
+        const messages = { allowBlank, ...(help ? { showInputMessage: help.getAttributeNS(table, 'display') !== 'false', ...(help.getAttributeNS(table, 'title') ? { promptTitle: help.getAttributeNS(table, 'title') } : {}), ...(promptMessage ? { promptMessage } : {}) } : {}), ...(error ? { showErrorMessage: error.getAttributeNS(table, 'display') !== 'false', errorStyle: (['warning', 'information'].includes(error.getAttributeNS(table, 'message-type') ?? '') ? error.getAttributeNS(table, 'message-type') : 'stop'), ...(error.getAttributeNS(table, 'title') ? { errorTitle: error.getAttributeNS(table, 'title') } : {}), ...(errorMessage ? { errorMessage } : {}) } : {}) };
+        if (condition.startsWith('of:cell-content-is-in-list(')) {
+            const body = condition.slice('of:cell-content-is-in-list('.length).replace(/\)\s*$/, '').trim();
+            let sourceRange, values;
+            if (body.startsWith('[') && body.endsWith(']')) {
+                const parts = body.slice(1, -1).split(':'), from = splitOdfReferencePart(parts[0] ?? ''), to = splitOdfReferencePart(parts[1] ?? parts[0] ?? '');
+                if (from && !from.sheet && to && !to.sheet)
+                    sourceRange = `${from.ref}:${to.ref}`;
+            }
+            else {
+                const tokens = body.match(/"(?:""|[^"])*"/g) ?? [];
+                let remaining = body;
+                const parsed = [];
+                for (const token of tokens) {
+                    if (!remaining.startsWith(token))
+                        break;
+                    parsed.push(token.slice(1, -1).replaceAll('""', '"'));
+                    remaining = remaining.slice(token.length).replace(/^\s*;\s*/, '');
+                }
+                if (remaining === '' && parsed.length)
+                    values = parsed;
+            }
+            if (sourceRange)
+                result.set(name, { type: 'list', sourceRange, ...messages });
+            else if (values?.length && values.length <= 50)
+                result.set(name, { type: 'list', values, ...messages });
+            continue;
+        }
+        const type = condition.includes('cell-content-is-whole-number()') ? 'whole' : condition.includes('cell-content-is-date()') ? 'date' : condition.includes('cell-content-text-length()') ? 'textLength' : 'decimal';
+        const numericPart = condition.replace(/^of:cell-content-(?:is-whole-number|is-decimal-number|is-date|text-length)\(\)\s+and\s*/, '');
+        const clauses = numericPart.match(/of:cell-content\(\)\s*(?:>=|<=|<>|>|<|=)\s*-?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?/g) ?? [], parsed = clauses.map(clause => /^of:cell-content\(\)\s*(>=|<>|<=|>|<|=)\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?)/.exec(clause)).filter((item) => !!item).map(item => ({ operator: item[1], value: Number(item[2]) }));
+        if (!parsed.length || parsed.some(item => !Number.isFinite(item.value)))
+            continue;
+        let operator, min, max;
+        if (parsed.length > 1 && parsed[0].operator === '>=' && parsed[1].operator === '<=' || parsed.length > 1 && parsed[0].operator === '>=' && parsed[1].operator === '<') {
+            operator = 'between';
+            min = parsed[0].value;
+            max = parsed[1].value;
+        }
+        else if (parsed.length > 1 && parsed[0].operator === '<' && parsed[1].operator === '>') {
+            operator = 'notBetween';
+            min = parsed[0].value;
+            max = parsed[1].value;
+        }
+        else {
+            const entry = parsed[0];
+            operator = { '>': 'greaterThan', '>=': 'greaterThanOrEqual', '<': 'lessThan', '<=': 'lessThanOrEqual', '=': 'equalTo', '<>': 'notEqualTo' }[entry.operator];
+            min = entry.value;
+        }
+        result.set(name, { type, operator, ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...messages });
+    }
+    return result;
+}
+function importOdfFilter(container, sheetName) {
+    if (!container)
+        return null;
+    for (const node of children(container).filter(item => item.namespaceURI === table && item.localName === 'database-range')) {
+        const translated = odsReferenceToExcel(node.getAttributeNS(table, 'target-range-address') ?? '');
+        if (!translated)
+            continue;
+        const bang = translated.indexOf('!');
+        if (bang < 0 || translated.slice(0, bang).replace(/^'|'$/g, '').replaceAll("''", "'").toLocaleLowerCase() !== sheetName.toLocaleLowerCase())
+            continue;
+        const bounds = translated.slice(bang + 1).split(':'), a = parseRef(bounds[0] ?? ''), b = parseRef(bounds[1] ?? bounds[0] ?? '');
+        if (!a || !b || a.row >= b.row || a.col > b.col)
+            continue;
+        const filterNode = children(node).find(item => item.namespaceURI === table && item.localName === 'filter'), conditions = filterNode ? Array.from(filterNode.getElementsByTagNameNS(table, 'filter-condition')) : [], grouped = new Map(), regex = node.getAttributeNS(table, 'use-regular-expressions') === 'true', unescapeRegex = (value) => value.replace(/\\(.)/g, '$1');
+        let query = '', queryColumn = a.col, invalid = false;
+        for (const condition of conditions) {
+            const field = Number(condition.getAttributeNS(table, 'field-number') ?? 'NaN'), operator = condition.getAttributeNS(table, 'operator') ?? '', value = condition.getAttributeNS(table, 'value') ?? '';
+            if (!Number.isInteger(field) || field < 0 || field > b.col - a.col || !['match', '='].includes(operator) || value.length > 400) {
+                invalid = true;
+                break;
+            }
+            const absolute = a.col + field;
+            if (regex && operator === 'match' && value.startsWith('.*') && value.endsWith('.*')) {
+                if (query) {
+                    invalid = true;
+                    break;
+                }
+                query = unescapeRegex(value.slice(2, -2));
+                queryColumn = absolute;
+                continue;
+            }
+            const values = grouped.get(absolute) ?? [];
+            if (values.length < 150)
+                values.push(regex && value.startsWith('^') && value.endsWith('$') ? unescapeRegex(value.slice(1, -1)) : value);
+            grouped.set(absolute, values);
+        }
+        if (invalid || grouped.size > 16)
+            continue;
+        const criteria = [...grouped].map(([column, values]) => ({ column, values }));
+        return { startRow: a.row, endRow: b.row, startCol: a.col, endCol: b.col, column: query ? queryColumn : a.col, query, ...(criteria.length ? { criteria } : {}) };
+    }
+    return null;
+}
+function odsHyperlinkHref(link) {
+    if (link?.target)
+        return link.target;
+    if (!link?.location)
+        return undefined;
+    const source = link.location.replace(/^#/, '');
+    const match = /^(?:'((?:[^']|'')+)'|([^!]+))!([A-Z]{1,3}[1-9]\d*)$/i.exec(source);
+    if (!match)
+        return source.startsWith('#') ? source : `#${source}`;
+    const sheet = (match[1] ?? match[2] ?? '').replaceAll("''", "'");
+    return `#${sheet.includes(' ') ? `'${sheet.replaceAll("'", "''")}'` : sheet}.${match[3].toUpperCase()}`;
+}
+function hyperlinkText(value, link) { const href = odsHyperlinkHref(link); return href === undefined ? textXml(value) : `<text:a xlink:type="simple" xlink:href="${esc(href)}"${link?.tooltip ? ` office:title="${esc(link.tooltip)}"` : ''}>${textXml(value)}</text:a>`; }
+function cellXml(value, styleName = '', styleValue = {}, formula, validationName, hyperlink, sourceFormula, matrixRows, matrixColumns, cachedError = false) {
+    const styleAttr = (styleName ? ` table:style-name="${styleName}"` : '') + (formula ? ` table:formula="${esc(formula)}"` : '') + (validationName ? ` table:content-validation-name="${esc(validationName)}"` : '') + (sourceFormula ? ` gridforge:source-formula="${esc(sourceFormula)}"` : '');
+    const cellAttr = styleAttr + (formula && matrixRows && matrixColumns ? ` table:number-matrix-rows-spanned="${matrixRows}" table:number-matrix-columns-spanned="${matrixColumns}"` : "");
+    if (typeof value === 'number' && Number.isFinite(value) && styleValue.dateFormatCode && odsDateFormat(styleValue.dateFormatCode)?.hasCalendar) {
+        const date = excelSerialDateIso(value);
+        if (date && date !== '1900-02-29') {
+            const dateValue = /[hs]/i.test(styleValue.dateFormatCode) ? `${date}T${clockXml(value)}` : date;
+            return `<table:table-cell${cellAttr} office:value-type="date" office:date-value="${dateValue}"><text:p>${hyperlinkText(dateValue, hyperlink)}</text:p></table:table-cell>`;
+        }
+    }
+    if (typeof value === 'number' && Number.isFinite(value) && styleValue.dateFormatCode && odsDateFormat(styleValue.dateFormatCode) && !odsDateFormat(styleValue.dateFormatCode).hasCalendar) {
+        const duration = durationXml(value);
+        return `<table:table-cell${cellAttr} office:value-type="time" office:time-value="${duration}"><text:p>${hyperlinkText(duration, hyperlink)}</text:p></table:table-cell>`;
+    }
+    if (typeof value === 'number' && Number.isFinite(value))
+        return `<table:table-cell${cellAttr} office:value-type="float" office:value="${Object.is(value, -0) ? '0' : String(value)}"><text:p>${hyperlinkText(String(Object.is(value, -0) ? 0 : value), hyperlink)}</text:p></table:table-cell>`;
+    if (typeof value === 'boolean')
+        return `<table:table-cell${cellAttr} office:value-type="boolean" office:boolean-value="${value ? 'true' : 'false'}"><text:p>${hyperlinkText(value ? 'TRUE' : 'FALSE', hyperlink)}</text:p></table:table-cell>`;
+    const shown = value === null || value === undefined ? '' : String(value), errorValue = cachedError ? ` office:string-value="${esc(shown)}"` : '';
+    if (cachedError && !formula)
+        return `<table:table-cell${cellAttr} office:value-type="error"${errorValue}><text:p>${hyperlinkText(shown, hyperlink)}</text:p></table:table-cell>`;
+    return shown === '' && !hyperlink ? `<table:table-cell${cellAttr}/>` : `<table:table-cell${cellAttr} office:value-type="string"${errorValue}><text:p>${hyperlinkText(shown, hyperlink)}</text:p></table:table-cell>`;
+}
+function odsStyleXml(name, value, dataStyleNames) {
+    const properties = [];
+    if (value.background)
+        properties.push(`fo:background-color="${value.background}"`);
+    if (value.verticalAlign)
+        properties.push(`style:vertical-align="${value.verticalAlign === 'center' ? 'middle' : value.verticalAlign}"`);
+    if (value.borderEdges) {
+        for (const edge of ['left', 'right', 'top', 'bottom']) {
+            const line = value.borderEdges[edge];
+            if (!line)
+                continue;
+            const width = line.style === 'double' ? '1.5pt' : line.weight === 'thick' ? '2.25pt' : line.weight === 'medium' ? '1.25pt' : '0.5pt';
+            properties.push(`fo:border-${edge}="${width} ${line.style} ${line.color ?? '#000000'}"`);
+        }
+    }
+    else if (value.border) {
+        const lineStyle = value.borderStyle ?? 'solid', lineColor = value.borderColor ?? '#000000', width = lineStyle === 'double' ? '1.5pt' : value.borderWeight === 'thick' ? '2.25pt' : value.borderWeight === 'medium' ? '1.25pt' : '0.5pt', edge = `${width} ${lineStyle} ${lineColor}`;
+        if (value.border === 'all')
+            properties.push(`fo:border="${edge}"`);
+        else
+            properties.push(`fo:border-${value.border}="${edge}"`);
+    }
+    if (value.borderDiagonal) {
+        const line = value.borderDiagonal, width = line.style === 'double' ? '1.5pt' : line.weight === 'thick' ? '2.25pt' : line.weight === 'medium' ? '1.25pt' : '0.5pt', valueText = `${width} ${line.style} ${line.color ?? '#000000'}`;
+        if (line.up)
+            properties.push(`style:diagonal-bl-tr="${valueText}"`);
+        if (line.down)
+            properties.push(`style:diagonal-tl-br="${valueText}"`);
+    }
+    const cell = properties.length ? `<style:table-cell-properties ${properties.join(' ')}/>` : '';
+    const textProps = [];
+    if (value.bold)
+        textProps.push('fo:font-weight="bold"');
+    if (value.italic)
+        textProps.push('fo:font-style="italic"');
+    if (value.underline)
+        textProps.push('style:text-underline-style="solid"');
+    if (value.strike)
+        textProps.push('style:text-line-through-style="solid"');
+    if (value.color)
+        textProps.push(`fo:color="${value.color}"`);
+    if (value.fontSize)
+        textProps.push(`fo:font-size="${value.fontSize}pt"`);
+    if (value.fontFamily)
+        textProps.push(`style:font-name="${esc(value.fontFamily)}"`);
+    const textXmlValue = textProps.length ? `<style:text-properties ${textProps.join(' ')}/>` : '';
+    const paragraphProps = [];
+    if (value.align)
+        paragraphProps.push(`fo:text-align="${value.align}"`);
+    if (value.wrap)
+        paragraphProps.push('fo:wrap-option="wrap"');
+    if (value.indent)
+        paragraphProps.push(`fo:margin-left="${Math.min(250, value.indent) * 0.1}in"`);
+    const paragraph = paragraphProps.length ? `<style:paragraph-properties ${paragraphProps.join(' ')}/>` : '';
+    const formatKey = odsFormatKey(value);
+    const dataStyle = formatKey ? ` style:data-style-name="${dataStyleNames.get(formatKey) ?? ''}"` : '';
+    return `<style:style style:name="${name}" style:family="table-cell"${dataStyle}>${cell}${textXmlValue}${paragraph}</style:style>`;
+}
+function odsDateFormat(code) {
+    if (!code || code.length > 255 || code.includes(';'))
+        return null;
+    const tokens = [];
+    let elapsed = false;
+    for (let index = 0; index < code.length;) {
+        const rest = code.slice(index), period = /^(AM\/PM|A\/P)/i.exec(rest);
+        if (period) {
+            tokens.push({ kind: 'ampm', value: period[1] });
+            index += period[1].length;
+            continue;
+        }
+        const char = code[index];
+        if (char === '"') {
+            let literal = '', closed = false;
+            for (index++; index < code.length; index++) {
+                if (code[index] === '"') {
+                    if (code[index + 1] === '"') {
+                        literal += '"';
+                        index++;
+                        continue;
+                    }
+                    closed = true;
+                    index++;
+                    break;
+                }
+                literal += code[index];
+            }
+            if (!closed)
+                return null;
+            if (literal)
+                tokens.push({ kind: 'literal', value: literal });
+            continue;
+        }
+        if (char === '\\') {
+            if (index + 1 >= code.length)
+                return null;
+            tokens.push({ kind: 'literal', value: code[index + 1] });
+            index += 2;
+            continue;
+        }
+        if (char === '_' || char === '*') {
+            if (index + 1 >= code.length)
+                return null;
+            index += 2;
+            continue;
+        }
+        if (char === '[') {
+            const end = code.indexOf(']', index + 1);
+            if (end < 0)
+                return null;
+            const bracket = code.slice(index + 1, end);
+            if (/^\$-[0-9a-f]+$/i.test(bracket)) {
+                index = end + 1;
+                continue;
+            }
+            const time = /^(h+|m+|s+)$/i.exec(bracket);
+            if (!time)
+                return null;
+            const token = time[1].toLowerCase();
+            tokens.push({ kind: token, value: time[1], elapsed: true });
+            elapsed = true;
+            index = end + 1;
+            continue;
+        }
+        if (/[ymdhs]/i.test(char)) {
+            let end = index + 1;
+            while (end < code.length && code[end].toLowerCase() === char.toLowerCase())
+                end++;
+            const value = code.slice(index, end), kind = char.toLowerCase();
+            if (kind === 'y' && (value.length > 4 || value.length === 3) || kind === 'm' && value.length > 4 || kind === 'd' && value.length > 4 || /[hs]/i.test(kind) && value.length > 2)
+                return null;
+            let fraction;
+            if (kind === 's' && code[end] === '.') {
+                const decimals = /^0{1,3}/.exec(code.slice(end + 1));
+                if (decimals) {
+                    fraction = decimals[0].length;
+                    end += fraction + 1;
+                }
+            }
+            tokens.push({ kind, value, ...(fraction ? { fraction } : {}) });
+            index = end;
+            continue;
+        }
+        if (/[\s\-/:.,()]/.test(char)) {
+            tokens.push({ kind: 'literal', value: char });
+            index++;
+            continue;
+        }
+        return null;
+    }
+    const merged = [];
+    for (const token of tokens) {
+        const previous = merged.at(-1);
+        if (token.kind === 'literal' && previous?.kind === 'literal')
+            previous.value += token.value;
+        else
+            merged.push({ ...token });
+    }
+    tokens.splice(0, tokens.length, ...merged);
+    const dateParts = tokens.some(token => token.kind === 'y' || token.kind === 'd' || token.kind === 'm' && !token.elapsed && (() => { const i = tokens.indexOf(token), prev = tokens.slice(0, i).reverse().find(item => item.kind !== 'literal'), next = tokens.slice(i + 1).find(item => item.kind !== 'literal'); return prev?.kind !== 'h' && next?.kind !== 's'; })()), xml = [];
+    for (let index = 0; index < tokens.length; index++) {
+        const token = tokens[index];
+        if (token.kind === 'literal') {
+            xml.push(`<number:text>${esc(token.value)}</number:text>`);
+            continue;
+        }
+        if (token.kind === 'ampm') {
+            xml.push('<number:am-pm/>');
+            continue;
+        }
+        const kind = token.kind;
+        if (kind === 'y')
+            xml.push(`<number:year number:style="${token.value.length === 2 ? 'short' : 'long'}"/>`);
+        else if (kind === 'd' && token.value.length >= 3)
+            xml.push(`<number:day-of-week number:style="${token.value.length === 3 ? 'short' : 'long'}"/>`);
+        else if (kind === 'd')
+            xml.push(`<number:day number:style="${token.value.length === 1 ? 'short' : 'long'}"/>`);
+        else if (kind === 'm') {
+            const previous = tokens.slice(0, index).reverse().find(item => item.kind !== 'literal'), next = tokens.slice(index + 1).find(item => item.kind !== 'literal'), minute = token.elapsed || previous?.kind === 'h' || next?.kind === 's';
+            if (minute)
+                xml.push(`<number:minutes number:style="${token.value.length === 1 ? 'short' : 'long'}"/>`);
+            else
+                xml.push(`<number:month number:style="${token.value.length === 1 ? 'short' : 'long'}"${token.value.length >= 3 ? ' number:textual="true"' : ''}/>`);
+        }
+        else if (kind === 'h')
+            xml.push(`<number:hours number:style="${token.value.length === 1 ? 'short' : 'long'}"/>`);
+        else if (kind === 's')
+            xml.push(`<number:seconds number:style="${token.value.length === 1 ? 'short' : 'long'}"${token.fraction ? ` number:decimal-places="${token.fraction}"` : ''}/>`);
+    }
+    const tag = dateParts ? 'date-style' : 'time-style';
+    return xml.length ? { tag, xml: xml.join(''), hasCalendar: dateParts, elapsed } : null;
+}
+function odsDataStyleXml(name, formatKey) {
+    if (formatKey.startsWith('custom:')) {
+        const sections = splitOdsFormatSections(formatKey.slice(7));
+        if (!sections?.length)
+            throw Error('An unsupported custom number format reached the OpenDocument style writer.');
+        const numeric = simpleNumberFormat(sections[0]);
+        if (!numeric)
+            throw Error('ODS supports a numeric first section in custom number formats.');
+        if (sections.length === 1)
+            return odsCustomStyleXml(name, numeric);
+        const targets = sections.slice(1).map(section => { const color = odsFormatColor(section); return { section, format: simpleNumberFormat(section), literal: excelLiteral(color?.code ?? section), color: color?.color }; });
+        if (targets.some(target => !target.format && (target.literal === null || /[\[\]@?%]/.test(odsFormatColor(target.section)?.code ?? target.section))))
+            throw Error('ODS custom formats support numeric or literal negative and zero sections; conditional sections and unsupported placeholders are not supported.');
+        const negativeName = `${name}_negative`, zeroName = `${name}_zero`, negative = targets[0], zero = targets[1], styleXml = (target, targetName) => target.format ? odsCustomStyleXml(targetName, target.format) : odsCustomLiteralStyleXml(targetName, target.literal ?? '', target.color), negativeXml = styleXml(negative, negativeName), zeroXml = zero ? styleXml(zero, zeroName) : '', maps = `<style:map style:condition="value()&lt;0" style:apply-style-name="${negativeName}"/>${zero ? `<style:map style:condition="value()=0" style:apply-style-name="${zeroName}"/>` : ''}`, base = odsCustomStyleXml(name, numeric), tag = numeric.percent ? 'percentage-style' : 'number-style', closed = base.replace(`</number:${tag}>`, `${maps}</number:${tag}>`);
+        return `${closed}${negativeXml}${zeroXml}`;
+    }
+    if (formatKey.startsWith('date:') || formatKey.startsWith('time:')) {
+        const parsed = odsDateFormat(formatKey.slice(formatKey.indexOf(':') + 1));
+        if (!parsed)
+            throw Error('An unsupported date/time format reached the OpenDocument style writer.');
+        return `<number:${parsed.tag} style:name="${name}"${parsed.elapsed ? ' number:truncate-on-overflow="false"' : ''}>${parsed.xml}</number:${parsed.tag}>`;
+    }
+    const format = formatKey.slice(7);
+    const integer = format === 'integer', decimals = integer ? '0' : format === 'percent' ? '1' : '2', grouping = integer || format === 'number' || format === 'currency' || format === 'percent';
+    const numeric = `<number:number number:decimal-places="${decimals}" number:min-decimal-places="${decimals}" number:min-integer-digits="1"${grouping ? ' number:grouping="true"' : ''}/>`;
+    if (format === 'percent')
+        return `<number:percentage-style style:name="${name}">${numeric}<number:text>%</number:text></number:percentage-style>`;
+    if (format === 'currency')
+        return `<number:currency-style style:name="${name}"><number:currency-symbol>$</number:currency-symbol>${numeric}</number:currency-style>`;
+    return `<number:number-style style:name="${name}">${numeric}</number:number-style>`;
+}
+function toPixels(value) { const match = /^\s*(\d+(?:\.\d+)?)(in|cm|mm|pt|pc|px)\s*$/i.exec(value); if (!match)
+    return null; const number = Number(match[1]), unit = match[2].toLowerCase(), factor = unit === 'in' ? 96 : unit === 'cm' ? 96 / 2.54 : unit === 'mm' ? 96 / 25.4 : unit === 'pt' ? 96 / 72 : unit === 'pc' ? 16 : 1; return Number.isFinite(number * factor) ? number * factor : null; }
+const toInches = (pixels) => `${(pixels / 96).toFixed(4)}in`;
+function pageLength(value) { return `${Math.max(0, Math.min(2, value)).toFixed(4)}in`; }
+function paperDimensions(paper, orientation) { const size = { letter: [8.5, 11], legal: [8.5, 14], a3: [11.6929, 16.5354], a4: [8.2677, 11.6929], tabloid: [11, 17] }, [width, height] = size[paper]; return orientation === 'landscape' ? [height, width] : [width, height]; }
+function odsPageLayoutStyles(sheets) { const layouts = [], masters = [], tableStyles = []; for (let index = 0; index < sheets.length; index++) {
+    const sheet = sheets[index], page = sheet.tools.pageSetup, master = `GF_Master_${index + 1}`, layout = `GF_Page_${index + 1}`, tableStyle = `GF_Table_${index + 1}`, [width, height] = paperDimensions(page.paper, page.orientation), print = [page.printGridlines ? 'grid' : '', page.printHeadings ? 'headers' : ''].filter(Boolean).join(' '), pageOrder = page.pageOrder === 'downThenOver' ? 'ttb' : 'ltr', scaling = `${page.fitWidth ? ` style:scale-to-X="${page.fitWidth}"` : ''}${page.fitHeight ? ` style:scale-to-Y="${page.fitHeight}"` : ''}`;
+    layouts.push(`<style:page-layout style:name="${layout}"><style:page-layout-properties fo:page-width="${width}in" fo:page-height="${height}in" style:print-orientation="${page.orientation}" style:print-page-order="${pageOrder}" style:print="${print}"${scaling} fo:margin-top="${pageLength(page.marginTop)}" fo:margin-bottom="${pageLength(page.marginBottom)}" fo:margin-left="${pageLength(page.marginLeft)}" fo:margin-right="${pageLength(page.marginRight)}"/></style:page-layout>`);
+    const header = (left, center, right) => left || center || right ? `<style:header><style:region-left>${left ? `<text:p>${textXml(left)}</text:p>` : ''}</style:region-left><style:region-center>${center ? `<text:p>${textXml(center)}</text:p>` : ''}</style:region-center><style:region-right>${right ? `<text:p>${textXml(right)}</text:p>` : ''}</style:region-right></style:header>` : '';
+    masters.push(`<style:master-page style:name="${master}" style:page-layout-name="${layout}">${header(page.headerLeft, page.headerCenter, page.headerRight)}${header(page.footerLeft, page.footerCenter, page.footerRight).replaceAll('style:header', 'style:footer')}</style:master-page>`);
+    tableStyles.push(`<style:style style:name="${tableStyle}" style:family="table" style:master-page-name="${master}"/>`);
+} return { styles: `<?xml version="1.0" encoding="UTF-8"?><office:document-styles xmlns:office="${office}" xmlns:style="${style}" xmlns:fo="${fo}" xmlns:text="${text}" office:version="1.3"><office:automatic-styles>${layouts.join('')}${tableStyles.join('')}</office:automatic-styles><office:master-styles>${masters.join('')}</office:master-styles></office:document-styles>`, tableStyles }; }
+function odsPrintRange(sheet) { const raw = sheet.tools.pageSetup.printArea; if (!raw)
+    return undefined; const parts = raw.split(':'), from = excelRefToOds(parts[0] ?? ''), to = excelRefToOds(parts[1] ?? parts[0] ?? ''); return from && to ? `${from}:${to}` : undefined; }
+function inches(value) { const match = /^\s*(\d+(?:\.\d+)?)(in|cm|mm|pt|pc|px)\s*$/i.exec(value); if (!match)
+    return null; const amount = Number(match[1]), unit = match[2].toLowerCase(), factor = unit === 'in' ? 1 : unit === 'cm' ? 1 / 2.54 : unit === 'mm' ? 1 / 25.4 : unit === 'pt' ? 1 / 72 : unit === 'pc' ? 1 / 6 : 1 / 96; return Number.isFinite(amount * factor) ? amount * factor : null; }
+function pageSetupFromOdf(sheetNode, tableMasterNames, masterPages, pageLayouts) {
+    const tableStyleName = sheetNode.getAttributeNS(table, 'style-name') ?? '', masterName = tableMasterNames.get(tableStyleName), master = masterName ? masterPages.get(masterName) : undefined, layoutName = master?.getAttributeNS(style, 'page-layout-name') ?? '', layout = pageLayouts.get(layoutName), properties = layout ? children(layout).find(item => item.namespaceURI === style && item.localName === 'page-layout-properties') : undefined, out = {};
+    if (properties) {
+        const width = inches(properties.getAttributeNS(fo, 'page-width') ?? ''), height = inches(properties.getAttributeNS(fo, 'page-height') ?? ''), orientation = properties.getAttributeNS(style, 'print-orientation');
+        if (orientation === 'portrait' || orientation === 'landscape')
+            out.orientation = orientation;
+        else if (width !== null && height !== null)
+            out.orientation = width > height ? 'landscape' : 'portrait';
+        if (width !== null && height !== null) {
+            const page = out.orientation ?? (width > height ? 'landscape' : 'portrait'), candidates = ['letter', 'legal', 'a3', 'a4', 'tabloid'], matches = candidates.map(paper => { const [expectedWidth, expectedHeight] = paperDimensions(paper, page); return { paper, distance: Math.abs(width - expectedWidth) + Math.abs(height - expectedHeight) }; }).sort((a, b) => a.distance - b.distance);
+            if (matches[0] && matches[0].distance < 0.25)
+                out.paper = matches[0].paper;
+        }
+        const margin = (key) => { const value = inches(properties.getAttributeNS(fo, `margin-${key}`) ?? ''); return value === null ? undefined : Math.max(0, Math.min(2, value)); }, top = margin('top'), bottom = margin('bottom'), left = margin('left'), right = margin('right');
+        if (top !== undefined)
+            out.marginTop = top;
+        if (bottom !== undefined)
+            out.marginBottom = bottom;
+        if (left !== undefined)
+            out.marginLeft = left;
+        if (right !== undefined)
+            out.marginRight = right;
+        const print = new Set((properties.getAttributeNS(style, 'print') ?? '').split(/\s+/));
+        out.printGridlines = print.has('grid');
+        out.printHeadings = print.has('headers');
+        const order = properties.getAttributeNS(style, 'print-page-order');
+        if (order === 'ttb' || order === 'ltr')
+            out.pageOrder = order === 'ttb' ? 'downThenOver' : 'overThenDown';
+        const fitWidth = Number(properties.getAttributeNS(style, 'scale-to-X')), fitHeight = Number(properties.getAttributeNS(style, 'scale-to-Y'));
+        if (Number.isInteger(fitWidth) && fitWidth >= 0 && fitWidth <= 4)
+            out.fitWidth = fitWidth;
+        if (Number.isInteger(fitHeight) && fitHeight >= 0 && fitHeight <= 4)
+            out.fitHeight = fitHeight;
+    }
+    const printRange = odsReferenceToExcel(sheetNode.getAttributeNS(table, 'print-ranges') ?? '');
+    if (printRange)
+        out.printArea = printRange;
+    const headerRows = children(sheetNode).find(item => item.namespaceURI === table && item.localName === 'table-header-rows'), repeatCount = headerRows ? tableMembers(headerRows, 'table-row').reduce((sum, row) => Math.min(MAX_WORKSHEET_ROWS, sum + countAttr(row, table, 'number-rows-repeated', 1)), 0) : 0;
+    if (repeatCount > 0)
+        out.repeatRows = `1:${repeatCount}`;
+    const headerColumns = children(sheetNode).find(item => item.namespaceURI === table && item.localName === 'table-header-columns'), repeatColumnCount = headerColumns ? tableMembers(headerColumns, 'table-column').reduce((sum, column) => Math.min(MAX_WORKSHEET_COLUMNS, sum + countAttr(column, table, 'number-columns-repeated', 1)), 0) : 0;
+    if (repeatColumnCount > 0)
+        out.repeatColumns = `A:${colToName(repeatColumnCount - 1)}`;
+    const region = (kind, side) => { const node = master && children(master).find(item => item.namespaceURI === style && item.localName === kind), part = node && children(node).find(item => item.namespaceURI === style && item.localName === `region-${side}`), value = part ? cellText(part) : ''; return value || undefined; };
+    const applyRegion = (kind, fields) => { for (const [index, side] of ['left', 'center', 'right'].entries()) {
+        const value = region(kind, side);
+        if (value)
+            out[fields[index]] = value;
+    } };
+    applyRegion('header', ['headerLeft', 'headerCenter', 'headerRight']);
+    applyRegion('footer', ['footerLeft', 'footerCenter', 'footerRight']);
+    return out;
+}
+const odsNamedFormatColors = { Red: '#ff0000', Blue: '#0000ff', Green: '#008000', Yellow: '#ffff00', White: '#ffffff', Black: '#000000', Cyan: '#00ffff', Magenta: '#ff00ff' };
+function odsFormatColor(code) { const match = /^\[(Red|Blue|Green|Yellow|White|Black|Cyan|Magenta)\]/i.exec(code); if (!match)
+    return /^\[Color\d+\]/i.test(code) ? null : { code }; const name = Object.keys(odsNamedFormatColors).find(item => item.toLocaleLowerCase() === match[1].toLocaleLowerCase()); return { code: code.slice(match[0].length), color: odsNamedFormatColors[name] }; }
+function excelLiteral(raw) {
+    let output = '';
+    for (let i = 0; i < raw.length; i++) {
+        const char = raw[i];
+        if (char === '"') {
+            let closed = false;
+            for (i++; i < raw.length; i++) {
+                if (raw[i] === '"') {
+                    if (raw[i + 1] === '"') {
+                        output += '"';
+                        i++;
+                        continue;
+                    }
+                    closed = true;
+                    break;
+                }
+                output += raw[i];
+            }
+            if (!closed)
+                return null;
+            continue;
+        }
+        if (char === '\\') {
+            if (i + 1 >= raw.length)
+                return null;
+            output += raw[++i];
+            continue;
+        }
+        if (/[\s$€£¥()+\-.,/]/.test(char)) {
+            output += char;
+            continue;
+        }
+        return null;
+    }
+    return output;
+}
+function simpleNumberFormat(code) {
+    const color = odsFormatColor(code);
+    if (!color || !color.code || color.code.length > 255 || color.code.includes(';') || /[\[\]@]/.test(color.code))
+        return null;
+    code = color.code;
+    const match = /[0#?][0#?,]*(?:\.[0#?]+)?(?:E[+-][0#?]+)?%?/i.exec(code);
+    if (!match || match[0].includes('?'))
+        return null;
+    const prefix = excelLiteral(code.slice(0, match.index)), suffix = excelLiteral(code.slice(match.index + match[0].length));
+    if (prefix === null || suffix === null)
+        return null;
+    const token = match[0], percent = token.endsWith('%'), numeric = percent ? token.slice(0, -1) : token, scientific = /E[+-]/i.test(numeric), mantissa = numeric.split(/[Ee]/)[0], exponent = scientific ? numeric.split(/[Ee]/)[1] ?? '' : '';
+    if (percent && scientific)
+        return null;
+    const [integer = '0', fraction] = mantissa.split('.');
+    if (integer.startsWith(',') || integer.endsWith(',') || integer.includes(',,') || integer.includes(',') && !/^[0#]+(?:,[0#]{3})+$/.test(integer))
+        return null;
+    if ((integer.match(/#/g)?.length ?? 0) > 0 && (integer.match(/0/g)?.length ?? 0) === 0 && integer.replaceAll(',', '').replaceAll('#', '') === '')
+        return null;
+    return { pattern: token, prefix, suffix, percent, grouping: integer.includes(','), minimumInteger: Math.max(1, (integer.match(/0/g) ?? []).length), minimumDecimals: (fraction?.match(/0/g) ?? []).length, maximumDecimals: fraction?.length ?? 0, ...(color.color ? { color: color.color } : {}), ...(scientific ? { scientific: true, exponentDigits: exponent.length } : {}) };
+}
+function splitOdsFormatSections(code) { const sections = []; let start = 0, quoted = false, bracketed = false; for (let index = 0; index < code.length; index++) {
+    const char = code[index];
+    if (char === '\\') {
+        index++;
+        continue;
+    }
+    if (char === '"') {
+        if (quoted && code[index + 1] === '"') {
+            index++;
+            continue;
+        }
+        quoted = !quoted;
+        continue;
+    }
+    if (!quoted && char === '[')
+        bracketed = true;
+    else if (!quoted && char === ']')
+        bracketed = false;
+    else if (!quoted && !bracketed && char === ';') {
+        sections.push(code.slice(start, index));
+        start = index + 1;
+    }
+} if (quoted || bracketed)
+    return null; sections.push(code.slice(start)); return sections.length <= 3 ? sections : null; }
+function odsCustomStyleXml(name, format) {
+    const numericPattern = format.pattern.split('%')[0], mantissa = numericPattern.split(/[Ee]/)[0], integer = mantissa.split('.')[0].replaceAll(',', ''), minimumInteger = Math.max(format.minimumInteger, (integer.match(/0/g) ?? []).length), max = format.maximumDecimals, min = format.minimumDecimals, exponentDigits = format.exponentDigits ?? 2, numeric = format.scientific ? `<number:scientific-number number:decimal-places="${max}" number:min-decimal-places="${min}" number:min-integer-digits="${minimumInteger}" number:min-exponent-digits="${exponentDigits}"${numericPattern.includes('E+') ? ' number:forced-exponent-sign="true"' : ''}${format.grouping ? ' number:grouping="true"' : ''}/>` : `<number:number number:decimal-places="${max}" number:min-decimal-places="${min}" number:min-integer-digits="${minimumInteger}"${format.grouping ? ' number:grouping="true"' : ''}/>`;
+    const literal = (value) => value ? `<number:text>${esc(value)}</number:text>` : '', tag = format.percent ? 'percentage-style' : 'number-style', body = `${format.color ? `<style:text-properties fo:color="${format.color}"/>` : ''}${literal(format.prefix)}${numeric}${format.percent ? '<number:text>%</number:text>' : ''}${literal(format.suffix)}`;
+    return `<number:${tag} style:name="${name}">${body}</number:${tag}>`;
+}
+function odsCustomLiteralStyleXml(name, value, color) { return `<number:number-style style:name="${name}">${color ? `<style:text-properties fo:color="${color}"/>` : ''}<number:text>${esc(value)}</number:text></number:number-style>`; }
+function odsCustomFormatSupported(code) { const sections = splitOdsFormatSections(code); return !!sections?.length && !!simpleNumberFormat(sections[0]) && sections.slice(1).every(section => { if (simpleNumberFormat(section))
+    return true; const color = odsFormatColor(section); return !!color && !/[\[\]@?%]/.test(color.code) && excelLiteral(color.code) !== null; }); }
+function odsFormatKey(value) {
+    if (value.customNumberFormatCode)
+        return odsCustomFormatSupported(value.customNumberFormatCode) ? `custom:${value.customNumberFormatCode}` : null;
+    if (value.dateFormatCode) {
+        const format = odsDateFormat(value.dateFormatCode);
+        return format ? `${format.hasCalendar ? 'date' : 'time'}:${value.dateFormatCode}` : null;
+    }
+    return value.numberFormat && value.numberFormat !== 'general' ? `number:${value.numberFormat}` : null;
+}
+function rowXml(cells, row, merges, validations = []) {
+    if (!cells.size && !merges.some(merge => row > merge.r1 && row <= merge.r2) && !validations.length)
+        return '<table:table-row/>';
+    const sorted = [...cells].sort((a, b) => a[0] - b[0]), covered = merges.flatMap(merge => row === merge.r1 && merge.c2 > merge.c1 ? [{ start: merge.c1 + 1, end: merge.c2 }] : row > merge.r1 && row <= merge.r2 ? [{ start: merge.c1, end: merge.c2 }] : []).sort((a, b) => a.start - b.start), active = [...validations].sort((a, b) => a.start - b.start), parts = [];
+    let cursor = 0, cellIndex = 0, coveredIndex = 0, validationIndex = 0;
+    while (cellIndex < sorted.length || coveredIndex < covered.length || validationIndex < active.length) {
+        const cell = sorted[cellIndex], merge = covered[coveredIndex], validation = active[validationIndex];
+        if (merge && merge.end < cursor) {
+            coveredIndex++;
+            continue;
+        }
+        if (validation && validation.end < cursor) {
+            validationIndex++;
+            continue;
+        }
+        if (merge && merge.start <= cursor) {
+            const count = merge.end - cursor + 1;
+            parts.push(`<table:covered-table-cell${count > 1 ? ` table:number-columns-repeated="${count}"` : ''}/>`);
+            cursor = merge.end + 1;
+            coveredIndex++;
+            continue;
+        }
+        if (cell && cell[0] < cursor) {
+            cellIndex++;
+            continue;
+        }
+        if (validation && validation.start <= cursor && (!cell || cell[0] > cursor)) {
+            const stop = Math.min(validation.end + 1, cell?.[0] ?? Number.MAX_SAFE_INTEGER, merge?.start ?? Number.MAX_SAFE_INTEGER), count = stop - cursor;
+            if (count > 0) {
+                parts.push(`<table:table-cell table:content-validation-name="${esc(validation.name)}"${count > 1 ? ` table:number-columns-repeated="${count}"` : ''}/>`);
+                cursor = stop;
+                continue;
+            }
+            validationIndex++;
+            continue;
+        }
+        if (cell && cell[0] === cursor) {
+            parts.push(cell[1]);
+            cursor++;
+            cellIndex++;
+            continue;
+        }
+        const next = Math.min(cell?.[0] ?? Number.MAX_SAFE_INTEGER, merge?.start ?? Number.MAX_SAFE_INTEGER, validation?.start ?? Number.MAX_SAFE_INTEGER);
+        if (next > cursor && next !== Number.MAX_SAFE_INTEGER) {
+            const count = next - cursor;
+            parts.push(`<table:table-cell table:number-columns-repeated="${count}"/>`);
+            cursor = next;
+            continue;
+        }
+        if (next === Number.MAX_SAFE_INTEGER)
+            break;
+    }
+    return `<table:table-row>${parts.join('')}</table:table-row>`;
+}
+function validationDefinition(rule, name) {
+    const ref = (value) => { const parsed = parseRef(value); return parsed ? `[.$${colToName(parsed.col)}$${parsed.row + 1}]` : null; }, first = ref(rule.start);
+    if (!first)
+        return null;
+    let condition = '';
+    if (rule.type === 'list') {
+        if (rule.values?.length)
+            condition = `of:cell-content-is-in-list(${rule.values.map(value => `"${value.replaceAll('"', '""')}"`).join(';')})`;
+        else if (rule.sourceRange) {
+            const parts = rule.sourceRange.split(':'), from = ref(parts[0] ?? ''), to = ref(parts[1] ?? parts[0] ?? '');
+            if (!from || !to)
+                return null;
+            condition = `of:cell-content-is-in-list(${from}:${to.slice(1)})`;
+        }
+        else
+            return null;
+    }
+    else {
+        const content = 'of:cell-content()', operator = rule.operator ?? (rule.min !== undefined && rule.max !== undefined ? 'between' : rule.min !== undefined ? 'greaterThanOrEqual' : 'lessThanOrEqual'), left = rule.min === undefined ? null : `${content}${{ between: '>=', notBetween: '<', equalTo: '=', notEqualTo: '<>', greaterThan: '>', greaterThanOrEqual: '>=', lessThan: '<', lessThanOrEqual: '<=' }[operator]}${rule.min}`, right = rule.max === undefined ? null : `${content}${operator === 'notBetween' ? ' > ' : ' <= '}${rule.max}`;
+        const terms = [left, right].filter((value) => !!value);
+        if (!terms.length)
+            return null;
+        condition = `${rule.type === 'whole' ? 'of:cell-content-is-whole-number() and ' : rule.type === 'decimal' ? 'of:cell-content-is-decimal-number() and ' : rule.type === 'date' ? 'of:cell-content-is-date() and ' : rule.type === 'textLength' ? 'of:cell-content-text-length() and ' : ''}${terms.join(' and ')}`;
+    }
+    const messages = [rule.showInputMessage && rule.promptMessage ? `<table:help-message${rule.promptTitle ? ` table:title="${esc(rule.promptTitle)}"` : ''} table:display="true"><text:p>${textXml(rule.promptMessage)}</text:p></table:help-message>` : '', rule.showErrorMessage !== false && rule.errorMessage ? `<table:error-message${rule.errorTitle ? ` table:title="${esc(rule.errorTitle)}"` : ''} table:display="true" table:message-type="${rule.errorStyle === 'warning' ? 'warning' : rule.errorStyle === 'information' ? 'information' : 'stop'}"><text:p>${textXml(rule.errorMessage)}</text:p></table:error-message>` : ''].join('');
+    return `<table:content-validation table:name="${name}" table:condition="${esc(condition)}" table:base-cell-address="${esc(first)}" table:allow-empty-cell="${rule.allowBlank ? 'true' : 'false'}"${rule.type === 'list' ? ' table:display-list="unsorted"' : ''}>${messages}</table:content-validation>`;
+}
+function odsFilterDefinition(sheet) {
+    const filter = sheet.tools.filter;
+    if (!filter)
+        return null;
+    const address = `${odsSheetLocator(sheet.name)}.$${colToName(filter.startCol)}$${filter.startRow + 1}:.$${colToName(filter.endCol)}$${filter.endRow + 1}`, conditions = [], regexLiteral = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (filter.query)
+        conditions.push(`<table:filter-condition table:field-number="${filter.column - filter.startCol}" table:operator="match" table:value=".*${esc(regexLiteral(filter.query))}.*"/>`);
+    for (const criterion of filter.criteria ?? []) {
+        if (!criterion.values.length)
+            continue;
+        const values = criterion.values.map(value => `<table:filter-condition table:field-number="${criterion.column - filter.startCol}" table:operator="match" table:value="^${esc(regexLiteral(value))}$"/>`);
+        conditions.push(values.length === 1 ? values[0] : `<table:filter-or>${values.join('')}</table:filter-or>`);
+    }
+    const filterXml = conditions.length === 0 ? '' : conditions.length === 1 ? conditions[0] : `<table:filter-and>${conditions.join('')}</table:filter-and>`;
+    return `<table:database-range table:name="GF_Filter_${sheet.id.replace(/[^A-Za-z0-9_]/g, '_')}" table:target-range-address="${esc(address)}" table:display-filter-buttons="true" table:contains-header="true" table:use-regular-expressions="true">${filterXml ? `<table:filter>${filterXml}</table:filter>` : ''}</table:database-range>`;
+}
+function odsGridForgeSheetObjects(sheet) {
+    const tools = sheet.tools, payload = {
+        ...(tools.conditional.length ? { conditional: tools.conditional } : {}),
+        ...(tools.drawings.length ? { drawings: tools.drawings } : {}),
+        ...(tools.tables.length ? { tables: tools.tables } : {}),
+        ...(tools.pivotTables.length ? { pivotTables: tools.pivotTables } : {}),
+        ...(tools.pivotSlicers.length ? { pivotSlicers: tools.pivotSlicers } : {}),
+        ...(tools.queries.some(query => (query.sourceKind ?? 'worksheet') === 'worksheet') ? { queries: tools.queries.filter(query => (query.sourceKind ?? 'worksheet') === 'worksheet') } : {}),
+    };
+    const encoded = JSON.stringify(payload);
+    if (encoded === '{}')
+        return '';
+    if (encoded.length > 1_000_000)
+        throw Error(`${sheet.name} has more than 1 MB of GridForge-only worksheet objects; reduce the unsupported object data before exporting to ODS.`);
+    return encoded;
+}
+const odsPivotFunctions = { sum: 'sum', count: 'count', countNumbers: 'countnums', average: 'average', min: 'min', max: 'max', product: 'product', stdDev: 'stdev', stdDevp: 'stdevp', var: 'var', varp: 'varp' };
+function adjacentOdfNumber(value, direction) {
+    if (Number.isNaN(value) || value === Number.POSITIVE_INFINITY && direction === 'up' || value === Number.NEGATIVE_INFINITY && direction === 'down')
+        return value;
+    if (value === 0)
+        return direction === 'up' ? Number.MIN_VALUE : -Number.MIN_VALUE;
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, value, false);
+    let bits = view.getBigUint64(0, false);
+    bits += (value > 0) === (direction === 'up') ? 1n : -1n;
+    view.setBigUint64(0, bits, false);
+    return view.getFloat64(0, false);
+}
+function odsPivotDefinitions(doc) {
+    const tables = [];
+    for (const [ownerIndex, owner] of doc.sheets.entries())
+        for (const [pivotIndex, pivot] of owner.tools.pivotTables.entries()) {
+            // ODF Data Pilot supports standard date/numeric/manual grouping. Keep
+            // calculated display modes, label/value filters, and layout in GridForge
+            // metadata when they have no faithful ODF representation. Name sorting is
+            // represented natively by ODF's data-pilot-sort-info.
+            const source = pivot.sourceSheet ? doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === pivot.sourceSheet.toLocaleLowerCase()) : owner;
+            if (!source)
+                continue;
+            const bounds = pivot.sourceRange.replace(/\$/g, '').toUpperCase().split(':'), first = parseRef(bounds[0] ?? ''), last = parseRef(bounds[1] ?? bounds[0] ?? '');
+            const destination = parseRef(pivot.destination), rowFields = pivot.rowFields ?? [pivot.rowField], columnFields = pivot.columnFields ?? (pivot.columnField === undefined ? [] : [pivot.columnField]);
+            const measures = pivot.measures ?? (pivot.valueFields ?? [pivot.valueField]).map(field => ({ field, aggregation: pivot.aggregation }));
+            const simpleFilters = pivot.filters ?? (pivot.filterField === undefined ? [] : [{ field: pivot.filterField, value: pivot.filterValue }]);
+            const complex = pivot.dateGroups?.some(group => group.unit === 'weeks') || !!pivot.labelFilters?.length || !!pivot.dateFilters?.length || !!pivot.itemFilters?.length || !!pivot.valueFilters?.length || !!pivot.valueSorts?.length || !!pivot.valueSort || !!pivot.valueFilter || !!pivot.manualItemOrders?.length || ['manual', 'valueAscending', 'valueDescending'].includes(pivot.sortOrder ?? '') || Object.values(pivot.fieldSortOrders ?? {}).some(order => ['manual', 'valueAscending', 'valueDescending'].includes(order)) || measures.some(measure => measure.showAs && measure.showAs !== 'normal') || simpleFilters.some(filter => filter.values !== undefined || filter.value === undefined || filter.value === null);
+            if (!first || !last || !destination || first.col > last.col || first.row >= last.row || complex || rowFields.some(field => !Number.isInteger(field) || field < 0 || field > last.col - first.col) || columnFields.some(field => !Number.isInteger(field) || field < 0 || field > last.col - first.col) || measures.length < 1 || measures.some(measure => !Number.isInteger(measure.field) || measure.field < 0 || measure.field > last.col - first.col || !odsPivotFunctions[measure.aggregation]))
+                continue;
+            const fieldHeaders = pivotSourceFieldHeaders(source.book, pivot.sourceRange), fieldXml = [];
+            let invalidField = false;
+            for (const [index, header] of fieldHeaders.entries()) {
+                const row = rowFields.includes(index), column = columnFields.includes(index), fieldMeasures = measures.filter(item => item.field === index), page = simpleFilters.find(item => item.field === index);
+                if (Number(row) + Number(column) + Number(fieldMeasures.length > 0) + Number(!!page) > 1) {
+                    invalidField = true;
+                    break;
+                }
+                const dateGroup = pivot.dateGroups?.find(group => group.field === index), numberGroup = pivot.numberGroups?.find(group => group.field === index), manualGroup = pivot.manualGroups?.find(group => group.field === index);
+                let grouping = '';
+                if (dateGroup) {
+                    const groupedBy = { years: 'years', quarters: 'quarters', months: 'months', days: 'days' }[dateGroup.unit];
+                    if (!groupedBy) {
+                        invalidField = true;
+                        break;
+                    }
+                    let minSerial = Infinity, maxSerial = -Infinity;
+                    for (let rowIndex = first.row + 1; rowIndex <= last.row; rowIndex++) {
+                        const serial = pivotDateSerial(source.book.getValue(`${colToName(first.col + index)}${rowIndex + 1}`).value);
+                        if (serial !== null) {
+                            minSerial = Math.min(minSerial, Math.floor(serial));
+                            maxSerial = Math.max(maxSerial, Math.floor(serial));
+                        }
+                    }
+                    const min = minSerial === Infinity ? null : excelSerialDateIso(minSerial), max = maxSerial === -Infinity ? null : excelSerialDateIso(maxSerial);
+                    if (!min || !max || min === '1900-02-29' || max === '1900-02-29') {
+                        invalidField = true;
+                        break;
+                    }
+                    grouping = `<table:data-pilot-groups table:source-field-name="${esc(header)}" table:grouped-by="${groupedBy}" table:date-start="${min}T00:00:00" table:date-end="${max}T00:00:00"/>`;
+                }
+                else if (numberGroup) {
+                    let min = Infinity, max = -Infinity;
+                    for (let rowIndex = first.row + 1; rowIndex <= last.row; rowIndex++) {
+                        const value = source.book.getValue(`${colToName(first.col + index)}${rowIndex + 1}`).value;
+                        if (typeof value === 'number' && Number.isFinite(value)) {
+                            min = Math.min(min, value);
+                            max = Math.max(max, value);
+                        }
+                    }
+                    try {
+                        const range = resolvePivotNumberGroupRange(min === Infinity ? [] : [min, max], numberGroup), start = numberGroup.start ?? range.start, end = numberGroup.end ?? range.end;
+                        grouping = `<table:data-pilot-groups table:source-field-name="${esc(header)}" table:start="${start}" table:end="${adjacentOdfNumber(end, 'down')}" table:step="${numberGroup.interval}"/>`;
+                    }
+                    catch {
+                        invalidField = true;
+                        break;
+                    }
+                }
+                else if (manualGroup) {
+                    if (manualGroup.groups.some(group => !group.label || group.values.some(value => value === null))) {
+                        invalidField = true;
+                        break;
+                    }
+                    grouping = `<table:data-pilot-groups table:source-field-name="${esc(header)}">${manualGroup.groups.map(group => `<table:data-pilot-group table:name="${esc(group.label)}">${group.values.map(value => `<table:data-pilot-group-member table:name="${esc(value)}"/>`).join('')}</table:data-pilot-group>`).join('')}</table:data-pilot-groups>`;
+                }
+                const rowSubtotal = row && pivot.subtotals !== false && (pivot.subtotalFields === undefined || pivot.subtotalFields.includes(index)), columnSubtotal = column && pivot.columnSubtotals === true && (pivot.columnSubtotalFields === undefined || pivot.columnSubtotalFields.includes(index)), subtotalXml = rowSubtotal || columnSubtotal ? '<table:data-pilot-subtotals><table:data-pilot-subtotal table:function="auto"/></table:data-pilot-subtotals>' : '';
+                const orientation = fieldMeasures.length ? 'data' : row ? 'row' : column ? 'column' : page ? 'page' : 'hidden', sortOrder = pivot.fieldSortOrders?.[String(index)] ?? pivot.sortOrder ?? 'ascending', sortXml = ['ascending', 'descending'].includes(sortOrder) && (row || column) ? `<table:data-pilot-sort-info table:sort-mode="name" table:order="${sortOrder}"/>` : '', levelXml = sortXml || subtotalXml ? `<table:data-pilot-level>${sortXml}${subtotalXml}</table:data-pilot-level>` : '', render = (measure) => `<table:data-pilot-field table:source-field-name="${esc(header)}" table:orientation="${measure ? 'data' : orientation}" table:function="${measure ? odsPivotFunctions[measure.aggregation] : 'auto'}"${!measure && page ? ` table:selected-page="${esc(page.value)}"` : ''}>${grouping}${!measure ? levelXml : ''}</table:data-pilot-field>`;
+                if (fieldMeasures.length)
+                    fieldXml.push(...fieldMeasures.map(render));
+                else
+                    fieldXml.push(render(undefined));
+            }
+            if (measures.length > 1)
+                fieldXml.push('<table:data-pilot-field table:source-field-name="Data" table:is-data-layout-field="true" table:orientation="column" table:function="auto"/>');
+            const rawHeaders = fieldHeaders.map((_, index) => display(source.book.getValue(`${colToName(first.col + index)}${first.row + 1}`))), headerKeys = new Set(), duplicateHeaders = rawHeaders.some(header => { const key = header.toLocaleLowerCase(); if (!header || headerKeys.has(key))
+                return true; headerKeys.add(key); return false; });
+            if (invalidField || duplicateHeaders)
+                continue;
+            const targetCell = parseRef(pivot.destination), sourceFrom = `${odsSheetLocator(source.name)}.$${colToName(first.col)}$${first.row + 1}`, sourceTo = `.$${colToName(last.col)}$${last.row + 1}`, target = targetCell ? `${odsSheetLocator(owner.name)}.$${colToName(targetCell.col)}$${targetCell.row + 1}` : null;
+            if (!target)
+                continue;
+            const grandTotal = pivot.rowGrandTotals === false && pivot.columnGrandTotals === false ? 'none' : pivot.rowGrandTotals === false ? 'columns' : pivot.columnGrandTotals === false ? 'rows' : 'both';
+            const name = `GF_DataPilot_${ownerIndex + 1}_${pivotIndex + 1}`;
+            tables.push(`<table:data-pilot-table table:name="${name}" table:target-range-address="${esc(target)}" table:grand-total="${grandTotal}" table:ignore-empty-rows="true" table:identify-categories="true"><table:source-cell-range table:cell-range-address="${esc(`${sourceFrom}:${sourceTo}`)}"/>${fieldXml.join('')}</table:data-pilot-table>`);
+        }
+    return tables.length ? `<table:data-pilot-tables>${tables.join('')}</table:data-pilot-tables>` : '';
+}
+const pivotAggregationFromOds = { sum: 'sum', count: 'count', countnums: 'countNumbers', average: 'average', min: 'min', max: 'max', product: 'product', stdev: 'stdDev', stdevp: 'stdDevp', var: 'var', varp: 'varp' };
+function importOdfPivots(officeNode, document, warnings) {
+    const container = children(officeNode).find(node => node.namespaceURI === table && node.localName === 'data-pilot-tables');
+    if (!container)
+        return 0;
+    const nodes = children(container).filter(node => node.namespaceURI === table && node.localName === 'data-pilot-table').slice(0, 192);
+    let imported = 0;
+    for (const [index, node] of nodes.entries())
+        try {
+            const targetRef = odsReferenceToExcel(node.getAttributeNS(table, 'target-range-address') ?? ''), sourceNode = children(node).find(item => item.namespaceURI === table && item.localName === 'source-cell-range'), sourceRef = odsReferenceToExcel(sourceNode?.getAttributeNS(table, 'cell-range-address') ?? '');
+            if (!targetRef || !sourceRef)
+                continue;
+            const targetBang = targetRef.lastIndexOf('!'), targetName = targetBang >= 0 ? targetRef.slice(0, targetBang).replace(/^'|'$/g, '').replaceAll("''", "'") : document.active.name, targetSheet = document.sheets.find(sheet => sheet.name.toLocaleLowerCase() === targetName.toLocaleLowerCase());
+            const sourceBang = sourceRef.lastIndexOf('!'), sourceName = sourceBang >= 0 ? sourceRef.slice(0, sourceBang).replace(/^'|'$/g, '').replaceAll("''", "'") : targetName, sourceSheet = document.sheets.find(sheet => sheet.name.toLocaleLowerCase() === sourceName.toLocaleLowerCase()), sourceRange = sourceBang >= 0 ? sourceRef.slice(sourceBang + 1) : sourceRef;
+            if (!targetSheet || !sourceSheet || sourceRange.includes('!'))
+                continue;
+            const bounds = sourceRange.split(':'), first = parseRef(bounds[0] ?? ''), last = parseRef(bounds[1] ?? bounds[0] ?? '');
+            if (!first || !last || first.row >= last.row || first.col > last.col)
+                continue;
+            const headers = pivotSourceFieldHeaders(sourceSheet.book, sourceRange), resolveField = (caption) => { const matches = headers.map((value, field) => value === caption ? field : -1).filter(field => field >= 0); return matches.length === 1 ? matches[0] : -1; };
+            const rows = [], columns = [], measures = [], filters = [], dateGroups = [], numberGroups = [], manualGroups = [], subtotalFields = [], columnSubtotalFields = [], fieldSortOrders = {};
+            let invalid = false;
+            for (const fieldNode of children(node).filter(item => item.namespaceURI === table && item.localName === 'data-pilot-field')) {
+                if (fieldNode.getAttributeNS(table, 'is-data-layout-field') === 'true')
+                    continue;
+                const caption = fieldNode.getAttributeNS(table, 'source-field-name') ?? '', field = resolveField(caption), orientation = fieldNode.getAttributeNS(table, 'orientation') ?? '';
+                if (field < 0) {
+                    if (orientation === 'hidden')
+                        continue;
+                    invalid = true;
+                    break;
+                }
+                if (orientation === 'row')
+                    rows.push(field);
+                else if (orientation === 'column')
+                    columns.push(field);
+                else if (orientation === 'page') {
+                    if (!fieldNode.hasAttributeNS(table, 'selected-page')) {
+                        invalid = true;
+                        break;
+                    }
+                    filters.push({ field, value: fieldNode.getAttributeNS(table, 'selected-page') });
+                }
+                else if (orientation === 'data') {
+                    const aggregation = pivotAggregationFromOds[fieldNode.getAttributeNS(table, 'function') ?? 'sum'];
+                    if (!aggregation) {
+                        invalid = true;
+                        break;
+                    }
+                    measures.push({ field, aggregation });
+                }
+                const grouping = children(fieldNode).find(item => item.namespaceURI === table && item.localName === 'data-pilot-groups');
+                if (grouping) {
+                    const groupedBy = grouping.getAttributeNS(table, 'grouped-by');
+                    if (['years', 'quarters', 'months', 'days'].includes(groupedBy ?? '')) {
+                        if (!dateGroups.some(item => item.field === field))
+                            dateGroups.push({ field, unit: groupedBy });
+                    }
+                    else if (grouping.hasAttributeNS(table, 'step')) {
+                        const rawStart = grouping.getAttributeNS(table, 'start') ?? 'auto', rawEnd = grouping.getAttributeNS(table, 'end') ?? 'auto', start = rawStart === 'auto' ? undefined : Number(rawStart), end = rawEnd === 'auto' ? undefined : adjacentOdfNumber(Number(rawEnd), 'up'), interval = Number(grouping.getAttributeNS(table, 'step'));
+                        if (start !== undefined && !Number.isFinite(start) || end !== undefined && !Number.isFinite(end) || !Number.isFinite(interval) || interval <= 0) {
+                            invalid = true;
+                            break;
+                        }
+                        if (!numberGroups.some(item => item.field === field))
+                            numberGroups.push({ field, ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }), interval });
+                    }
+                    else {
+                        const groups = children(grouping).filter(item => item.namespaceURI === table && item.localName === 'data-pilot-group').map(group => ({ label: group.getAttributeNS(table, 'name') ?? '', values: children(group).filter(item => item.namespaceURI === table && item.localName === 'data-pilot-group-member').map(member => member.getAttributeNS(table, 'name') ?? '') }));
+                        if (groups.length && !manualGroups.some(item => item.field === field))
+                            manualGroups.push({ field, groups });
+                    }
+                }
+                const level = children(fieldNode).find(item => item.namespaceURI === table && item.localName === 'data-pilot-level');
+                if (level) {
+                    const sortInfo = children(level).find(item => item.namespaceURI === table && item.localName === 'data-pilot-sort-info');
+                    if (sortInfo) {
+                        const mode = sortInfo.getAttributeNS(table, 'sort-mode'), order = sortInfo.getAttributeNS(table, 'order');
+                        if (mode === 'name' && (order === 'ascending' || order === 'descending'))
+                            fieldSortOrders[String(field)] = order;
+                        else if (mode !== 'none' && mode !== 'data' && mode !== 'manual') {
+                            invalid = true;
+                            break;
+                        }
+                    }
+                    const subtotalContainer = children(level).find(item => item.namespaceURI === table && item.localName === 'data-pilot-subtotals');
+                    if (subtotalContainer) {
+                        const subtotals = children(subtotalContainer).filter(item => item.namespaceURI === table && item.localName === 'data-pilot-subtotal');
+                        if (subtotals.some(item => (item.getAttributeNS(table, 'function') ?? 'auto') !== 'auto')) {
+                            invalid = true;
+                            break;
+                        }
+                        if (orientation === 'row' && !subtotalFields.includes(field))
+                            subtotalFields.push(field);
+                        else if (orientation === 'column' && !columnSubtotalFields.includes(field))
+                            columnSubtotalFields.push(field);
+                    }
+                }
+            }
+            if (invalid || !measures.length || rows.length > 8 || columns.length > 8 || new Set(rows).size !== rows.length || new Set(columns).size !== columns.length || new Set(filters.map(filter => filter.field)).size !== filters.length || [...rows, ...columns].some(field => measures.some(measure => measure.field === field)) || filters.some(filter => rows.includes(filter.field) || columns.includes(filter.field) || measures.some(measure => measure.field === filter.field)))
+                continue;
+            const allRowSubtotals = rows.length > 0 && rows.every(field => subtotalFields.includes(field)), allColumnSubtotals = columns.length > 0 && columns.every(field => columnSubtotalFields.includes(field));
+            const pivot = { id: `pivot-ods-${index + 1}`, sourceRange, destination: targetBang >= 0 ? targetRef.slice(targetBang + 1) : targetRef, rowField: rows[0] ?? -1, ...(rows.length ? { rowFields: rows } : { rowFields: [] }), valueField: measures[0].field, ...(measures.length > 1 ? { valueFields: measures.map(item => item.field), measures } : {}), aggregation: measures[0].aggregation, ...(columns.length ? { columnField: columns[0], ...(columns.length > 1 ? { columnFields: columns } : {}) } : {}), ...(filters.length === 1 ? { filterField: filters[0].field, filterValue: filters[0].value } : filters.length ? { filters } : {}), ...(Object.keys(fieldSortOrders).length ? { fieldSortOrders } : {}), subtotals: subtotalFields.length > 0, ...(!allRowSubtotals && subtotalFields.length ? { subtotalFields } : {}), columnSubtotals: columnSubtotalFields.length > 0, ...(!allColumnSubtotals && columnSubtotalFields.length ? { columnSubtotalFields } : {}), ...(dateGroups.length ? { dateGroups } : {}), ...(numberGroups.length ? { numberGroups } : {}), ...(manualGroups.length ? { manualGroups } : {}), ...(sourceName.toLocaleLowerCase() === targetName.toLocaleLowerCase() ? {} : { sourceSheet: sourceName }) };
+            const equivalent = targetSheet.tools.pivotTables.some(existing => existing.destination.toUpperCase() === pivot.destination.toUpperCase() && existing.sourceRange.replace(/\$/g, '').toUpperCase() === pivot.sourceRange.replace(/\$/g, '').toUpperCase() && (existing.sourceSheet ?? '').toLocaleLowerCase() === (pivot.sourceSheet ?? '').toLocaleLowerCase());
+            if (equivalent)
+                continue;
+            targetSheet.tools = validateTools({ ...targetSheet.tools, pivotTables: [...targetSheet.tools.pivotTables, pivot] }, targetSheet.book.rows, targetSheet.book.cols);
+            imported++;
+        }
+        catch (error) {
+            warnings.push(`An OpenDocument Data Pilot definition was skipped (${error instanceof Error ? error.message : 'invalid pivot definition'}).`);
+        }
+    return imported;
+}
+function odsConditionalMapCondition(rule) {
+    if (rule.operator === 'formula') {
+        const expression = formulaToOds(rule.formula ?? '');
+        return expression?.startsWith('of:=') ? `of:is-true-formula(${expression.slice(4)})` : null;
+    }
+    const decimal = (value) => { const source = String(value), match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source); if (!match)
+        return source; const sign = match[1], whole = match[2], fraction = match[3] ?? '', shift = Number(match[4]), digits = whole + fraction, point = whole.length + shift; return sign + (point <= 0 ? `0.${'0'.repeat(-point)}${digits}` : point >= digits.length ? digits + '0'.repeat(point - digits.length) : `${digits.slice(0, point)}.${digits.slice(point)}`); }, threshold = decimal(rule.threshold), second = rule.threshold2 === undefined ? '' : decimal(rule.threshold2), operator = { gt: '>', gte: '>=', lt: '<', lte: '<=', eq: '=', ne: '!=' }[rule.operator];
+    if (operator)
+        return `of:cell-content() ${operator} ${threshold}`;
+    if (rule.operator === 'between' && second)
+        return `of:cell-content-is-between(${threshold},${second})`;
+    if (rule.operator === 'notBetween' && second)
+        return `of:cell-content-is-not-between(${threshold},${second})`;
+    return null;
+}
+function odsConditionalFormatsXml(sheet) {
+    const rules = sheet.tools.conditional.filter(rule => rule.operator === 'scale' || rule.operator === 'dataBar' || rule.operator === 'iconSet');
+    if (!rules.length)
+        return '';
+    const ranges = rules.map(rule => {
+        const fromRef = parseRef(rule.start), toRef = parseRef(rule.end);
+        if (!fromRef || !toRef)
+            return '';
+        const from = excelRefToOds(`$${colToName(Math.min(fromRef.col, toRef.col))}$${Math.min(fromRef.row, toRef.row) + 1}`, sheet.name), to = excelRefToOds(`$${colToName(Math.max(fromRef.col, toRef.col))}$${Math.max(fromRef.row, toRef.row) + 1}`, sheet.name);
+        if (!from || !to)
+            return '';
+        const target = `${from}:${to}`;
+        if (rule.operator === 'scale') {
+            const colors = [rule.startColor ?? '#f8696b', ...(rule.midColor ? [rule.midColor] : []), rule.color], defaults = colors.length === 2 ? [{ type: 'min' }, { type: 'max' }] : [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }], thresholds = rule.scaleThresholds ?? defaults, odsType = { min: 'minimum', max: 'maximum', num: 'value', percent: 'percent', percentile: 'percentile', formula: 'formula' }, values = thresholds.map(threshold => threshold.type === 'formula' && typeof threshold.value === 'string' ? formulaToOds(threshold.value.startsWith('=') ? threshold.value : `=${threshold.value}`) : threshold.value === undefined ? '0' : String(threshold.value));
+            if (values.some(value => value === null))
+                return '';
+            const entries = colors.map((color, index) => `<calcext:color-scale-entry calcext:value="${esc(values[index] ?? '0')}" calcext:type="${odsType[thresholds[index].type]}" calcext:color="${color}"/>`);
+            return `<calcext:conditional-format calcext:target-range-address="${esc(target)}"><calcext:color-scale>${entries.join('')}</calcext:color-scale></calcext:conditional-format>`;
+        }
+        if (rule.operator === 'iconSet' && rule.iconSet) {
+            const count = Number(rule.iconSet[0]), defaults = count === 3 ? [{ type: 'min' }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] : count === 4 ? [{ type: 'min' }, { type: 'percent', value: 25 }, { type: 'percent', value: 50 }, { type: 'percent', value: 75 }] : [{ type: 'min' }, { type: 'percent', value: 20 }, { type: 'percent', value: 40 }, { type: 'percent', value: 60 }, { type: 'percent', value: 80 }], thresholds = rule.iconThresholds ?? defaults, odsType = { min: 'minimum', max: 'maximum', num: 'value', percent: 'percent', percentile: 'percentile', formula: 'formula' }, values = thresholds.map(threshold => threshold.type === 'formula' && typeof threshold.value === 'string' ? formulaToOds(threshold.value.startsWith('=') ? threshold.value : `=${threshold.value}`) : threshold.value === undefined ? '0' : String(threshold.value));
+            if (values.some(value => value === null))
+                return '';
+            const entries = thresholds.map((threshold, index) => `<calcext:formatting-entry calcext:type="${odsType[threshold.type]}" calcext:value="${esc(values[index] ?? '0')}"/>`).join('');
+            return `<calcext:conditional-format calcext:target-range-address="${esc(target)}"><calcext:icon-set calcext:icon-set-type="${rule.iconSet}" calcext:show-value="${rule.iconsOnly ? 'false' : 'true'}">${entries}</calcext:icon-set></calcext:conditional-format>`;
+        }
+        const lower = rule.barLowerThreshold ?? (rule.minValue === undefined ? { type: 'min' } : { type: 'num', value: rule.minValue }), upper = rule.barUpperThreshold ?? (rule.maxValue === undefined ? { type: 'max' } : { type: 'num', value: rule.maxValue }), odsType = { min: 'auto-minimum', max: 'auto-maximum', num: 'number', percent: 'percent', percentile: 'percentile', formula: 'formula' }, lowerValue = lower.type === 'formula' && typeof lower.value === 'string' ? formulaToOds(lower.value.startsWith('=') ? lower.value : `=${lower.value}`) : lower.value === undefined ? '0' : String(lower.value), upperValue = upper.type === 'formula' && typeof upper.value === 'string' ? formulaToOds(upper.value.startsWith('=') ? upper.value : `=${upper.value}`) : upper.value === undefined ? '0' : String(upper.value);
+        if (lowerValue === null || upperValue === null)
+            return '';
+        const axis = rule.barAxis && rule.barAxis !== 'automatic' ? ` calcext:axis-position="${rule.barAxis}"` : '', axisColor = rule.barAxisColor ? ` calcext:axis-color="${rule.barAxisColor}"` : '';
+        return `<calcext:conditional-format calcext:target-range-address="${esc(target)}"><calcext:data-bar calcext:positive-color="${rule.color}" calcext:negative-color="${rule.negativeColor ?? rule.color}" calcext:gradient="${rule.barStyle !== 'solid'}" calcext:show-value="${rule.showValue !== false}" calcext:min-length="${rule.barMinLength ?? 0}" calcext:max-length="${rule.barMaxLength ?? 100}"${axis}${axisColor}><calcext:formatting-entry calcext:value="${esc(lowerValue)}" calcext:type="${odsType[lower.type]}"/><calcext:formatting-entry calcext:value="${esc(upperValue)}" calcext:type="${odsType[upper.type]}"/></calcext:data-bar></calcext:conditional-format>`;
+    }).filter(Boolean);
+    return ranges.length ? `<calcext:conditional-formats>${ranges.join('')}</calcext:conditional-formats>` : '';
+}
+function importOdsConditionalFormats(sheetNode, sheetName) {
+    const root = children(sheetNode).find(node => node.namespaceURI === calcextNs && node.localName === 'conditional-formats');
+    if (!root)
+        return [];
+    const output = [];
+    for (const item of children(root).filter(node => node.namespaceURI === calcextNs && node.localName === 'conditional-format').slice(0, 30)) {
+        const translated = odsReferenceToExcel(item.getAttributeNS(calcextNs, 'target-range-address') ?? '');
+        if (!translated)
+            continue;
+        const bang = translated.lastIndexOf('!'), owner = bang < 0 ? '' : translated.slice(0, bang).replace(/^'|'$/g, '').replaceAll("''", "'");
+        if (owner && owner.toLocaleLowerCase() !== sheetName.toLocaleLowerCase())
+            continue;
+        const refs = translated.slice(bang + 1).split(':'), start = parseRef(refs[0] ?? ''), end = parseRef(refs[1] ?? refs[0] ?? '');
+        if (!start || !end || start.row > end.row || start.col > end.col)
+            continue;
+        const base = { start: `${colToName(start.col)}${start.row + 1}`, end: `${colToName(end.col)}${end.row + 1}` };
+        const scale = children(item).find(node => node.namespaceURI === calcextNs && node.localName === 'color-scale');
+        if (scale) {
+            const entries = children(scale).filter(node => node.namespaceURI === calcextNs && node.localName === 'color-scale-entry'), normalized = entries.map(node => { const type = node.getAttributeNS(calcextNs, 'type') ?? '', raw = node.getAttributeNS(calcextNs, 'value') ?? '', color = node.getAttributeNS(calcextNs, 'color') ?? '', types = { minimum: 'min', 'auto-minimum': 'min', maximum: 'max', 'auto-maximum': 'max', value: 'num', number: 'num', percent: 'percent', percentile: 'percentile', formula: 'formula' }, mapped = types[type]; if (!mapped || !/^#[\da-f]{6}$/i.test(color))
+                return null; if (mapped === 'min' || mapped === 'max')
+                return { threshold: { type: mapped }, color }; if (mapped === 'formula') {
+                const formula = formulaFromOds(raw);
+                return formula ? { threshold: { type: mapped, value: formula }, color } : null;
+            } const value = Number(raw); if (!Number.isFinite(value) || (mapped === 'percent' || mapped === 'percentile') && (value < 0 || value > 100))
+                return null; return { threshold: { type: mapped, value }, color }; });
+            if ((normalized.length === 2 || normalized.length === 3) && normalized.every((entry) => entry !== null)) {
+                const colors = normalized.map(entry => entry.color), scaleThresholds = normalized.map(entry => entry.threshold);
+                output.push({ ...base, operator: 'scale', threshold: 0, startColor: colors[0], ...(colors.length === 3 ? { midColor: colors[1] } : {}), color: colors.at(-1), scaleThresholds });
+            }
+            continue;
+        }
+        const icon = children(item).find(node => node.namespaceURI === calcextNs && node.localName === 'icon-set');
+        if (icon) {
+            const iconSet = icon.getAttributeNS(calcextNs, 'icon-set-type'), known = new Set(['3Arrows', '3ArrowsGray', '3Flags', '3TrafficLights1', '3TrafficLights2', '3Signs', '3Symbols', '3Symbols2', '3Stars', '3Triangles', '4Arrows', '4ArrowsGray', '4RedToBlack', '4Rating', '4TrafficLights', '5Arrows', '5ArrowsGray', '5Rating', '5Quarters']), expected = Number(iconSet?.[0]), entries = children(icon).filter(node => node.namespaceURI === calcextNs && node.localName === 'formatting-entry'), types = { minimum: 'min', maximum: 'max', value: 'num', number: 'num', percent: 'percent', percentile: 'percentile', formula: 'formula' }, thresholds = entries.map(node => { const rawType = node.getAttributeNS(calcextNs, 'type') ?? '', raw = node.getAttributeNS(calcextNs, 'value') ?? '', type = types[rawType]; if (!type)
+                return null; if (type === 'min' || type === 'max')
+                return { type }; if (type === 'formula') {
+                const formula = formulaFromOds(raw);
+                return formula ? { type, value: formula } : null;
+            } const value = Number(raw); if (!Number.isFinite(value) || (type === 'percent' || type === 'percentile') && (value < 0 || value > 100))
+                return null; return { type, value }; });
+            if (known.has(iconSet ?? '') && thresholds.length === expected && thresholds.every((entry) => entry !== null))
+                output.push({ ...base, operator: 'iconSet', threshold: 0, color: '#000000', iconSet, iconThresholds: thresholds, iconsOnly: icon.getAttributeNS(calcextNs, 'show-value') === 'false' });
+            continue;
+        }
+        const bar = children(item).find(node => node.namespaceURI === calcextNs && node.localName === 'data-bar');
+        if (!bar)
+            continue;
+        const color = bar.getAttributeNS(calcextNs, 'positive-color') ?? '', negativeColor = bar.getAttributeNS(calcextNs, 'negative-color') ?? '', entries = children(bar).filter(node => node.namespaceURI === calcextNs && node.localName === 'formatting-entry'), lower = entries[0], upper = entries[1];
+        if (!/^#[\da-f]{6}$/i.test(color) || negativeColor && !/^#[\da-f]{6}$/i.test(negativeColor) || !lower || !upper)
+            continue;
+        const threshold = (node, edge) => { const rawType = node.getAttributeNS(calcextNs, 'type') ?? '', raw = node.getAttributeNS(calcextNs, 'value') ?? '', types = { 'auto-minimum': 'min', 'minimum': 'min', 'auto-maximum': 'max', 'maximum': 'max', 'number': 'num', 'value': 'num', 'percent': 'percent', 'percentage': 'percent', 'percentile': 'percentile', formula: 'formula' }, type = types[rawType]; if (!type)
+            return null; if (type === 'min' || type === 'max')
+            return (edge === 'lower' && type === 'min' || edge === 'upper' && type === 'max') ? {} : null; if (type === 'formula') {
+            const formula = formulaFromOds(raw);
+            return formula ? { typed: { type, value: formula } } : null;
+        } const value = Number(raw); if (!Number.isFinite(value) || (type === 'percent' || type === 'percentile') && (value < 0 || value > 100))
+            return null; return type === 'num' ? { legacy: value } : { typed: { type, value } }; }, min = threshold(lower, 'lower'), max = threshold(upper, 'upper');
+        if (!min || !max || min.legacy !== undefined && max.legacy !== undefined && min.legacy >= max.legacy)
+            continue;
+        const axisRaw = bar.getAttributeNS(calcextNs, 'axis-position'), axis = axisRaw === 'middle' || axisRaw === 'none' ? axisRaw : 'automatic', axisColor = bar.getAttributeNS(calcextNs, 'axis-color') ?? '', rawMinLength = bar.getAttributeNS(calcextNs, 'min-length') ?? '', rawMaxLength = bar.getAttributeNS(calcextNs, 'max-length') ?? '', minLength = /^\d{1,3}$/.test(rawMinLength) ? Number(rawMinLength) : 0, maxLength = /^\d{1,3}$/.test(rawMaxLength) ? Number(rawMaxLength) : 100, validLengths = minLength <= maxLength && maxLength <= 100;
+        output.push({ ...base, operator: 'dataBar', threshold: 0, color, ...(negativeColor && negativeColor.toLowerCase() !== color.toLowerCase() ? { negativeColor } : {}), ...(min.legacy !== undefined ? { minValue: min.legacy } : {}), ...(max.legacy !== undefined ? { maxValue: max.legacy } : {}), ...(min.typed ? { barLowerThreshold: min.typed } : {}), ...(max.typed ? { barUpperThreshold: max.typed } : {}), barStyle: bar.getAttributeNS(calcextNs, 'gradient') === 'false' ? 'solid' : 'gradient', showValue: bar.getAttributeNS(calcextNs, 'show-value') !== 'false', ...(axis !== 'automatic' ? { barAxis: axis } : {}), ...(validLengths && minLength !== 0 ? { barMinLength: minLength } : {}), ...(validLengths && maxLength !== 100 ? { barMaxLength: maxLength } : {}), ...(/^#[\da-f]{6}$/i.test(axisColor) ? { barAxisColor: axisColor } : {}) });
+    }
+    return output;
+}
+function importOdsConditionalStyleMaps(styleNodes, styleMap) {
+    const result = new Map();
+    for (const node of styleNodes) {
+        if (node.getAttributeNS(style, 'family') !== 'table-cell')
+            continue;
+        const name = node.getAttributeNS(style, 'name');
+        if (!name)
+            continue;
+        const rules = [];
+        for (const map of children(node).filter(child => child.namespaceURI === style && child.localName === 'map')) {
+            const target = styleMap.get(map.getAttributeNS(style, 'apply-style-name') ?? ''), color = target?.background, source = (map.getAttributeNS(style, 'condition') ?? '').replace(/^(?:of|oooc):/i, '').trim();
+            if (!color)
+                continue;
+            let match = /^is-true-formula\(([\s\S]*)\)$/i.exec(source);
+            if (match) {
+                const formula = formulaFromOds(`of:=${match[1].trim()}`);
+                if (formula)
+                    rules.push({ start: 'A1', end: 'A1', operator: 'formula', formula, threshold: 0, color });
+                continue;
+            }
+            match = /^cell-content\(\)\s*(>=|<=|!=|=|>|<)\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?)$/i.exec(source);
+            if (match) {
+                const op = match[1], operator = { '>': 'gt', '>=': 'gte', '<': 'lt', '<=': 'lte', '=': 'eq', '!=': 'ne' }[op], threshold = Number(match[2]);
+                if (Number.isFinite(threshold) && operator)
+                    rules.push({ start: 'A1', end: 'A1', operator, threshold, color });
+                continue;
+            }
+            match = /^cell-content-is-(not-)?between\(\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?)\s*,\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?)\s*\)$/i.exec(source);
+            if (match) {
+                const threshold = Number(match[2]), threshold2 = Number(match[3]);
+                if (Number.isFinite(threshold) && Number.isFinite(threshold2) && threshold <= threshold2)
+                    rules.push({ start: 'A1', end: 'A1', operator: match[1] ? 'notBetween' : 'between', threshold, threshold2, color });
+            }
+        }
+        if (rules.length)
+            result.set(name, rules.slice(0, 30));
+    }
+    return result;
+}
+function compactOdsConditionalCells(groups, limit = 30) {
+    const output = [];
+    for (const { rule, points } of groups.values()) {
+        const rows = new Map();
+        for (const address of points) {
+            const [row, col] = address.split(':').map(Number);
+            if (Number.isInteger(row) && Number.isInteger(col)) {
+                const values = rows.get(row) ?? [];
+                values.push(col);
+                rows.set(row, values);
+            }
+        }
+        const active = new Map(), finished = [];
+        for (const [row, columns] of [...rows].sort(([a], [b]) => a - b)) {
+            columns.sort((a, b) => a - b);
+            const segments = [];
+            for (const column of columns) {
+                const last = segments.at(-1);
+                if (last && last[1] + 1 === column)
+                    last[1] = column;
+                else
+                    segments.push([column, column]);
+            }
+            const next = new Map();
+            for (const [c1, c2] of segments) {
+                const key = `${c1}:${c2}`, prior = active.get(key);
+                next.set(key, prior && prior.r2 + 1 === row ? { ...prior, r2: row } : { r1: row, r2: row, c1, c2 });
+            }
+            for (const [key, range] of active)
+                if (!next.has(key))
+                    finished.push(range);
+            active.clear();
+            for (const [key, range] of next)
+                active.set(key, range);
+        }
+        finished.push(...active.values());
+        for (const range of finished) {
+            if (output.length >= limit)
+                return output;
+            output.push({ ...rule, start: `${colToName(range.c1)}${range.r1 + 1}`, end: `${colToName(range.c2)}${range.r2 + 1}` });
+        }
+    }
+    return output;
+}
+function odsConditionalCellStyles(sheet, sheetIndex, styleNames, dataStyleNames, styleParts) {
+    const result = new Map(), fills = new Map(), variants = new Map();
+    for (const entry of sheet.book.allEntries()) {
+        const point = parseRef(entry.ref);
+        if (!point)
+            continue;
+        const applicable = sheet.tools.conditional.flatMap((rule, index) => { const from = parseRef(rule.start), to = parseRef(rule.end), condition = odsConditionalMapCondition(rule); return from && to && condition && point.row >= Math.min(from.row, to.row) && point.row <= Math.max(from.row, to.row) && point.col >= Math.min(from.col, to.col) && point.col <= Math.max(from.col, to.col) ? [{ rule, index, condition }] : []; });
+        if (!applicable.length)
+            continue;
+        const baseStyle = cleanStyle(sheet.book.getStyle(entry.ref)), baseName = styleNames.get(JSON.stringify(baseStyle)) ?? '', variantKey = `${baseName}|${applicable.map(item => item.index).join(',')}`;
+        let variantName = variants.get(variantKey);
+        if (!variantName) {
+            variantName = `GFC${sheetIndex + 1}_${variants.size + 1}`;
+            variants.set(variantKey, variantName);
+            const maps = applicable.map(({ rule, condition }) => { let fillName = fills.get(rule.color); if (!fillName) {
+                fillName = `GFCFill${sheetIndex + 1}_${fills.size + 1}`;
+                fills.set(rule.color, fillName);
+                styleParts.push(`<style:style style:name="${fillName}" style:family="table-cell"><style:table-cell-properties fo:background-color="${rule.color}"/></style:style>`);
+            } return `<style:map style:apply-style-name="${fillName}" style:condition="${esc(condition)}"/>`; }).join(''), styleXml = odsStyleXml(variantName, baseStyle, dataStyleNames).replace('</style:style>', `${maps}</style:style>`);
+            if (styleParts.length > 20_000)
+                throw Error(`${sheet.name} exceeds the 20,000-style ODS export limit after conditional formatting.`);
+            styleParts.push(styleXml);
+        }
+        result.set(entry.ref, variantName);
+    }
+    return result;
+}
+function validationSegmentsForRow(sheet, row) { const rules = sheet.tools.dataValidations.flatMap((rule, index) => { const from = parseRef(rule.start), to = parseRef(rule.end); return from && to && row >= from.row && row <= to.row ? [{ start: from.col, end: to.col, name: `dv_${sheet.id.replace(/[^A-Za-z0-9_]/g, '_')}_${index + 1}` }] : []; }), boundaries = [...new Set(rules.flatMap(rule => [rule.start, rule.end + 1]))].sort((a, b) => a - b), segments = []; for (let index = 0; index < boundaries.length - 1; index++) {
+    const start = boundaries[index], end = boundaries[index + 1] - 1, owner = rules.find(rule => rule.start <= start && rule.end >= end);
+    if (!owner)
+        continue;
+    const previous = segments.at(-1);
+    if (previous && previous.name === owner.name && previous.end + 1 === start)
+        previous.end = end;
+    else
+        segments.push({ start, end, name: owner.name });
+} return segments; }
+function sheetXml(sheet, styleNames, columnStyleNames, rowStyleNames, formulaStats, shapes = '', conditionalCellStyles = new Map()) {
+    const rows = new Map(), merges = sheet.tools.mergedRanges.map(mergedRangeBounds).filter((range) => !!range), validationRules = sheet.tools.dataValidations.map((rule, index) => ({ rule, name: `dv_${sheet.id.replace(/[^A-Za-z0-9_]/g, '_')}_${index + 1}`, from: parseRef(rule.start), to: parseRef(rule.end) })).filter((entry) => !!entry.from && !!entry.to), hyperlinks = new Map(sheet.tools.hyperlinks.map(link => [link.ref, link]));
+    let serializedCells = 0;
+    const validationNameAt = (row, column) => validationRules.find(item => row >= item.from.row && row <= item.to.row && column >= item.from.col && column <= item.to.col)?.name;
+    const add = (row, column, value, styleName = '', styleValue = {}, formula, sourceFormula, matrix, cachedError = false) => { const merge = mergeContaining(row, column, sheet.tools.mergedRanges), ref = `${colToName(column)}${row + 1}`, effectiveStyleName = conditionalCellStyles.get(ref) ?? styleName, validationName = validationNameAt(row, column), hyperlink = hyperlinks.get(ref); if (merge && (row !== merge.r1 || column !== merge.c1))
+        return; if ((value === null || value === undefined || value === '') && !effectiveStyleName && !merge && !formula && !sourceFormula && !validationName && !hyperlink)
+        return; if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0 || row >= MAX_WORKSHEET_ROWS || column >= MAX_WORKSHEET_COLUMNS)
+        throw Error(`${sheet.name} contains calculated output beyond GridForge’s worksheet limits.`); let cells = rows.get(row); if (!cells)
+        rows.set(row, cells = new Map()); if (!cells.has(column) && ++serializedCells > MAX_WORKSHEET_POPULATED_CELLS)
+        throw Error(`${sheet.name} exceeds the ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()}-cell OpenDocument export limit.`); let xml = cellXml(value, effectiveStyleName, styleValue, formula, validationName, hyperlink, sourceFormula, matrix?.rows, matrix?.columns, cachedError); if (merge)
+        xml = xml.replace('<table:table-cell', `<table:table-cell table:number-columns-spanned="${merge.c2 - merge.c1 + 1}" table:number-rows-spanned="${merge.r2 - merge.r1 + 1}"`); cells.set(column, xml); };
+    let recordCount = 0;
+    for (const entry of sheet.book.allEntries()) {
+        const point = parseRef(entry.ref);
+        if (!point)
+            continue;
+        if (++recordCount > MAX_WORKSHEET_POPULATED_CELLS)
+            throw Error(`${sheet.name} exceeds the ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()}-cell OpenDocument export limit.`);
+        const styleValue = cleanStyle(sheet.book.getStyle(entry.ref)), styleName = styleNames.get(JSON.stringify(styleValue)) ?? '', isFormula = entry.raw.startsWith('='), formula = isFormula ? formulaToOds(entry.raw) ?? undefined : undefined, sourceFormula = isFormula && (!formula || formulaNeedsGridForgeSource(entry.raw)) && entry.raw.length <= 8192 ? entry.raw : undefined;
+        if (isFormula) {
+            if (formula)
+                formulaStats.written++;
+            else
+                formulaStats.omitted++;
+        }
+        const result = sheet.book.getValue(entry.ref);
+        let spill;
+        if (isFormula)
+            try {
+                spill = sheet.book.getSpillValues(entry.ref);
+            }
+            catch { /* Ordinary scalar formula, no matrix result. */ }
+        const matrix = formula && spill ? { rows: spill.length, columns: Math.max(0, ...spill.map(row => row.length)) } : undefined;
+        if (result.error && !spill) {
+            add(point.row, point.col, result.error.code, styleName, styleValue, formula, sourceFormula, undefined, true);
+            continue;
+        }
+        if (result.error)
+            add(point.row, point.col, result.error.code, styleName, styleValue, formula, sourceFormula, matrix, true);
+        else
+            add(point.row, point.col, result.value, styleName, styleValue, formula, sourceFormula, matrix);
+        if (spill)
+            for (let r = 0; r < spill.length; r++)
+                for (let c = 0; c < (spill[r]?.length ?? 0); c++)
+                    if (r || c) {
+                        const childRef = `${colToName(point.col + c)}${point.row + r + 1}`, childStyle = cleanStyle(sheet.book.getStyle(childRef)), childStyleName = styleNames.get(JSON.stringify(childStyle)) ?? '', cell = spill[r]?.[c] ?? null;
+                        if (isSheetError(cell))
+                            add(point.row + r, point.col + c, cell.code, childStyleName, childStyle, undefined, undefined, undefined, true);
+                        else
+                            add(point.row + r, point.col + c, cell, childStyleName, childStyle);
+                    }
+    }
+    for (const item of sheet.book.allStyles()) {
+        const point = parseRef(item.ref);
+        if (!point)
+            continue;
+        const styleValue = cleanStyle(item.style), key = JSON.stringify(styleValue), name = styleNames.get(key);
+        if (name)
+            add(point.row, point.col, null, name, styleValue);
+    }
+    for (const link of sheet.tools.hyperlinks) {
+        const point = parseRef(link.ref);
+        if (point && !rows.get(point.row)?.has(point.col))
+            add(point.row, point.col, null);
+    }
+    for (const merge of merges) {
+        let cells = rows.get(merge.r1);
+        if (!cells)
+            rows.set(merge.r1, cells = new Map());
+        if (!cells.has(merge.c1))
+            cells.set(merge.c1, `<table:table-cell table:number-columns-spanned="${merge.c2 - merge.c1 + 1}" table:number-rows-spanned="${merge.r2 - merge.r1 + 1}"/>`);
+        for (let row = merge.r1; row <= merge.r2; row++)
+            if (!rows.has(row))
+                rows.set(row, new Map());
+    }
+    let repeatedHeaderColumns = 0;
+    if (sheet.tools.pageSetup.repeatColumns) {
+        const match = /^A:([A-Z]{1,3})$/.exec(sheet.tools.pageSetup.repeatColumns), end = match ? nameToCol(match[1]) : -1;
+        if (end < 0)
+            throw Error(`${sheet.name}: ODS can only repeat print-title columns that start at column A.`);
+        repeatedHeaderColumns = end + 1;
+    }
+    const columnIndices = new Set([...Object.keys(sheet.tools.columnWidths).map(Number), ...sheet.tools.hiddenColumns].filter(index => index >= 0 && index < MAX_WORKSHEET_COLUMNS)), columns = [...columnIndices].sort((a, b) => a - b), columnXml = [], headerColumnXml = [];
+    let columnCursor = 0;
+    const appendColumnRun = (start, count, definition) => { if (count <= 0)
+        return; const headerCount = Math.max(0, Math.min(count, repeatedHeaderColumns - start)); if (headerCount)
+        headerColumnXml.push(definition(headerCount)); if (count > headerCount)
+        columnXml.push(definition(count - headerCount)); };
+    for (const column of columns) {
+        if (column > columnCursor)
+            appendColumnRun(columnCursor, column - columnCursor, repeats => `<table:table-column table:number-columns-repeated="${repeats}"/>`);
+        const width = sheet.tools.columnWidths[column], styleName = width === undefined ? '' : columnStyleNames.get(String(width)) ?? '', hidden = sheet.tools.hiddenColumns.includes(column);
+        appendColumnRun(column, 1, () => `<table:table-column${styleName ? ` table:style-name="${styleName}"` : ''}${hidden ? ' table:visibility="collapse"' : ''}/>`);
+        columnCursor = column + 1;
+    }
+    if (columnCursor < repeatedHeaderColumns)
+        appendColumnRun(columnCursor, repeatedHeaderColumns - columnCursor, repeats => `<table:table-column table:number-columns-repeated="${repeats}"/>`);
+    const validationRowCount = validationRules.reduce((sum, item) => sum + item.to.row - item.from.row + 1, 0);
+    if (validationRowCount > 100_000)
+        throw Error(`${sheet.name} has validation ranges spanning more than 100,000 rows; shorten the ranges before exporting to ODS.`);
+    let repeatedHeaderRows = 0;
+    if (sheet.tools.pageSetup.repeatRows) {
+        const match = /^1:(\d+)$/.exec(sheet.tools.pageSetup.repeatRows);
+        if (!match)
+            throw Error(`${sheet.name}: ODS can only repeat print-title rows that start at row 1.`);
+        repeatedHeaderRows = Number(match[1]);
+    }
+    const rowIndices = new Set([...rows.keys(), ...Object.keys(sheet.tools.rowHeights).map(Number), ...sheet.tools.hiddenRows].filter(index => index >= 0 && index < MAX_WORKSHEET_ROWS));
+    if (repeatedHeaderRows)
+        rowIndices.add(repeatedHeaderRows - 1);
+    for (const item of validationRules)
+        for (let row = item.from.row; row <= item.to.row; row++)
+            rowIndices.add(row);
+    const ordered = [...rowIndices].sort((a, b) => a - b), headerOutput = [], bodyOutput = [];
+    let cursor = 0;
+    for (const row of ordered) {
+        const gap = row - cursor;
+        if (gap > 0) {
+            const headerGap = Math.max(0, Math.min(gap, repeatedHeaderRows - cursor));
+            if (headerGap)
+                headerOutput.push(`<table:table-row table:number-rows-repeated="${headerGap}"/>`);
+            if (gap > headerGap)
+                bodyOutput.push(`<table:table-row table:number-rows-repeated="${gap - headerGap}"/>`);
+        }
+        const cells = rows.get(row) ?? new Map();
+        const height = sheet.tools.rowHeights[row], styleName = height === undefined ? '' : rowStyleNames.get(String(height)) ?? '', hidden = sheet.tools.hiddenRows.includes(row), segments = validationSegmentsForRow(sheet, row), xml = `<table:table-row${styleName ? ` table:style-name="${styleName}"` : ''}${hidden ? ' table:visibility="collapse"' : ''}>${cells.size || segments.length || merges.some(merge => row > merge.r1 && row <= merge.r2) ? rowXml(cells, row, merges, segments).replace(/^<table:table-row>|<\/table:table-row>$/g, '') : ''}</table:table-row>`;
+        if (row < repeatedHeaderRows)
+            headerOutput.push(xml);
+        else
+            bodyOutput.push(xml);
+        cursor = row + 1;
+    }
+    if (!headerOutput.length && !bodyOutput.length)
+        bodyOutput.push('<table:table-row><table:table-cell/></table:table-row>');
+    const repeatedRows = headerOutput.length ? `<table:table-header-rows>${headerOutput.join('')}</table:table-header-rows>` : '', repeatedColumns = headerColumnXml.length ? `<table:table-header-columns>${headerColumnXml.join('')}</table:table-header-columns>` : '';
+    return `${odsNamedExpressions(sheet.book.getDefinedNames())}${repeatedColumns}${columnXml.join('')}${repeatedRows}${bodyOutput.join('')}${shapes}${odsConditionalFormatsXml(sheet)}`;
+}
+const chartOdfKind = (kind) => {
+    if (kind === 'column')
+        return { klass: 'bar', vertical: true };
+    if (kind === 'bar')
+        return { klass: 'bar' };
+    if (kind === 'stacked-column')
+        return { klass: 'bar', vertical: true, stacked: true };
+    if (kind === 'stacked-bar')
+        return { klass: 'bar', stacked: true };
+    if (kind === 'percent-column')
+        return { klass: 'bar', vertical: true, stacked: true, percentage: true };
+    if (kind === 'percent-bar')
+        return { klass: 'bar', stacked: true, percentage: true };
+    if (kind === 'combo')
+        return { klass: 'bar', vertical: true };
+    if (kind === 'histogram')
+        return { klass: 'bar', vertical: true, histogram: true };
+    if (kind === 'pareto')
+        return { klass: 'bar', vertical: true, pareto: true };
+    if (kind === 'waterfall')
+        return { klass: 'bar', vertical: true, stacked: true, waterfall: true };
+    if (kind === 'line')
+        return { klass: 'line' };
+    if (kind === 'area')
+        return { klass: 'area' };
+    if (kind === 'pie')
+        return { klass: 'circle' };
+    if (kind === 'doughnut')
+        return { klass: 'ring' };
+    if (kind === 'scatter')
+        return { klass: 'scatter' };
+    if (kind === 'radar')
+        return { klass: 'net' };
+    if (kind === 'stock')
+        return { klass: 'stock' };
+    return null;
+};
+const pxToInches = (pixels) => `${Math.max(0, pixels / 96).toFixed(3)}in`;
+function odsSeriesErrorBars(series, styleNodes) {
+    const indicator = children(series).find(node => node.namespaceURI === chartNs && node.localName === 'error-indicator');
+    if (!indicator)
+        return undefined;
+    const styleName = indicator.getAttributeNS(chartNs, 'style-name'), styleNode = styleName ? styleNodes.find(node => node.getAttributeNS(style, 'name') === styleName) : undefined, properties = styleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0), category = properties?.getAttributeNS(chartNs, 'error-category');
+    const type = category === 'constant' ? 'fixed' : category === 'percentage' ? 'percentage' : category === 'standard-deviation' ? 'standardDeviation' : category === 'standard-error' ? 'standardError' : undefined;
+    if (!type || !properties)
+        return undefined;
+    const upper = properties.getAttributeNS(chartNs, 'error-upper-indicator'), lower = properties.getAttributeNS(chartNs, 'error-lower-indicator'), direction = upper === 'false' && lower !== 'false' ? 'minus' : lower === 'false' && upper !== 'false' ? 'plus' : 'both';
+    const upperLimit = Number(properties.getAttributeNS(chartNs, 'error-upper-limit')), lowerLimit = Number(properties.getAttributeNS(chartNs, 'error-lower-limit'));
+    if (type === 'fixed' && (!Number.isFinite(upperLimit) || !Number.isFinite(lowerLimit) || upperLimit !== lowerLimit))
+        return undefined;
+    const rawValue = type === 'fixed' ? upperLimit : type === 'percentage' ? Number(properties.getAttributeNS(chartNs, 'error-percentage')) : 1, value = Number.isFinite(rawValue) ? rawValue : NaN;
+    if (!Number.isFinite(value) || value < 0 || value > 1e9)
+        return undefined;
+    const dimension = indicator.getAttributeNS(chartNs, 'dimension');
+    return { type, value, ...(direction !== 'both' ? { direction } : {}), ...(dimension === 'x' ? { axis: 'x' } : dimension === 'y' ? { axis: 'y' } : {}) };
+}
+function odsSeriesTrendline(series, styleNodes) {
+    const curve = children(series).find(node => node.namespaceURI === chartNs && node.localName === 'regression-curve');
+    if (!curve)
+        return undefined;
+    const styleName = curve.getAttributeNS(chartNs, 'style-name'), styleNode = styleName ? styleNodes.find(node => node.getAttributeNS(style, 'name') === styleName) : undefined, properties = styleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0), kind = properties?.getAttributeNS(chartNs, 'regression-type');
+    const type = kind === 'linear' || kind === 'exponential' || kind === 'logarithmic' || kind === 'power' || kind === 'moving-average' ? kind === 'moving-average' ? 'movingAverage' : kind : kind === 'polynomial' ? 'polynomial' : undefined;
+    if (!type)
+        return undefined;
+    const equation = children(curve).find(node => node.namespaceURI === chartNs && node.localName === 'equation'), degree = Number(properties?.getAttributeNS(chartNs, 'regression-max-degree')), period = Number(properties?.getAttributeNS(chartNs, 'regression-period'));
+    return { type, ...(type === 'polynomial' && Number.isInteger(degree) && degree >= 2 && degree <= 6 ? { order: degree } : {}), ...(type === 'movingAverage' && Number.isInteger(period) && period >= 2 && period <= 100 ? { period } : {}), ...(equation ? { showEquation: equation.getAttributeNS(chartNs, 'display-equation') === 'true', showR2: equation.getAttributeNS(chartNs, 'display-r-square') === 'true' } : {}) };
+}
+function odsWaterfallChartData(source, chart) {
+    const input = source.series[0]?.values ?? [], totals = new Set(waterfallTotalPointIndexes(chart, source.rows)), baseline = [], increase = [], decrease = [], total = [];
+    let running = 0;
+    for (let index = 0; index < source.rows; index++) {
+        const value = input[index];
+        if (value === null || value === undefined) {
+            baseline.push(null);
+            increase.push(null);
+            decrease.push(null);
+            total.push(null);
+            continue;
+        }
+        if (totals.has(index)) {
+            baseline.push(Math.min(0, value));
+            increase.push(0);
+            decrease.push(0);
+            total.push(Math.abs(value));
+            running = value;
+        }
+        else {
+            const next = running + value;
+            baseline.push(Math.min(running, next));
+            increase.push(value > 0 ? value : 0);
+            decrease.push(value < 0 ? -value : 0);
+            total.push(0);
+            running = next;
+        }
+    }
+    return { range: source.range, rows: source.rows, labels: source.labels, series: [{ name: 'Base', values: baseline }, { name: 'Increase', values: increase }, { name: 'Decrease', values: decrease }, { name: 'Total', values: total }] };
+}
+function odsNativeChartDocument(sheet, chart, kind) {
+    let data;
+    try {
+        const source = chart.kind === 'stock' ? stockData(sheet.book, chart.range, chart.includeHiddenData ?? false) : extractChartData(sheet.book, chart.range, chart.switchRowsColumns ?? false, chart.includeHiddenData ?? false);
+        data = kind.histogram ? histogramData(source, chart.histogramBins, chart.histogramBinWidth, chart.histogramUnderflow, chart.histogramOverflow) : kind.pareto ? paretoData(source) : kind.waterfall ? odsWaterfallChartData(source, chart) : source;
+    }
+    catch {
+        return null;
+    }
+    const series = (kind.klass === 'scatter' ? data.series.slice(1) : data.series).slice(0, kind.klass === 'stock' ? 4 : 24), rowCount = series.length ? Math.min(data.rows, Math.max(1, Math.floor(25_000 / (series.length + 1)))) : 0;
+    if (!series.length || !rowCount)
+        return null;
+    const dataCell = (value, cellStyle = '') => { const styleAttr = cellStyle ? ` table:style-name="${cellStyle}"` : ''; return typeof value === 'number' && Number.isFinite(value) ? `<table:table-cell${styleAttr} office:value-type="float" office:value="${Object.is(value, -0) ? 0 : value}"/>` : `<table:table-cell${styleAttr} office:value-type="string"><text:p>${esc(String(value ?? ''))}</text:p></table:table-cell>`; };
+    const chartFormatKey = (format, code) => code ? (odsCustomFormatSupported(code) ? `custom:${code}` : null) : !format || format === 'general' ? null : `number:${format}`, xFormatKey = chartFormatKey(chart.xAxisNumberFormat, chart.xAxisFormatCode), yFormatKey = chartFormatKey(chart.yAxisNumberFormat, chart.yAxisFormatCode), secondaryFormatKey = kind.pareto ? 'number:percent' : chartFormatKey(chart.secondaryYAxisNumberFormat, chart.secondaryYAxisFormatCode), labelFormatKey = chart.dataLabelFormatCode ? chartFormatKey(undefined, chart.dataLabelFormatCode) : null, formatKeys = [...new Set([xFormatKey, yFormatKey, secondaryFormatKey, labelFormatKey].filter((value) => !!value))], formatStyleNames = new Map(formatKeys.map((key, index) => [key, `GFChartData${index + 1}`])), chartNumberStyles = formatKeys.map((key, index) => `<style:style style:name="GFChartData${index + 1}" style:family="table-cell" style:data-style-name="GFChartNumber${index + 1}"/>${odsDataStyleXml(`GFChartNumber${index + 1}`, key)}`).join('');
+    const header = `<table:table-row>${dataCell(kind.klass === 'scatter' ? 'X values' : kind.klass === 'stock' ? 'Category' : '')}${series.map(item => dataCell(item.name)).join('')}</table:table-row>`, rows = Array.from({ length: rowCount }, (_, index) => { const first = kind.klass === 'scatter' ? data.series[0]?.values[index] ?? null : data.labels[index] ?? ''; return `<table:table-row>${first === null ? '<table:table-cell/>' : dataCell(first, kind.klass === 'scatter' && xFormatKey ? formatStyleNames.get(xFormatKey) : '')}${series.map((item, seriesIndex) => { const secondary = kind.pareto && seriesIndex === 1 || chart.kind === 'combo' && chart.seriesOptions?.[seriesIndex]?.axis === 'secondary', format = secondary ? secondaryFormatKey : yFormatKey; return item.values[index] === null ? '<table:table-cell/>' : dataCell(item.values[index], format ? formatStyleNames.get(format) : ''); }).join('')}</table:table-row>`; }).join('');
+    const labelNumber = chart.dataLabels ? (chart.dataLabelPercent ? 'value-and-percentage' : 'value') : chart.dataLabelPercent ? 'percentage' : 'none', labelPosition = { center: 'center', insideBase: 'near-origin', insideEnd: 'inside', outsideEnd: 'outside', bestFit: 'avoid-overlap', above: 'top', below: 'bottom', left: 'left', right: 'right' }[chart.dataLabelPosition ?? 'outsideEnd'], labelSeparator = chart.dataLabelSeparator === undefined ? '' : `<chart:label-separator><text:p>${textXml(chart.dataLabelSeparator)}</text:p></chart:label-separator>`;
+    const emptyTreatment = { gap: 'leave-gap', zero: 'use-zero', span: 'ignore' }[chart.displayBlanksAs ?? 'gap'], chartOptionsStyle = `<style:style style:name="GFChart" style:family="chart"><style:chart-properties chart:treat-empty-cells="${emptyTreatment}" chart:include-hidden-cells="${chart.includeHiddenData === true ? 'true' : 'false'}" chart:series-source="columns"/></style:style>`;
+    const horizontalBar = kind.klass === 'bar' && kind.vertical !== true, palette = CHART_PALETTES[chart.theme ?? 'office'], waterfallColors = ["#ffffff", "#18865b", "#d45d47", "#4472c4"], colors = series.map((_, index) => kind.waterfall ? waterfallColors[index] ?? palette[index % palette.length] : chart.seriesOptions?.[index]?.color ?? palette[index % palette.length]), pointCount = Math.min(rowCount, MAX_CHART_SOURCE_POINTS), axisProps = (axis, min, max, major, logarithmic = false, rotation, reverse = false, linkDataFormat = false) => { const attrs = [min === undefined ? '' : ` chart:minimum="${min}"`, max === undefined ? '' : ` chart:maximum="${max}"`, major === undefined ? '' : ` chart:interval-major="${major}"`, logarithmic ? ' chart:logarithmic="true"' : '', reverse ? ' chart:reverse-direction="true"' : '', rotation === undefined || rotation === 0 ? '' : ` style:rotation-angle="${rotation}deg"`, linkDataFormat ? ' chart:link-data-style-to-source="true"' : ''].join(''); return attrs ? `<style:style style:name="GFAxis${axis}" style:family="chart"><style:chart-properties${attrs}/></style:style>` : ''; }, errorBarStyles = (chart.seriesOptions ?? []).flatMap((options, index) => { const bars = options.errorBars; if (!bars)
+        return []; const category = bars.type === 'fixed' ? 'constant' : bars.type === 'percentage' ? 'percentage' : bars.type === 'standardDeviation' ? 'standard-deviation' : 'standard-error', direction = bars.direction ?? 'both', upper = direction !== 'minus', lower = direction !== 'plus', limits = bars.type === 'fixed' ? ` chart:error-upper-limit="${bars.value}" chart:error-lower-limit="${bars.value}"` : bars.type === 'percentage' ? ` chart:error-percentage="${bars.value}"` : ''; return [`<style:style style:name="GFError${index + 1}" style:family="chart"><style:chart-properties chart:error-category="${category}" chart:error-upper-indicator="${upper ? 'true' : 'false'}" chart:error-lower-indicator="${lower ? 'true' : 'false'}"${limits}/></style:style>`]; }), trendlineStyles = (chart.seriesOptions ?? []).flatMap((options, index) => { const trend = options.trendline; if (!trend)
+        return []; const regressionType = trend.type === 'movingAverage' ? 'moving-average' : trend.type, attributes = trend.type === 'polynomial' ? ` chart:regression-max-degree="${trend.order ?? 2}"` : trend.type === 'movingAverage' ? ` chart:regression-period="${trend.period ?? 2}"` : ''; return [`<style:style style:name="GFTrend${index + 1}" style:family="chart"><style:chart-properties chart:regression-type="${regressionType}"${attributes}/></style:style>`]; }), chartStyles = [chartOptionsStyle, ...colors.map((color, index) => { const marker = chart.seriesOptions?.[index]?.marker, markerStyle = chart.seriesOptions?.[index]?.markerStyle, lineSeries = chart.kind === 'line' || chart.kind === 'scatter' || chart.kind === 'radar' || kind.pareto && index === 1 || chart.kind === 'combo' && (chart.seriesOptions?.[index]?.kind ?? (index < series.length - 1 ? 'column' : 'line')) === 'line'; return `<style:style style:name="GFSeries${index + 1}" style:family="chart"><style:chart-properties${chart.dataLabels || chart.dataLabelPercent || chart.dataLabelCategoryName || chart.dataLabelSeriesName ? ` chart:data-label-number="${labelNumber}" chart:data-label-text="${chart.dataLabelCategoryName ? 'true' : 'false'}" chart:data-label-series="${chart.dataLabelSeriesName ? 'true' : 'false'}" chart:label-position="${labelPosition}"${labelFormatKey ? ` style:data-style-name="${formatStyleNames.get(labelFormatKey)}"` : ''}` : ''}${marker === false ? ` chart:symbol-type="none"` : markerStyle ? ` chart:symbol-type="named-symbol" chart:symbol-name="${markerStyle}"` : ` chart:symbol-type="automatic"`}>${labelSeparator}</style:chart-properties><style:graphic-properties draw:fill="${lineSeries || kind.waterfall && index === 0 ? 'none' : 'solid'}" draw:fill-color="${color}" draw:stroke="${kind.waterfall && index === 0 ? 'none' : 'solid'}" svg:stroke-color="${color}" svg:stroke-width="1pt"/></style:style>`; }), ...errorBarStyles, ...trendlineStyles, axisProps('X', horizontalBar ? chart.yAxisMin : chart.xAxisMin, horizontalBar ? chart.yAxisMax : chart.xAxisMax, horizontalBar ? chart.yAxisMajorUnit : chart.xAxisLabelInterval ?? chart.xAxisMajorUnit, false, horizontalBar ? undefined : chart.xAxisLabelAngle, !horizontalBar && (chart.reverseCategories ?? false), horizontalBar ? !!yFormatKey : kind.klass === 'scatter' && !!xFormatKey), axisProps('Y', horizontalBar ? undefined : chart.yAxisMin, horizontalBar ? undefined : chart.yAxisMax, horizontalBar ? chart.xAxisLabelInterval : chart.yAxisMajorUnit, !horizontalBar && chart.yAxisLogBase === 10, horizontalBar ? chart.xAxisLabelAngle : undefined, horizontalBar && (chart.reverseCategories ?? false), !horizontalBar && !!yFormatKey), axisProps('Y2', chart.secondaryYAxisMin, chart.secondaryYAxisMax, chart.secondaryYAxisMajorUnit, false, undefined, false, !!secondaryFormatKey), ...(kind.klass === 'circle' || kind.klass === 'ring' ? [`<style:style style:name="GFPlot" style:family="chart"><style:chart-properties${kind.klass === 'ring' ? ` chart:hole-size="${chart.doughnutHoleSize ?? 50}%"` : ''}${chart.firstSliceAngle !== undefined ? ` chart:angle-offset="${chart.firstSliceAngle}deg"` : ''}/></style:style>`, ...Array.from({ length: pointCount }, (_, index) => { const pointColor = chart.dataPointColors?.[index] ?? palette[index % palette.length]; return `<style:style style:name="GFPoint${index + 1}" style:family="chart"><style:graphic-properties draw:fill="solid" draw:fill-color="${pointColor}" draw:stroke="solid" svg:stroke-color="#ffffff" svg:stroke-width="0.75pt"/></style:style>`; })] : [])].join('');
+    const seriesXml = series.map((item, index) => { const column = colToName(index + 1), end = rowCount + 1, points = kind.klass === 'circle' || kind.klass === 'ring' ? Array.from({ length: pointCount }, (_, point) => `<chart:data-point chart:repeated="1" chart:style-name="GFPoint${point + 1}"/>`).join('') : '', options = chart.seriesOptions?.[index], errorBars = options?.errorBars, errorIndicator = errorBars ? `<chart:error-indicator chart:dimension=\"${errorBars.axis ?? 'y'}\" chart:style-name=\"GFError${index + 1}\"/>` : '', trend = options?.trendline, trendlineElement = trend ? `<chart:regression-curve chart:style-name=\"GFTrend${index + 1}\">${trend.showEquation || trend.showR2 ? `<chart:equation chart:display-equation=\"${trend.showEquation ? 'true' : 'false'}\" chart:display-r-square=\"${trend.showR2 ? 'true' : 'false'}\"/>` : ''}</chart:regression-curve>` : '', combo = chart.kind === 'combo' || kind.pareto, seriesKind = kind.pareto ? (index === 1 ? 'line' : 'column') : options?.kind ?? (index < series.length - 1 ? 'column' : 'line'), chartClass = combo ? ` chart:class="chart:${seriesKind === 'line' ? 'line' : 'bar'}"` : '', attachedAxis = kind.pareto && index === 1 || chart.kind === 'combo' && options?.axis === 'secondary' ? ' chart:attached-axis="y2"' : ''; return `<chart:series chart:style-name="GFSeries${index + 1}"${chartClass}${attachedAxis} chart:values-cell-range-address="local-table.$${column}$2:$${column}$${end}" chart:label-cell-address="local-table.$${column}$1">${chart.kind === 'scatter' && data.series[0] ? `<chart:domain table:cell-range-address="local-table.$A$2:$A$${end}"/>` : ''}${errorIndicator}${trendlineElement}${chart.dataLabels || chart.dataLabelCategoryName || chart.dataLabelSeriesName ? '<chart:data-label/>' : ''}${points}</chart:series>`; }).join('');
+    const horizontalXStyle = chart.yAxisMin !== undefined || chart.yAxisMax !== undefined || chart.yAxisMajorUnit !== undefined || !!yFormatKey, horizontalYStyle = chart.xAxisLabelInterval !== undefined || chart.xAxisLabelAngle !== undefined || chart.reverseCategories === true, categoryXStyle = chart.xAxisMin !== undefined || chart.xAxisMax !== undefined || chart.xAxisMajorUnit !== undefined || chart.xAxisLabelInterval !== undefined || chart.xAxisLabelAngle !== undefined || chart.reverseCategories === true || kind.klass === 'scatter' && !!xFormatKey, valueYStyle = chart.yAxisMin !== undefined || chart.yAxisMax !== undefined || chart.yAxisMajorUnit !== undefined || chart.yAxisLogBase === 10 || !!yFormatKey;
+    const categoryAxis = kind.klass === 'pie' || kind.klass === 'circle' || kind.klass === 'ring' ? '' : horizontalBar ? `<chart:axis chart:dimension="y" chart:name="y"${horizontalYStyle ? ' chart:style-name="GFAxisY"' : ''}>${chart.yAxisTitle ? `<chart:title><text:p>${textXml(chart.yAxisTitle)}</text:p></chart:title>` : ''}<chart:categories table:cell-range-address="local-table.$A$2:$A$${rowCount + 1}"/></chart:axis><chart:axis chart:dimension="x" chart:name="x"${horizontalXStyle ? ' chart:style-name="GFAxisX"' : ''}>${chart.xAxisTitle ? `<chart:title><text:p>${textXml(chart.xAxisTitle)}</text:p></chart:title>` : ''}${chart.majorGridlines === false ? '' : '<chart:grid chart:class="major"/>'}${chart.minorGridlines ? ' <chart:grid chart:class="minor"/>' : ''}</chart:axis>` : `<chart:axis chart:dimension="x" chart:name="x"${categoryXStyle ? ' chart:style-name="GFAxisX"' : ''}>${chart.xAxisTitle ? `<chart:title><text:p>${textXml(chart.xAxisTitle)}</text:p></chart:title>` : ''}<chart:categories table:cell-range-address="local-table.$A$2:$A$${rowCount + 1}"/></chart:axis><chart:axis chart:dimension="y" chart:name="y"${valueYStyle ? ' chart:style-name="GFAxisY"' : ''}>${chart.yAxisTitle ? `<chart:title><text:p>${textXml(chart.yAxisTitle)}</text:p></chart:title>` : ''}${chart.majorGridlines === false ? '' : '<chart:grid chart:class="major"/>'}${chart.minorGridlines ? ' <chart:grid chart:class="minor"/>' : ''}</chart:axis>`;
+    const secondaryAxis = kind.pareto || chart.kind === 'combo' && chart.seriesOptions?.some(option => option.axis === 'secondary') ? `<chart:axis chart:dimension="y" chart:name="y2" chart:style-name="GFAxisY2">${chart.secondaryYAxisTitle ? `<chart:title><text:p>${textXml(chart.secondaryYAxisTitle)}</text:p></chart:title>` : ''}</chart:axis>` : '';
+    const mode = kind.klass === 'bar' ? ` chart:vertical="${kind.vertical ? 'true' : 'false'}"${kind.stacked ? ' chart:stacked="true"' : ''}${kind.percentage ? ' chart:percentage="true"' : ''}` : '';
+    const legend = chart.legend === 'none' ? '' : `<chart:legend chart:legend-position="${chart.legend === 'top' ? 'top' : chart.legend === 'left' ? 'start' : chart.legend === 'right' ? 'end' : 'bottom'}"/>`;
+    const title = chart.title ? `<chart:title><text:p>${textXml(chart.title)}</text:p></chart:title>` : '';
+    return `<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="${office}" xmlns:table="${table}" xmlns:text="${text}" xmlns:chart="${chartNs}" xmlns:style="${style}" xmlns:fo="${fo}" xmlns:number="${number}" xmlns:draw="${drawNs}" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"><office:automatic-styles>${chartStyles}${chartNumberStyles}</office:automatic-styles><office:body><office:chart><chart:chart chart:style-name="GFChart" chart:class="chart:${kind.klass}"${mode}><chart:plot-area table:cell-range-address="local-table.$A$1:$${colToName(series.length)}$${rowCount + 1}" chart:data-source-has-labels="both"${kind.klass === 'circle' || kind.klass === 'ring' ? ' chart:style-name="GFPlot"' : ''}>${categoryAxis}${secondaryAxis}${seriesXml}</chart:plot-area>${title}${legend}</chart:chart><table:table table:name="local-table"><table:table-column table:number-columns-repeated="${series.length + 1}"/>${header}${rows}</table:table></office:chart></office:body></office:document-content>`;
+}
+function odsChartObjects(sheet, sheetIndex) {
+    const entries = {}, manifest = [], frames = [];
+    if (!sheet.tools.charts.length)
+        return { shapes: '', entries, manifest };
+    sheet.tools.charts.slice(0, 24).forEach((chart, index) => {
+        const objectName = `Object ${sheetIndex + 1}_${index + 1}`, picture = `Pictures/GF_Chart_${sheetIndex + 1}_${index + 1}.svg`, odfKind = chartOdfKind(chart.kind), chartDoc = odfKind ? odsNativeChartDocument(sheet, chart, odfKind) : null;
+        entries[picture] = chartSvg(sheet.book, chart);
+        manifest.push(`<manifest:file-entry manifest:full-path="${picture}" manifest:media-type="image/svg+xml"/>`);
+        if (chartDoc) {
+            entries[`${objectName}/content.xml`] = chartDoc;
+            manifest.push(`<manifest:file-entry manifest:full-path="${objectName}/" manifest:media-type="${chartMediaType}"/><manifest:file-entry manifest:full-path="${objectName}/content.xml" manifest:media-type="text/xml"/>`);
+        }
+        chartRange(chart.range, sheet.book.rows, sheet.book.cols);
+        const endCol = Math.min(MAX_WORKSHEET_COLUMNS - 1, Math.max(1, Math.ceil((chart.x + chart.width) / 75))), endRow = Math.min(MAX_WORKSHEET_ROWS - 1, Math.max(1, Math.ceil((chart.y + chart.height) / 24))), sheetRef = odsSheetLocator(sheet.name), cellAddress = `${sheetRef}.$${colToName(endCol)}$${endRow + 1}`, title = chart.title || `${chart.kind} chart`, desc = chart.accessibilityDescription || title;
+        const metadata = `GridForgeChart:${encodeURIComponent(JSON.stringify(chart))}`;
+        frames.push(`<draw:frame draw:name="${esc(title)}" draw:class-names="gridforge-chart" table:end-cell-address="${esc(cellAddress)}" svg:x="${pxToInches(chart.x)}" svg:y="${pxToInches(chart.y)}" svg:width="${pxToInches(chart.width)}" svg:height="${pxToInches(chart.height)}"><svg:title>${textXml(title)}</svg:title><svg:desc>${textXml(`${desc}\n${metadata}`)}</svg:desc>${chartDoc ? `<draw:object xlink:href="./${objectName}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>` : ''}<draw:image xlink:href="${picture}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"><text:p/></draw:image></draw:frame>`);
+    });
+    return { shapes: `<table:shapes>${frames.join('')}</table:shapes>`, entries, manifest };
+}
+function odsDrawingObjects(sheet, sheetIndex) {
+    const strokes = sheet.tools.drawings;
+    if (!strokes.length)
+        return { shapes: '', entries: {}, manifest: [] };
+    let left = 30_000, top = 30_000, right = 0, bottom = 0;
+    for (const stroke of strokes)
+        for (const [x, y] of stroke.points) {
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x);
+            bottom = Math.max(bottom, y);
+        }
+    for (const stroke of strokes)
+        if (stroke.tool === 'text') {
+            const [x, y] = stroke.points[0], size = Math.max(12, stroke.width * 4);
+            right = Math.max(right, x + size * (stroke.text ?? '').length * .65);
+            top = Math.min(top, Math.max(0, y - size));
+        }
+    const minX = Math.max(0, left - 8), minY = Math.max(0, top - 8), maxX = right + 8, maxY = bottom + 8, width = Math.max(1, maxX - minX), height = Math.max(1, maxY - minY), paths = strokes.map((stroke, index) => {
+        const [first, last] = [stroke.points[0], stroke.points.at(-1)];
+        let d = '';
+        if (stroke.tool === 'rectangle') {
+            const x = Math.min(first[0], last[0]), y = Math.min(first[1], last[1]), w = Math.abs(first[0] - last[0]), h = Math.abs(first[1] - last[1]);
+            d = `M${x} ${y}H${x + w}V${y + h}H${x}Z`;
+        }
+        else if (stroke.tool === 'ellipse') {
+            const cx = (first[0] + last[0]) / 2, cy = (first[1] + last[1]) / 2, rx = Math.abs(first[0] - last[0]) / 2, ry = Math.abs(first[1] - last[1]) / 2;
+            d = `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${rx * 2} 0a${rx} ${ry} 0 1 0 ${-rx * 2} 0`;
+        }
+        else
+            d = stroke.points.map((point, pointIndex) => `${pointIndex ? 'L' : 'M'}${point[0]} ${point[1]}`).join(' ');
+        if (stroke.tool === 'text')
+            return `<text x="${first[0]}" y="${first[1]}" fill="${stroke.color}" font-size="${Math.max(12, stroke.width * 4)}">${esc(stroke.text ?? '')}</text>`;
+        const fill = stroke.fill && (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') ? stroke.color : 'none', fillOpacity = fill === 'none' ? '' : ' fill-opacity=".18"', strokeWidth = stroke.tool === 'highlighter' ? Math.max(8, stroke.width * 2) : stroke.width, strokeOpacity = stroke.tool === 'highlighter' ? ' stroke-opacity=".25"' : '', marker = stroke.tool === 'arrow' ? ` marker-end="url(#ink-arrow-${index})"` : '';
+        return `<path d="${d}" fill="${fill}"${fillOpacity} stroke="${stroke.color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${strokeOpacity}${marker}/>`;
+    }).join(''), markers = strokes.map((stroke, index) => stroke.tool === 'arrow' ? `<marker id="ink-arrow-${index}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0L8 4L0 8Z" fill="${stroke.color}"/></marker>` : '').join(''), svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${minX} ${minY} ${width} ${height}"><defs>${markers}</defs>${paths}</svg>`;
+    if (svg.length > 2_000_000)
+        throw Error(`${sheet.name} has more than 2 MB of ODS drawing preview data; reduce the number or detail of its strokes before exporting.`);
+    const picture = `Pictures/GF_Drawings_${sheetIndex + 1}.svg`, endCol = Math.min(MAX_WORKSHEET_COLUMNS - 1, Math.max(1, Math.ceil(maxX / 75))), endRow = Math.min(MAX_WORKSHEET_ROWS - 1, Math.max(1, Math.ceil(maxY / 24))), sheetRef = odsSheetLocator(sheet.name), cellAddress = `${sheetRef}.$${colToName(endCol)}$${endRow + 1}`, frame = `<draw:frame draw:name="GridForge worksheet drawings" table:end-cell-address="${esc(cellAddress)}" svg:x="${pxToInches(minX)}" svg:y="${pxToInches(minY)}" svg:width="${pxToInches(width)}" svg:height="${pxToInches(height)}"><svg:title>GridForge worksheet drawings</svg:title><svg:desc>Worksheet ink and drawing objects</svg:desc><draw:image xlink:href="${picture}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"><text:p/></draw:image></draw:frame>`;
+    return { shapes: `<table:shapes>${frame}</table:shapes>`, entries: { [picture]: svg }, manifest: [`<manifest:file-entry manifest:full-path="${picture}" manifest:media-type="image/svg+xml"/>`] };
+}
+function importNativeOdfDrawings(root, styleNodes, sheetName, sheetIndex, columnWidths, rowHeights) {
+    const svg = 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0', styleMap = new Map();
+    for (const raw of styleNodes) {
+        const node = raw;
+        if (node.getAttributeNS(style, 'family') === 'graphic') {
+            const name = node.getAttributeNS(style, 'name');
+            if (name)
+                styleMap.set(name, node);
+        }
+    }
+    const startForCell = (address) => { const translated = odsReferenceToExcel(address); if (!translated)
+        return null; const bang = translated.lastIndexOf('!'), ref = parseRef(bang >= 0 ? translated.slice(bang + 1) : translated); if (!ref)
+        return null; if (bang >= 0 && translated.slice(0, bang).replace(/^'|'$/g, '').replaceAll("''", "'").toLocaleLowerCase() !== sheetName.toLocaleLowerCase())
+        return null; let x = 0; for (let col = 0; col < ref.col; col++)
+        x += columnWidths[col] ?? 112; let y = ref.row * 24; for (const [key, height] of Object.entries(rowHeights)) {
+        const row = Number(key);
+        if (Number.isInteger(row) && row >= 0 && row < ref.row)
+            y += height - 24;
+    } return [x, y]; };
+    const pointsFor = (node, anchor) => { const attrs = ['x', 'y', 'width', 'height'], values = attrs.map(key => toPixels(node.getAttributeNS(svg, key) ?? '')); if (values.some(value => value === null))
+        return null; const [x, y, width, height] = values; return { x: anchor[0] + x, y: anchor[1] + y, width, height }; }, out = [];
+    for (const node of children(root).filter(item => item.namespaceURI === drawNs && ['line', 'rect', 'ellipse', 'frame'].includes(item.localName)).slice(0, 300)) {
+        if (node.localName === 'frame' && !children(node).some(child => child.namespaceURI === drawNs && child.localName === 'text-box'))
+            continue;
+        const anchor = startForCell(node.getAttributeNS(table, 'anchor-cell-address') ?? '');
+        if (!anchor)
+            continue;
+        const styleName = node.getAttributeNS(drawNs, 'style-name'), styleNode = styleName ? styleMap.get(styleName) : undefined, properties = styleNode?.getElementsByTagNameNS(style, 'graphic-properties').item(0), stroke = properties?.getAttributeNS(svg, 'stroke-color') || '#000000', fill = properties?.getAttributeNS(drawNs, 'fill-color') || stroke, color = /^#[0-9a-f]{6}$/i.test(stroke) ? stroke.toLowerCase() : /^#[0-9a-f]{6}$/i.test(fill) ? fill.toLowerCase() : '#000000', rawWidth = toPixels(properties?.getAttributeNS(svg, 'stroke-width') ?? '1pt') ?? 1.333, width = Math.max(1, Math.min(40, rawWidth));
+        let tool, points, textValue, filled = false;
+        if (node.localName === 'line') {
+            const x1 = toPixels(node.getAttributeNS(svg, 'x1') ?? ''), y1 = toPixels(node.getAttributeNS(svg, 'y1') ?? ''), x2 = toPixels(node.getAttributeNS(svg, 'x2') ?? ''), y2 = toPixels(node.getAttributeNS(svg, 'y2') ?? '');
+            if ([x1, y1, x2, y2].some(value => value === null))
+                continue;
+            tool = 'line';
+            points = [[anchor[0] + x1, anchor[1] + y1], [anchor[0] + x2, anchor[1] + y2]];
+        }
+        else {
+            const bounds = pointsFor(node, anchor);
+            if (!bounds || bounds.width <= 0 || bounds.height <= 0)
+                continue;
+            points = [[bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y + bounds.height]];
+            if (node.localName === 'rect')
+                tool = 'rectangle';
+            else if (node.localName === 'ellipse')
+                tool = 'ellipse';
+            else {
+                tool = 'text';
+                const box = children(node).find(child => child.namespaceURI === drawNs && child.localName === 'text-box');
+                if (!box)
+                    continue;
+                textValue = cellText(box).slice(0, 500);
+                if (!textValue)
+                    continue;
+                points = [[bounds.x, bounds.y]];
+            }
+            filled = !!tool && ['rectangle', 'ellipse'].includes(tool) && properties?.getAttributeNS(drawNs, 'fill') === 'solid' && fill.toLowerCase() === color;
+        }
+        if (points.some(point => point.some(value => !Number.isFinite(value) || value < 0 || value > 30_000)))
+            continue;
+        out.push({ id: `ink-ods-${sheetIndex + 1}-${out.length + 1}`, tool, color, width, points, ...(textValue ? { text: textValue } : {}), ...(filled ? { fill: true } : {}) });
+        if (out.length >= 300)
+            break;
+    }
+    return out;
+}
+function odsChartSeriesRange(seriesNodes, sheetName) {
+    const bounds = [];
+    for (const series of seriesNodes) {
+        const valuesAddress = series.getAttributeNS(table, 'values-cell-range-address');
+        if (!valuesAddress)
+            return null;
+        const addresses = [valuesAddress, ...Array.from(series.getElementsByTagNameNS(chartNs, 'domain')).map(domain => domain.getAttributeNS(table, 'cell-range-address'))].filter((value) => !!value);
+        for (const address of addresses) {
+            const translated = odsReferenceToExcel(address);
+            if (!translated)
+                return null;
+            const bang = translated.lastIndexOf('!'), sheet = bang >= 0 ? translated.slice(0, bang).replace(/^'|'$/g, '').replaceAll("''", "'") : sheetName;
+            if (sheet.toLocaleLowerCase() !== sheetName.toLocaleLowerCase())
+                return null;
+            const range = bang >= 0 ? translated.slice(bang + 1) : translated, parts = range.split(':'), from = parseRef(parts[0] ?? ''), to = parseRef(parts[1] ?? parts[0] ?? '');
+            if (!from || !to || parts.length > 2)
+                return null;
+            const r1 = Math.min(from.row, to.row), r2 = Math.max(from.row, to.row), c1 = Math.min(from.col, to.col), c2 = Math.max(from.col, to.col);
+            if (r2 - r1 > 100_000 || c2 - c1 > 100)
+                return null;
+            bounds.push({ r1, r2, c1, c2 });
+        }
+    }
+    if (!bounds.length)
+        return null;
+    const r1 = Math.min(...bounds.map(item => item.r1)), r2 = Math.max(...bounds.map(item => item.r2)), c1 = Math.min(...bounds.map(item => item.c1)), c2 = Math.max(...bounds.map(item => item.c2));
+    const vertical = bounds.every(item => item.r1 === r1 && item.r2 === r2 && item.c1 === item.c2), horizontal = bounds.every(item => item.c1 === c1 && item.c2 === c2 && item.r1 === item.r2);
+    if (!vertical && !horizontal)
+        return null;
+    if ((r2 - r1 + 1) * (c2 - c1 + 1) > MAX_WORKSHEET_POPULATED_CELLS)
+        return null;
+    return `${colToName(c1)}${r1 + 1}:${colToName(c2)}${r2 + 1}`;
+}
+function importNativeOdfChart(frame, archive, sheetName, id) {
+    const object = children(frame).find(node => node.namespaceURI === drawNs && node.localName === 'object'), href = object?.getAttributeNS(xlink, 'href') ?? '';
+    if (!href || href.length > 256 || /[\\]/.test(href) || href.split('/').some(part => part === '..'))
+        return null;
+    const part = `${href.replace(/^\.\//, '').replace(/\/$/, '')}/content.xml`, payload = archive.get(part);
+    if (!payload)
+        return null;
+    try {
+        const document = parseSpreadsheetXml(td.decode(payload)), styleNodes = Array.from(document.getElementsByTagNameNS(style, 'style')), styleByName = new Map(styleNodes.map(node => [node.getAttributeNS(style, 'name'), node])), chartNode = document.getElementsByTagNameNS(chartNs, 'chart').item(0), plot = document.getElementsByTagNameNS(chartNs, 'plot-area').item(0);
+        if (!chartNode || !plot)
+            return null;
+        const seriesNodes = Array.from(document.getElementsByTagNameNS(chartNs, 'series')).slice(0, 24), rawRange = plot.getAttributeNS(table, 'cell-range-address') ?? '', translated = odsReferenceToExcel(rawRange) ?? odsChartSeriesRange(seriesNodes, sheetName);
+        if (!translated)
+            return null;
+        const bang = translated.lastIndexOf('!'), range = bang >= 0 ? translated.slice(bang + 1) : translated;
+        if (bang >= 0) {
+            let referencedSheet = translated.slice(0, bang).replace(/^'|'$/g, '').replaceAll("''", "'");
+            if (referencedSheet.toLocaleLowerCase() !== sheetName.toLocaleLowerCase())
+                return null;
+        }
+        const klass = (chartNode.getAttributeNS(chartNs, 'class') ?? '').replace(/^chart:/, ''), seriesKinds = new Set(seriesNodes.map(node => node.getAttributeNS(chartNs, 'class')).filter((value) => value === 'chart:line' || value === 'chart:bar')), isCombo = seriesNodes.some(node => node.hasAttributeNS(chartNs, 'attached-axis')) || seriesKinds.has('chart:line') && seriesKinds.has('chart:bar');
+        let kind;
+        if (klass === 'bar') {
+            const vertical = chartNode.getAttributeNS(chartNs, 'vertical') === 'true', stacked = chartNode.getAttributeNS(chartNs, 'stacked') === 'true', percentage = chartNode.getAttributeNS(chartNs, 'percentage') === 'true';
+            kind = isCombo ? 'combo' : percentage ? (vertical ? 'percent-column' : 'percent-bar') : stacked ? (vertical ? 'stacked-column' : 'stacked-bar') : (vertical ? 'column' : 'bar');
+        }
+        else if (klass === 'line')
+            kind = 'line';
+        else if (klass === 'area')
+            kind = 'area';
+        else if (klass === 'circle')
+            kind = 'pie';
+        else if (klass === 'ring')
+            kind = 'doughnut';
+        else if (klass === 'scatter')
+            kind = 'scatter';
+        else if (klass === 'net')
+            kind = 'radar';
+        else if (klass === 'stock')
+            kind = 'stock';
+        else
+            return null;
+        const titleNode = document.getElementsByTagNameNS(chartNs, 'title').item(0), title = titleNode ? cellText(titleNode).slice(0, 100) : `${kind} chart`, legendNode = document.getElementsByTagNameNS(chartNs, 'legend').item(0), legendPosition = legendNode?.getAttributeNS(chartNs, 'legend-position') ?? 'bottom', legend = legendPosition === 'start' ? 'left' : legendPosition === 'end' ? 'right' : (['top', 'bottom'].includes(legendPosition) ? legendPosition : 'none'), axisTitle = (dimension, axisName) => { const axis = Array.from(document.getElementsByTagNameNS(chartNs, 'axis')).find(node => node.getAttributeNS(chartNs, 'dimension') === dimension && (!axisName || node.getAttributeNS(chartNs, 'name') === axisName)), titleElement = axis?.getElementsByTagNameNS(chartNs, 'title').item(0); return titleElement ? cellText(titleElement).slice(0, 70) : undefined; }, xAxisTitle = axisTitle('x'), yAxisTitle = axisTitle('y', 'y'), secondaryYAxisTitle = axisTitle('y', 'y2');
+        const x = inches(frame.getAttributeNS('urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0', 'x') ?? '0in'), y = inches(frame.getAttributeNS('urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0', 'y') ?? '0in'), width = inches(frame.getAttributeNS('urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0', 'width') ?? '5in'), height = inches(frame.getAttributeNS('urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0', 'height') ?? '3.5in');
+        const chartSeries = seriesNodes, seriesOptions = chartSeries.map(series => { const item = series, name = item.getAttributeNS(chartNs, 'style-name'), seriesClass = item.getAttributeNS(chartNs, 'class'), attachedAxis = item.getAttributeNS(chartNs, 'attached-axis'), styleNode = name ? styleByName.get(name) : undefined, properties = styleNode?.getElementsByTagNameNS(style, 'graphic-properties').item(0), chartProperties = styleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0), color = properties?.getAttributeNS(drawNs, 'fill-color') || properties?.getAttributeNS('urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0', 'stroke-color'), symbol = chartProperties?.getAttributeNS(chartNs, 'symbol-type'), markerName = chartProperties?.getAttributeNS(chartNs, 'symbol-name'), errorBars = odsSeriesErrorBars(item, styleNodes), trendline = odsSeriesTrendline(item, styleNodes); return { ...(color && /^#[0-9a-f]{6}$/i.test(color) ? { color } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline } : {}), ...(symbol === 'none' ? { marker: false } : symbol === 'automatic' || symbol === 'named-symbol' ? { marker: true } : {}), ...(['circle', 'square', 'diamond', 'triangle', 'plus', 'x', 'star'].includes(markerName ?? '') ? { markerStyle: markerName } : {}), ...(kind === 'combo' && seriesClass ? { kind: seriesClass === 'chart:line' ? 'line' : 'column' } : {}), ...(kind === 'combo' ? { axis: attachedAxis === 'y2' ? 'secondary' : 'primary' } : {}) }; }), seriesLabelProperties = chartSeries.flatMap(series => { const name = series.getAttributeNS(chartNs, 'style-name'), styleNode = name ? styleByName.get(name) : undefined, properties = styleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0); return properties ? [properties] : []; }), labelNumbers = seriesLabelProperties.map(properties => properties.getAttributeNS(chartNs, 'data-label-number')), dataLabels = labelNumbers.some(value => value === 'value' || value === 'value-and-percentage'), dataLabelPercent = labelNumbers.some(value => value === 'percentage' || value === 'value-and-percentage'), dataLabelCategoryName = seriesLabelProperties.some(properties => properties.getAttributeNS(chartNs, 'data-label-text') === 'true'), dataLabelSeriesName = seriesLabelProperties.some(properties => properties.getAttributeNS(chartNs, 'data-label-series') === 'true'), positionFromOdf = (value) => ({ 'center': 'center', 'near-origin': 'insideBase', 'inside': 'insideEnd', 'outside': 'outsideEnd', 'avoid-overlap': 'bestFit', 'top': 'above', 'bottom': 'below', 'left': 'left', 'right': 'right' }[value]), dataLabelPosition = seriesLabelProperties.map(properties => positionFromOdf(properties.getAttributeNS(chartNs, 'label-position') ?? '')).find((value) => !!value), separatorNode = seriesLabelProperties.map(properties => children(properties).find(item => item.namespaceURI === chartNs && item.localName === 'label-separator')).find((value) => !!value), dataLabelSeparator = separatorNode ? cellText(separatorNode).slice(0, 32) : undefined;
+        const chartStyleName = chartNode.getAttributeNS(chartNs, 'style-name'), chartStyleNode = chartStyleName ? Array.from(document.getElementsByTagNameNS(style, 'style')).find(node => node.getAttributeNS(style, 'name') === chartStyleName) : undefined, chartProperties = chartStyleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0), emptyTreatment = chartProperties?.getAttributeNS(chartNs, 'treat-empty-cells') ?? '', hiddenCells = chartProperties?.getAttributeNS(chartNs, 'include-hidden-cells') ?? '', chartOptionFields = { ...(emptyTreatment === 'leave-gap' ? { displayBlanksAs: 'gap' } : emptyTreatment === 'use-zero' ? { displayBlanksAs: 'zero' } : emptyTreatment === 'ignore' ? { displayBlanksAs: 'span' } : {}), ...(hiddenCells === 'true' ? { includeHiddenData: true } : hiddenCells === 'false' ? { includeHiddenData: false } : {}), ...(chartProperties?.getAttributeNS(chartNs, 'series-source') === 'rows' ? { switchRowsColumns: true } : {}) };
+        const chartTable = document.getElementsByTagNameNS(table, 'table').item(0), chartDataRows = chartTable ? tableMembers(chartTable, 'table-row') : [], chartCellStyles = new Map(Array.from(document.getElementsByTagNameNS(style, 'style')).flatMap(node => { const item = node, key = item.getAttributeNS(style, 'name'); return key ? [[key, item]] : []; })), chartNumberStyles = new Map([...Array.from(document.getElementsByTagNameNS(number, 'number-style')), ...Array.from(document.getElementsByTagNameNS(number, 'percentage-style')), ...Array.from(document.getElementsByTagNameNS(number, 'currency-style'))].flatMap(node => { const item = node, key = item.getAttributeNS(style, 'name'); return key ? [[key, item]] : []; }));
+        const labelStyleName = seriesLabelProperties.map(properties => properties.getAttributeNS(style, 'data-style-name')).find(Boolean), labelNumberStyle = labelStyleName ? chartNumberStyles.get(labelStyleName) : undefined, labelFormat = labelNumberStyle ? resolveOdfNumberStyle(labelNumberStyle, labelNumberStyle.localName, chartNumberStyles).customNumberFormatCode : undefined;
+        const chartAxisFormat = (axisName, domain = false) => { const axis = Array.from(document.getElementsByTagNameNS(chartNs, 'axis')).find(node => node.getAttributeNS(chartNs, 'name') === axisName), axisStyleName = axis?.getAttributeNS(chartNs, 'style-name'), axisStyle = axisStyleName ? chartCellStyles.get(axisStyleName) : undefined, axisProperties = axisStyle?.getElementsByTagNameNS(style, 'chart-properties').item(0); if (axisProperties?.getAttributeNS(chartNs, 'link-data-style-to-source') !== 'true' || !chartDataRows[1])
+            return undefined; const series = seriesNodes.find(node => domain || (node.getAttributeNS(chartNs, 'attached-axis') ?? 'y') === (axisName === 'y2' ? 'y2' : 'y')), range = domain ? series?.getElementsByTagNameNS(chartNs, 'domain').item(0)?.getAttributeNS(table, 'cell-range-address') : series?.getAttributeNS(chartNs, 'values-cell-range-address'), match = /\$([A-Z]{1,3})\$[1-9]\d*/i.exec(range ?? ''), column = match ? nameToCol(match[1]) : null; if (column === null || column === undefined)
+            return undefined; let position = 0, cell; for (const item of children(chartDataRows[1])) {
+            if (item.namespaceURI !== table || !['table-cell', 'covered-table-cell'].includes(item.localName))
+                continue;
+            const repeat = countAttr(item, table, 'number-columns-repeated', 1);
+            if (column >= position && column < position + repeat) {
+                cell = item;
+                break;
+            }
+            position += repeat;
+        } const cellStyle = cell?.getAttributeNS(table, 'style-name'), styleNode = cellStyle ? chartCellStyles.get(cellStyle) : undefined, dataStyleName = styleNode?.getAttributeNS(style, 'data-style-name'), numberStyle = dataStyleName ? chartNumberStyles.get(dataStyleName) : undefined; if (!numberStyle || !['number-style', 'percentage-style', 'currency-style'].includes(numberStyle.localName))
+            return undefined; return resolveOdfNumberStyle(numberStyle, numberStyle.localName, chartNumberStyles); };
+        const axisSettings = (dimension, axisName) => { const axis = Array.from(document.getElementsByTagNameNS(chartNs, 'axis')).find(node => node.getAttributeNS(chartNs, 'dimension') === dimension && (!axisName || node.getAttributeNS(chartNs, 'name') === axisName)), name = axis?.getAttributeNS(chartNs, 'style-name'), styleNode = name ? styleByName.get(name) : undefined, properties = styleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0), number = (attribute) => { const raw = properties?.getAttributeNS(chartNs, attribute); if (!raw?.trim())
+            return undefined; const value = Number(raw); return Number.isFinite(value) ? value : undefined; }, rotation = styleNode?.getElementsByTagNameNS(style, 'chart-properties').item(0)?.getAttributeNS(style, 'rotation-angle') ?? '', angle = /^\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*$/.exec(rotation)?.[1], min = number('minimum'), max = number('maximum'), major = number('interval-major'), dataFormat = chartAxisFormat(axisName ?? dimension, dimension === 'x' && kind === 'scatter'); return { ...(dataFormat ? { dataFormat } : {}), ...(min !== undefined && (max === undefined || min < max) ? { min } : {}), ...(max !== undefined && (min === undefined || min < max) ? { max } : {}), ...(major !== undefined && major > 0 ? { major } : {}), ...(properties?.getAttributeNS(chartNs, 'logarithmic') === 'true' ? { logarithmic: true } : {}), ...(properties?.getAttributeNS(chartNs, 'reverse-direction') === 'true' ? { reverse: true } : {}), ...(angle !== undefined ? { rotation: Number(angle) } : {}) }; }, xAxis = axisSettings('x'), yAxis = axisSettings('y', 'y'), secondaryAxis = axisSettings('y', 'y2'), horizontalBar = ['bar', 'stacked-bar', 'percent-bar'].includes(kind), axisX = horizontalBar ? yAxis : xAxis, axisY = horizontalBar ? xAxis : yAxis;
+        const plotStyleName = plot.getAttributeNS(chartNs, 'style-name'), plotStyle = plotStyleName ? Array.from(document.getElementsByTagNameNS(style, 'style')).find(node => node.getAttributeNS(style, 'name') === plotStyleName) : undefined, plotProperties = plotStyle?.getElementsByTagNameNS(style, 'chart-properties').item(0), holeSize = Number((plotProperties?.getAttributeNS(chartNs, 'hole-size') ?? '').replace('%', '')), angleOffset = /^\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*$/.exec(plotProperties?.getAttributeNS(chartNs, 'angle-offset') ?? '')?.[1], dataPointColors = kind === 'pie' || kind === 'doughnut' ? Array.from(document.getElementsByTagNameNS(chartNs, 'data-point')).slice(0, MAX_CHART_SOURCE_POINTS).flatMap(point => { const name = point.getAttributeNS(chartNs, 'style-name'), styleNode = name ? styleByName.get(name) : undefined, color = styleNode?.getElementsByTagNameNS(style, 'graphic-properties').item(0)?.getAttributeNS(drawNs, 'fill-color') ?? ''; return /^#[0-9a-f]{6}$/i.test(color) ? [color] : []; }) : [];
+        const valueAxis = Array.from(document.getElementsByTagNameNS(chartNs, 'axis')).find(node => node.getAttributeNS(chartNs, 'dimension') === (horizontalBar ? 'x' : 'y')), majorGridlines = !!valueAxis && Array.from(valueAxis.getElementsByTagNameNS(chartNs, 'grid')).some(node => node.getAttributeNS(chartNs, 'class') === 'major'), minorGridlines = !!valueAxis && Array.from(valueAxis.getElementsByTagNameNS(chartNs, 'grid')).some(node => node.getAttributeNS(chartNs, 'class') === 'minor'), normalizedAngle = angleOffset === undefined ? undefined : (Math.round(Number(angleOffset)) % 360 + 360) % 360, spec = { id, kind, title, range, x: Math.max(0, Math.min(15000, Math.round((x ?? 0) * 96))), y: Math.max(0, Math.min(30000, Math.round((y ?? 0) * 96))), width: Math.max(300, Math.min(900, Math.round((width ?? 5) * 96))), height: Math.max(210, Math.min(650, Math.round((height ?? 3.5) * 96))), legend, ...chartOptionFields, ...(labelFormat ? { dataLabelFormatCode: labelFormat } : {}), ...(dataLabels ? { dataLabels: true } : {}), ...(dataLabelPercent ? { dataLabelPercent: true } : {}), ...(dataLabelCategoryName ? { dataLabelCategoryName: true } : {}), ...(dataLabelSeriesName ? { dataLabelSeriesName: true } : {}), ...(dataLabelPosition ? { dataLabelPosition } : {}), ...(dataLabelSeparator !== undefined ? { dataLabelSeparator } : {}), majorGridlines, minorGridlines, ...(xAxisTitle ? { xAxisTitle } : {}), ...(yAxisTitle ? { yAxisTitle } : {}), ...(secondaryYAxisTitle ? { secondaryYAxisTitle } : {}), ...(secondaryAxis.min !== undefined ? { secondaryYAxisMin: secondaryAxis.min, secondaryYAxisMax: secondaryAxis.max } : {}), ...(secondaryAxis.major !== undefined ? { secondaryYAxisMajorUnit: secondaryAxis.major } : {}), ...(axisX.dataFormat?.format && axisX.dataFormat.format !== 'integer' ? { xAxisNumberFormat: axisX.dataFormat.format } : {}), ...(axisX.dataFormat?.format === 'integer' ? { xAxisFormatCode: '#,##0' } : {}), ...(axisX.dataFormat?.customNumberFormatCode ? { xAxisFormatCode: axisX.dataFormat.customNumberFormatCode } : {}), ...(axisY.dataFormat?.format && axisY.dataFormat.format !== 'integer' ? { yAxisNumberFormat: axisY.dataFormat.format } : {}), ...(axisY.dataFormat?.format === 'integer' ? { yAxisFormatCode: '#,##0' } : {}), ...(axisY.dataFormat?.customNumberFormatCode ? { yAxisFormatCode: axisY.dataFormat.customNumberFormatCode } : {}), ...(secondaryAxis.dataFormat?.format && secondaryAxis.dataFormat.format !== 'integer' ? { secondaryYAxisNumberFormat: secondaryAxis.dataFormat.format } : {}), ...(secondaryAxis.dataFormat?.format === 'integer' ? { secondaryYAxisFormatCode: '#,##0' } : {}), ...(secondaryAxis.dataFormat?.customNumberFormatCode ? { secondaryYAxisFormatCode: secondaryAxis.dataFormat.customNumberFormatCode } : {}), ...(axisX.min !== undefined ? { xAxisMin: axisX.min, xAxisMax: axisX.max } : {}), ...(axisX.major !== undefined ? { xAxisMajorUnit: axisX.major } : {}), ...(axisY.min !== undefined ? { yAxisMin: axisY.min, yAxisMax: axisY.max } : {}), ...(axisY.major !== undefined ? { yAxisMajorUnit: axisY.major } : {}), ...(axisX.major !== undefined && kind !== 'scatter' ? { xAxisLabelInterval: axisX.major } : {}), ...(axisX.rotation !== undefined ? { xAxisLabelAngle: axisX.rotation } : {}), ...(axisY.logarithmic ? { yAxisLogBase: 10 } : {}), ...(axisX.reverse || axisY.reverse ? { reverseCategories: true } : {}), ...(kind === 'doughnut' && Number.isInteger(holeSize) && holeSize >= 10 && holeSize <= 90 ? { doughnutHoleSize: holeSize } : {}), ...(normalizedAngle !== undefined ? { firstSliceAngle: normalizedAngle } : {}), ...(dataPointColors.length ? { dataPointColors } : {}), ...(seriesOptions.some(item => Object.keys(item).length) ? { seriesOptions } : {}) };
+        return validateChart(spec, MAX_WORKSHEET_ROWS, MAX_WORKSHEET_COLUMNS);
+    }
+    catch {
+        return null;
+    }
+}
+/** Build a standards-based ODS archive containing computed cell values and translatable formulas. */
+export function exportOds(doc) {
+    if (doc.sheets.length > MAX_WORKBOOK_SHEETS)
+        throw Error(`ODS export supports at most ${MAX_WORKBOOK_SHEETS} worksheets per workbook.`);
+    const workbookCellCount = doc.sheets.reduce((sum, sheet) => sum + sheet.book.allEntries().length, 0), workbookStyleCount = doc.sheets.reduce((sum, sheet) => sum + sheet.book.allStyles().length, 0);
+    if (workbookCellCount > MAX_WORKBOOK_POPULATED_CELLS)
+        throw Error(`This workbook exceeds the ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()}-cell ODS export limit.`);
+    if (workbookStyleCount > MAX_WORKBOOK_POPULATED_CELLS)
+        throw Error(`This workbook exceeds the ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()}-style ODS export limit.`);
+    if (doc.sheets.some(sheet => sheet.tools.filter?.criteria?.some(criterion => criterion.values.length === 0)))
+        throw Error('ODS export cannot represent a value filter with no selected values. Select at least one value or clear the filter before exporting.');
+    const formulaStats = { written: 0, omitted: 0 };
+    const styleNames = new Map(), styleParts = [], fontFamilies = new Set(), dataStyleNames = new Map(), dataStyleParts = [], columnStyleNames = new Map(), rowStyleNames = new Map();
+    for (const sheet of doc.sheets) {
+        for (const [index, width] of Object.entries(sheet.tools.columnWidths)) {
+            if (!columnStyleNames.has(String(width))) {
+                const name = `co${columnStyleNames.size + 1}`;
+                columnStyleNames.set(String(width), name);
+                styleParts.push(`<style:style style:name="${name}" style:family="table-column"><style:table-column-properties style:column-width="${toInches(width)}"/></style:style>`);
+            }
+        }
+        for (const [index, height] of Object.entries(sheet.tools.rowHeights)) {
+            if (!rowStyleNames.has(String(height))) {
+                const name = `ro${rowStyleNames.size + 1}`;
+                rowStyleNames.set(String(height), name);
+                styleParts.push(`<style:style style:name="${name}" style:family="table-row"><style:table-row-properties style:row-height="${toInches(height)}"/></style:style>`);
+            }
+        }
+        for (const item of sheet.book.allStyles()) {
+            const value = cleanStyle(item.style), key = JSON.stringify(value), formatKey = odsFormatKey(value);
+            if (value.fontFamily)
+                fontFamilies.add(value.fontFamily);
+            if (formatKey && !dataStyleNames.has(formatKey)) {
+                const name = `N${dataStyleNames.size + 1}`;
+                dataStyleNames.set(formatKey, name);
+                dataStyleParts.push(odsDataStyleXml(name, formatKey));
+            }
+            if (Object.keys(value).length && !styleNames.has(key)) {
+                if (styleNames.size >= 10_000)
+                    throw Error('This workbook uses more than 10,000 distinct cell styles; reduce the number of unique styles before exporting to ODS.');
+                const name = `ce${styleNames.size + 1}`;
+                styleNames.set(key, name);
+                styleParts.push(odsStyleXml(name, value, dataStyleNames));
+            }
+        }
+    }
+    const conditionalCells = doc.sheets.map((sheet, index) => odsConditionalCellStyles(sheet, index, styleNames, dataStyleNames, styleParts));
+    const validationParts = doc.sheets.flatMap(sheet => sheet.tools.dataValidations.map((rule, index) => validationDefinition(rule, `dv_${sheet.id.replace(/[^A-Za-z0-9_]/g, '_')}_${index + 1}`)).filter((entry) => !!entry)), validations = validationParts.length ? `<table:content-validations>${validationParts.join('')}</table:content-validations>` : '', filterParts = doc.sheets.map(odsFilterDefinition).filter((entry) => !!entry), databaseRanges = filterParts.length ? `<table:database-ranges>${filterParts.join('')}</table:database-ranges>` : '', dataPilotTables = odsPivotDefinitions(doc), pageLayout = odsPageLayoutStyles(doc.sheets), chartPackages = doc.sheets.map((sheet, index) => odsChartObjects(sheet, index)), drawingPackages = doc.sheets.map((sheet, index) => odsDrawingObjects(sheet, index)), shapePackages = chartPackages.map((chart, index) => ({ shapes: [chart.shapes, drawingPackages[index].shapes].filter(Boolean).join(''), entries: { ...chart.entries, ...drawingPackages[index].entries }, manifest: [...chart.manifest, ...drawingPackages[index].manifest] })), chartEntries = Object.assign({}, ...shapePackages.map(item => item.entries)), chartManifest = shapePackages.flatMap(item => item.manifest), tables = doc.sheets.map((sheet, index) => { const printRange = odsPrintRange(sheet), objects = odsGridForgeSheetObjects(sheet), localNames = odsNamedExpressions(sheet.book.getDefinedNames()); return `<table:table table:name="${esc(sheet.name)}" table:style-name="GF_Table_${index + 1}"${sheet.hidden ? ' table:display="false"' : ''}${printRange ? ` table:print-ranges="${esc(printRange)}"` : ''}${objects ? ` gridforge:sheet-objects="${esc(objects)}"` : ''}>${localNames}${sheetXml(sheet, styleNames, columnStyleNames, rowStyleNames, formulaStats, shapePackages[index].shapes, conditionalCells[index])}</table:table>`; }).join(''), workbookNames = odsNamedExpressions(doc.getWorkbookDefinedNames());
+    const fontXml = [...fontFamilies].map(family => `<style:font-face style:name="${esc(family)}" svg:font-family="${esc(family)}"/>`).join('');
+    const content = `<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="${office}" xmlns:table="${table}" xmlns:text="${text}" xmlns:style="${style}" xmlns:fo="${fo}" xmlns:number="${number}" xmlns:xlink="${xlink}" xmlns:draw="${drawNs}" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:chart="${chartNs}" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:gridforge="${gridforgeNs}" xmlns:calcext="${calcextNs}" office:version="1.3"><office:font-face-decls>${fontXml}</office:font-face-decls><office:automatic-styles>${dataStyleParts.join('')}${styleParts.join('')}</office:automatic-styles><office:body><office:spreadsheet>${workbookNames}${validations}${databaseRanges}${dataPilotTables}${tables}</office:spreadsheet></office:body></office:document-content>`;
+    const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="${mediaType}"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>`;
+    const stylesManifest = '<manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>';
+    return zipWrite({ mimetype: mediaType, 'content.xml': content, 'styles.xml': pageLayout.styles, 'META-INF/manifest.xml': manifest.replace('</manifest:manifest>', `${stylesManifest}${chartManifest.join('')}</manifest:manifest>`), ...chartEntries });
+}
+function children(node) { return Array.from(node.children); }
+function tableMembers(node, member) { const wrappers = new Set(member === 'table-row' ? ['table-header-rows', 'table-rows', 'table-row-group'] : ['table-header-columns', 'table-columns', 'table-column-group']), out = []; const visit = (parent) => { for (const child of children(parent)) {
+    if (child.namespaceURI !== table)
+        continue;
+    if (child.localName === member)
+        out.push(child);
+    else if (wrappers.has(child.localName))
+        visit(child);
+} }; visit(node); return out; }
+function cellText(node) {
+    const collect = (current) => {
+        if (current.nodeType === 3 || current.nodeType === 4)
+            return current.nodeValue ?? '';
+        if (current.nodeType !== 1)
+            return '';
+        const element = current, local = element.localName;
+        if (element.namespaceURI === text && local === 's')
+            return ' '.repeat(Math.min(1000, countAttr(element, text, 'c', 1)));
+        if (element.namespaceURI === text && local === 'tab')
+            return '\t';
+        if (element.namespaceURI === text && local === 'line-break')
+            return '\n';
+        return Array.from(current.childNodes).map(collect).join('');
+    };
+    return children(node).filter(child => child.namespaceURI === text && child.localName === 'p').map(collect).join('\n');
+}
+function importOdfHyperlink(cell) {
+    const anchor = cell.getElementsByTagNameNS(text, 'a').item(0);
+    if (!anchor)
+        return undefined;
+    const href = anchor.getAttributeNS(xlink, 'href');
+    if (!href || href.length > 2048 || /[\u0000-\u0020\\]/.test(href))
+        return undefined;
+    if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href))
+        return { target: href, ...(anchor.getAttributeNS(office, 'title') ? { tooltip: anchor.getAttributeNS(office, 'title') } : {}) };
+    if (!href.startsWith('#'))
+        return undefined;
+    const point = splitOdfReferencePart(href.slice(1));
+    if (!point)
+        return undefined;
+    const sheet = point.sheet ? (point.sheet.includes(' ') ? `'${point.sheet.replaceAll("'", "''")}'` : point.sheet) : undefined, location = sheet ? `${sheet}!${point.ref}` : point.ref;
+    return { location, ...(anchor.getAttributeNS(office, 'title') ? { tooltip: anchor.getAttributeNS(office, 'title') } : {}) };
+}
+function isoDateSerial(value) {
+    const match = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(value);
+    if (!match)
+        return null;
+    const day = excelDateSerial(match[1]);
+    if (day === null)
+        return null;
+    if (match[2] === undefined)
+        return day;
+    const hours = Number(match[2]), minutes = Number(match[3]), seconds = Number(match[4] ?? 0), fraction = match[5] ? Number(`0.${match[5]}`) : 0;
+    if (hours > 23 || minutes > 59 || seconds > 59)
+        return null;
+    return day + (hours * 3600 + minutes * 60 + seconds + fraction) / 86_400;
+}
+function timeSerial(value) {
+    const match = /^(-)?P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(value);
+    if (!match)
+        return null;
+    const seconds = Number(match[2] ?? 0) * 86_400 + Number(match[3] ?? 0) * 3600 + Number(match[4] ?? 0) * 60 + Number(match[5] ?? 0);
+    return Number.isFinite(seconds) ? (match[1] ? -1 : 1) * seconds / 86_400 : null;
+}
+function safeSheetName(value, index, used) {
+    const base = value.replace(/[\\/?*\[\]:]/g, ' ').trim().slice(0, 31) || `Sheet ${index + 1}`;
+    let candidate = base, suffix = 2;
+    while (used.has(candidate.toLocaleLowerCase())) {
+        const ending = ` (${suffix++})`;
+        candidate = `${base.slice(0, 31 - ending.length)}${ending}`;
+    }
+    used.add(candidate.toLocaleLowerCase());
+    return candidate;
+}
+function parseCellStyle(node) {
+    const result = {}, cell = node.getElementsByTagNameNS(style, 'table-cell-properties').item(0), textProps = node.getElementsByTagNameNS(style, 'text-properties').item(0), paragraph = node.getElementsByTagNameNS(style, 'paragraph-properties').item(0);
+    const attr = (target, namespace, name) => target?.getAttributeNS(namespace, name) ?? '';
+    const background = attr(cell, fo, 'background-color');
+    if (/^#[0-9a-f]{6}$/i.test(background))
+        result.background = background.toLowerCase();
+    const vertical = attr(cell, style, 'vertical-align');
+    if (vertical === 'middle')
+        result.verticalAlign = 'center';
+    else if (vertical === 'top' || vertical === 'bottom')
+        result.verticalAlign = vertical;
+    const parseBorderLine = (value) => { const match = /^\s*(?:(\d+(?:\.\d+)?)(pt|px|cm|mm|in)?|(thin|medium|thick))\s+(solid|double|dashed|dotted)\s+(#[0-9a-f]{6})\s*$/i.exec(value); if (!match)
+        return null; const units = match[2]?.toLowerCase(), rawWidth = Number(match[1] ?? 0.5), widthPt = match[3] ? { thin: 0.5, medium: 1.25, thick: 2.25 }[match[3].toLowerCase()] : rawWidth * ({ pt: 1, px: 0.75, cm: 72 / 2.54, mm: 72 / 25.4, in: 72 }[units] ?? 1); return { style: match[4].toLowerCase(), color: match[5].toLowerCase(), weight: (widthPt >= 1.8 ? 'thick' : widthPt >= 0.9 ? 'medium' : 'thin') }; };
+    const edges = ['left', 'right', 'top', 'bottom'], lines = edges.map(edge => { const parsed = parseBorderLine(attr(cell, fo, `border-${edge}`) || attr(cell, fo, 'border')); return parsed ? { edge, ...parsed } : null; }).filter((value) => !!value);
+    if (lines.length === 4 && lines.every(line => line.style === lines[0].style && line.color === lines[0].color && line.weight === lines[0].weight)) {
+        result.border = 'all';
+        result.borderStyle = lines[0].style;
+        result.borderWeight = lines[0].weight;
+        result.borderColor = lines[0].color;
+    }
+    else if (lines.length === 1) {
+        result.border = lines[0].edge;
+        result.borderStyle = lines[0].style;
+        result.borderWeight = lines[0].weight;
+        result.borderColor = lines[0].color;
+    }
+    else if (lines.length > 1)
+        result.borderEdges = Object.fromEntries(lines.map(line => [line.edge, { style: line.style, weight: line.weight, color: line.color }]));
+    const diagonalValues = [{ up: true, value: attr(cell, style, 'diagonal-bl-tr') }, { up: false, value: attr(cell, style, 'diagonal-tl-br') }].filter(item => item.value), diagonalLines = diagonalValues.flatMap(item => { const parsed = parseBorderLine(item.value); return parsed ? [{ up: item.up, ...parsed }] : []; });
+    if (diagonalLines.length)
+        result.borderDiagonal = { up: diagonalLines.some(line => line.up), down: diagonalLines.some(line => !line.up), style: diagonalLines[0].style, weight: diagonalLines[0].weight, color: diagonalLines[0].color };
+    const weight = attr(textProps, fo, 'font-weight');
+    if (weight === 'bold' || Number(weight) >= 600)
+        result.bold = true;
+    if (attr(textProps, fo, 'font-style') === 'italic')
+        result.italic = true;
+    if (attr(textProps, style, 'text-underline-style') && attr(textProps, style, 'text-underline-style') !== 'none')
+        result.underline = true;
+    if (attr(textProps, style, 'text-line-through-style') && attr(textProps, style, 'text-line-through-style') !== 'none')
+        result.strike = true;
+    const color = attr(textProps, fo, 'color');
+    if (/^#[0-9a-f]{6}$/i.test(color))
+        result.color = color.toLowerCase();
+    const size = /^(\d{1,2}(?:\.\d+)?)pt$/i.exec(attr(textProps, fo, 'font-size'));
+    if (size) {
+        const value = Number(size[1]), halfPointSize = Math.round(value * 2) / 2;
+        if (Math.abs(value - halfPointSize) < 1e-8 && halfPointSize >= 6 && halfPointSize <= 72)
+            result.fontSize = halfPointSize;
+    }
+    const family = attr(textProps, style, 'font-name');
+    if (isSafeFontFamily(family))
+        result.fontFamily = family;
+    const align = attr(paragraph, fo, 'text-align');
+    if (align === 'center' || align === 'right' || align === 'justify')
+        result.align = align;
+    else if (align === 'end')
+        result.align = 'right';
+    else if (align === 'start' || align === 'left')
+        result.align = 'left';
+    if (attr(paragraph, fo, 'wrap-option') === 'wrap')
+        result.wrap = true;
+    const indent = /^(\d+(?:\.\d+)?)in$/.exec(attr(paragraph, fo, 'margin-left'));
+    if (indent) {
+        const value = Math.round(Number(indent[1]) * 10);
+        if (value > 0 && value <= 250)
+            result.indent = value;
+    }
+    try {
+        return cleanStyle(result);
+    }
+    catch {
+        return {};
+    }
+}
+function dataStyleCode(node, type) {
+    const pieces = [], elapsed = node.getAttributeNS(number, 'truncate-on-overflow') === 'false', firstTimeComponent = children(node).find(child => child.namespaceURI === number && ['hours', 'minutes', 'seconds'].includes(child.localName));
+    for (const child of children(node)) {
+        if (child.namespaceURI === number && ['year', 'month', 'day', 'day-of-week', 'hours', 'minutes', 'seconds'].includes(child.localName)) {
+            const token = child.localName === 'year' ? 'y' : child.localName === 'month' ? 'm' : child.localName === 'day' || child.localName === 'day-of-week' ? 'd' : child.localName === 'hours' ? 'h' : child.localName === 'minutes' ? 'm' : 's', styleName = child.getAttributeNS(number, 'style'), textual = child.getAttributeNS(number, 'textual') === 'true';
+            if (child.localName === 'day-of-week')
+                pieces.push(token.repeat(styleName === 'long' ? 4 : 3));
+            else if (token === 'm' && textual)
+                pieces.push(styleName === 'long' ? 'mmmm' : 'mmm');
+            else if (elapsed && child === firstTimeComponent)
+                pieces.push(`[${token.repeat(styleName === 'long' ? 2 : 1)}]`);
+            else
+                pieces.push(token.repeat(styleName === 'long' ? 2 : token === 'y' ? 4 : 1));
+            if (child.localName === 'seconds') {
+                const decimals = Number(child.getAttributeNS(number, 'decimal-places') ?? 0);
+                if (Number.isInteger(decimals) && decimals > 0 && decimals <= 3)
+                    pieces.push(`.${'0'.repeat(decimals)}`);
+            }
+        }
+        else if (child.namespaceURI === number && child.localName === 'am-pm') {
+            pieces.push('AM/PM');
+        }
+        else if (child.namespaceURI === number && child.localName === 'text') {
+            const literal = child.textContent ?? '';
+            if (literal)
+                pieces.push(/^[\s\-/:.,]+$/.test(literal) ? literal : `"${literal.replaceAll('"', '""')}"`);
+        }
+    }
+    const code = pieces.join('');
+    return code.length <= 255 && code ? code : type === 'date-style' ? 'yyyy-mm-dd' : 'hh:mm:ss';
+}
+function excelQuotedLiteral(value) { return `"${value.replaceAll('"', '""')}"`; }
+function customNumberCodeFromOds(node, type) {
+    const output = [];
+    let foundNumber = false, colorName;
+    for (const child of children(node)) {
+        if (child.namespaceURI === style && child.localName === 'map')
+            continue;
+        if (child.namespaceURI === style && child.localName === 'text-properties') {
+            const color = (child.getAttributeNS(fo, 'color') ?? '').toLowerCase();
+            colorName = Object.keys(odsNamedFormatColors).find(name => odsNamedFormatColors[name] === color);
+            continue;
+        }
+        if (child.namespaceURI !== number)
+            return null;
+        if (child.localName === 'number' || child.localName === 'scientific-number') {
+            if (foundNumber)
+                return null;
+            const decimals = Number(child.getAttributeNS(number, 'decimal-places') ?? 0), minimumDecimals = Number(child.getAttributeNS(number, 'min-decimal-places') ?? decimals), minimumInteger = Number(child.getAttributeNS(number, 'min-integer-digits') ?? 1), grouping = child.getAttributeNS(number, 'grouping') === 'true';
+            if (!Number.isInteger(decimals) || !Number.isInteger(minimumDecimals) || !Number.isInteger(minimumInteger) || decimals < 0 || decimals > 20 || minimumDecimals < 0 || minimumDecimals > decimals || minimumInteger < 1 || minimumInteger > 21)
+                return null;
+            let integer = '0'.repeat(minimumInteger);
+            if (grouping)
+                integer = '#,' + integer;
+            const fraction = '0'.repeat(minimumDecimals) + '#'.repeat(decimals - minimumDecimals);
+            let numeric = integer + (decimals ? '.' + fraction : '');
+            if (child.localName === 'scientific-number') {
+                const exponentDigits = Number(child.getAttributeNS(number, 'min-exponent-digits') ?? 2);
+                if (!Number.isInteger(exponentDigits) || exponentDigits < 1 || exponentDigits > 10 || type !== 'number-style')
+                    return null;
+                numeric += `E${child.getAttributeNS(number, 'forced-exponent-sign') === 'true' ? '+' : '-'}${'0'.repeat(exponentDigits)}`;
+            }
+            output.push(numeric);
+            foundNumber = true;
+            if (type === 'percentage-style')
+                output.push('%');
+        }
+        else if (child.localName === 'text' || child.localName === 'currency-symbol') {
+            const literal = child.textContent ?? '';
+            if (literal)
+                output.push(excelQuotedLiteral(literal));
+        }
+        else
+            return null;
+    }
+    return output.length ? `${colorName ? `[${colorName}]` : ''}${output.join('')}` : null;
+}
+function resolveDataStyle(name, styles) {
+    const value = styles.get(name);
+    return value ? { ...(value.format ? { numberFormat: value.format } : {}), ...(value.dateFormatCode ? { dateFormatCode: value.dateFormatCode } : {}), ...(value.customNumberFormatCode ? { customNumberFormatCode: value.customNumberFormatCode } : {}) } : {};
+}
+function resolveOdfNumberStyle(element, type, styleElements) {
+    let code = customNumberCodeFromOds(element, type);
+    const negativeMap = children(element).find(child => child.namespaceURI === style && child.localName === 'map' && /^\s*value\(\)\s*<\s*0\s*$/.test(child.getAttributeNS(style, 'condition') ?? '')), zeroMap = children(element).find(child => child.namespaceURI === style && child.localName === 'map' && /^\s*value\(\)\s*=\s*0\s*$/.test(child.getAttributeNS(style, 'condition') ?? '')), hasSectionMaps = !!(negativeMap || zeroMap);
+    if (code && hasSectionMaps) {
+        const targetCode = (map) => { if (!map)
+            return null; const target = styleElements.get(map.getAttributeNS(style, 'apply-style-name') ?? ''); if (!target)
+            return null; const targetType = target.localName; if (!['number-style', 'percentage-style', 'currency-style'].includes(targetType))
+            return null; return customNumberCodeFromOds(target, targetType); }, negative = targetCode(negativeMap), zero = targetCode(zeroMap);
+        if ((!negativeMap || negative !== null) && (!zeroMap || zero !== null))
+            code = `${code};${negativeMap ? negative : ''}${zeroMap ? `;${zero ?? ''}` : ''}`;
+    }
+    const numeric = element.getElementsByTagNameNS(number, 'number').item(0), decimals = Number(numeric?.getAttributeNS(number, 'decimal-places') ?? 0), minimumDecimals = Number(numeric?.getAttributeNS(number, 'min-decimal-places') ?? decimals), grouped = numeric?.getAttributeNS(number, 'grouping') === 'true', minimumInteger = Number(numeric?.getAttributeNS(number, 'min-integer-digits') ?? 1), currency = Array.from(element.getElementsByTagNameNS(number, 'currency-symbol')).some(symbol => symbol.textContent === '$');
+    if (hasSectionMaps && code)
+        return { customNumberFormatCode: code };
+    if (type === 'percentage-style' && [1, 2].includes(decimals) && minimumDecimals === decimals)
+        return { format: 'percent' };
+    if (type === 'currency-style' && currency && decimals === 2 && minimumDecimals === 2 && grouped)
+        return { format: 'currency' };
+    if (type === 'number-style' && decimals === 0 && minimumDecimals === 0 && grouped && minimumInteger === 1)
+        return { format: 'integer' };
+    if (type === 'number-style' && decimals === 2 && minimumDecimals === 2 && grouped && minimumInteger === 1)
+        return { format: 'number' };
+    return code ? { customNumberFormatCode: code } : {};
+}
+/** Import supported ODS cell types, repeated cells and multiple worksheets. */
+export async function importOds(bytes, onProgress) {
+    if (!(bytes instanceof Uint8Array) || bytes.length < 22 || bytes.length > 80 * 1024 * 1024)
+        throw Error('OpenDocument files must be between 22 bytes and 80 MB.');
+    const archive = await zipReadBytes(bytes, (name, processed, total) => onProgress?.(`Reading ODS ${name}: ${Math.round(processed / Math.max(1, total) * 100)}%`));
+    if (!archive.get('mimetype') || td.decode(archive.get('mimetype')) !== mediaType)
+        throw Error('This ZIP archive is not a valid OpenDocument Spreadsheet package.');
+    const payload = archive.get('content.xml');
+    if (!payload)
+        throw Error('OpenDocument package is missing content.xml.');
+    const xml = parseSpreadsheetXml(td.decode(payload)), officeNode = xml.getElementsByTagNameNS(office, 'spreadsheet').item(0);
+    if (!officeNode)
+        throw Error('OpenDocument content has no spreadsheet workbook.');
+    const sheetNodes = children(officeNode).filter(node => node.namespaceURI === table && node.localName === 'table');
+    if (!sheetNodes.length)
+        throw Error('OpenDocument workbook contains no worksheets.');
+    if (sheetNodes.length > MAX_WORKBOOK_SHEETS)
+        throw Error(`This ODS workbook contains more than ${MAX_WORKBOOK_SHEETS} worksheets, above GridForge's import safety limit.`);
+    const validationDefinitions = importOdfValidations(children(officeNode).find(node => node.namespaceURI === table && node.localName === 'content-validations') ?? null), databaseRangeContainer = children(officeNode).find(node => node.namespaceURI === table && node.localName === 'database-ranges') ?? null;
+    const styleDocuments = [xml], stylesPayload = archive.get('styles.xml');
+    if (stylesPayload)
+        styleDocuments.push(parseSpreadsheetXml(td.decode(stylesPayload)));
+    const tableMasterNames = new Map(), masterPages = new Map(), pageLayouts = new Map();
+    for (const styleDocument of styleDocuments) {
+        for (const node of Array.from(styleDocument.getElementsByTagNameNS(style, 'style'))) {
+            const element = node;
+            if (element.getAttributeNS(style, 'family') === 'table') {
+                const name = element.getAttributeNS(style, 'name'), master = element.getAttributeNS(style, 'master-page-name');
+                if (name && master)
+                    tableMasterNames.set(name, master);
+            }
+        }
+        for (const node of Array.from(styleDocument.getElementsByTagNameNS(style, 'master-page'))) {
+            const element = node, name = element.getAttributeNS(style, 'name');
+            if (name)
+                masterPages.set(name, element);
+        }
+        for (const node of Array.from(styleDocument.getElementsByTagNameNS(style, 'page-layout'))) {
+            const element = node, name = element.getAttributeNS(style, 'name');
+            if (name)
+                pageLayouts.set(name, element);
+        }
+    }
+    const dataStyles = new Map(), numberStyleElements = new Map();
+    for (const styleDocument of styleDocuments) {
+        for (const type of ['number-style', 'percentage-style', 'currency-style', 'date-style', 'time-style'])
+            for (const node of Array.from(styleDocument.getElementsByTagNameNS(number, type))) {
+                const element = node, name = element.getAttributeNS(style, 'name');
+                if (!name)
+                    continue;
+                if (type === 'date-style' || type === 'time-style')
+                    dataStyles.set(name, { dateFormatCode: dataStyleCode(element, type) });
+                else
+                    numberStyleElements.set(name, element);
+            }
+    }
+    for (const [name, element] of numberStyleElements) {
+        const type = element.localName;
+        if (type === 'number-style' || type === 'percentage-style' || type === 'currency-style')
+            dataStyles.set(name, resolveOdfNumberStyle(element, type, numberStyleElements));
+    }
+    const styleNodes = styleDocuments.flatMap(styleDocument => Array.from(styleDocument.getElementsByTagNameNS(style, 'style'))), styleMap = new Map(), columnSizeStyles = new Map(), rowSizeStyles = new Map();
+    if (styleNodes.length > 50_000)
+        throw Error('This ODS workbook defines too many styles to import safely.');
+    for (const node of styleNodes) {
+        const element = node, name = element.getAttributeNS(style, 'name'), family = element.getAttributeNS(style, 'family');
+        if (!name)
+            continue;
+        if (family === 'table-cell') {
+            const base = parseCellStyle(element), dataStyleName = element.getAttributeNS(style, 'data-style-name');
+            styleMap.set(name, cleanStyle({ ...base, ...(dataStyleName ? resolveDataStyle(dataStyleName, dataStyles) : {}) }));
+        }
+        else if (family === 'table-column') {
+            const property = element.getElementsByTagNameNS(style, 'table-column-properties').item(0), width = toPixels(property?.getAttributeNS(style, 'column-width') ?? '');
+            if (width !== null && width >= 8)
+                columnSizeStyles.set(name, Math.max(8, Math.min(600, Math.round(width))));
+        }
+        else if (family === 'table-row') {
+            const property = element.getElementsByTagNameNS(style, 'table-row-properties').item(0), height = toPixels(property?.getAttributeNS(style, 'row-height') ?? '');
+            if (height !== null && height >= 12)
+                rowSizeStyles.set(name, Math.max(12, Math.min(400, Math.round(height))));
+        }
+    }
+    const conditionalStyleMap = importOdsConditionalStyleMaps(styleNodes, styleMap), document = new SpreadsheetDocument(), warnings = [], usedNames = new Set(), workbookNames = importOdfNames(children(officeNode).find(node => node.namespaceURI === table && node.localName === 'named-expressions') ?? null);
+    let formulaCount = 0, formulaImported = 0, formulaPreserved = 0, formulaFallback = 0, clipped = false, dimensionRowsClipped = false, formattedCells = 0, validationRulesImported = 0, hyperlinksImported = 0, filtersImported = 0, chartsImported = 0, drawingsImported = 0, chartFramesSeen = 0, gridForgeObjectsRestored = 0, workbookPopulated = 0;
+    for (let sheetIndex = 0; sheetIndex < sheetNodes.length; sheetIndex++) {
+        const sheetNode = sheetNodes[sheetIndex], sourceName = sheetNode.getAttributeNS(table, 'name') || `Sheet ${sheetIndex + 1}`, name = safeSheetName(sourceName, sheetIndex, usedNames), edits = [], styles = [];
+        let rowIndex = 0, maxRow = 0, maxCol = 0, populated = 0, conditionalCellCount = 0, dimensionRows = 0;
+        const columnWidths = {}, rowHeights = {}, hiddenRows = [], hiddenColumns = [], validationRanges = [], hyperlinkEdits = [], conditionalGroups = new Map(), matrixCovered = new Set();
+        let mergedRanges = [], columnIndex = 0;
+        for (const columnNode of tableMembers(sheetNode, 'table-column')) {
+            const repeats = countAttr(columnNode, table, 'number-columns-repeated', 1), styleName = columnNode.getAttributeNS(table, 'style-name') ?? '', width = columnSizeStyles.get(styleName), collapsed = columnNode.getAttributeNS(table, 'visibility') === 'collapse', available = Math.min(repeats, Math.max(0, MAX_WORKSHEET_COLUMNS - columnIndex));
+            for (let offset = 0; offset < available; offset++) {
+                const index = columnIndex + offset;
+                if (width !== undefined)
+                    columnWidths[index] = width;
+                if (collapsed && index < MAX_WORKSHEET_COLUMNS - 1)
+                    hiddenColumns.push(index);
+            }
+            columnIndex += repeats;
+            if (columnIndex >= MAX_WORKSHEET_COLUMNS)
+                break;
+        }
+        for (const rowNode of tableMembers(sheetNode, 'table-row')) {
+            const repeatRows = countAttr(rowNode, table, 'number-rows-repeated', 1), cells = children(rowNode).filter(node => node.namespaceURI === table && (node.localName === 'table-cell' || node.localName === 'covered-table-cell'));
+            const rowStyleName = rowNode.getAttributeNS(table, 'style-name') ?? '', height = rowSizeStyles.get(rowStyleName), collapsed = rowNode.getAttributeNS(table, 'visibility') === 'collapse', availableRows = Math.min(repeatRows, Math.max(0, MAX_WORKSHEET_ROWS - rowIndex)), dimensionRowsToImport = height === undefined && !collapsed ? 0 : Math.min(availableRows, Math.max(0, MAX_ODS_DIMENSION_ROWS_PER_SHEET - dimensionRows));
+            for (let offset = 0; offset < dimensionRowsToImport; offset++) {
+                if (height !== undefined)
+                    rowHeights[rowIndex + offset] = height;
+                if (collapsed && rowIndex + offset < MAX_WORKSHEET_ROWS - 1)
+                    hiddenRows.push(rowIndex + offset);
+            }
+            if (dimensionRowsToImport < availableRows && (height !== undefined || collapsed))
+                dimensionRowsClipped = true;
+            dimensionRows += dimensionRowsToImport;
+            const rowValues = [];
+            for (const cell of cells) {
+                const repeat = countAttr(cell, table, 'number-columns-repeated', 1), formula = cell.getAttributeNS(table, 'formula'), sourceFormula = cell.getAttributeNS(gridforgeNs, 'source-formula'), preservedFormula = typeof sourceFormula === 'string' && sourceFormula.startsWith('=') && sourceFormula.length <= 8192 ? sourceFormula : null, formulaRaw = preservedFormula ?? (formula ? formulaFromOds(formula) : null), type = cell.getAttributeNS(office, 'value-type');
+                if (formula || preservedFormula) {
+                    formulaCount++;
+                    if (preservedFormula)
+                        formulaPreserved++;
+                    else if (formulaRaw)
+                        formulaImported++;
+                    else
+                        formulaFallback++;
+                }
+                const cellStyleName = cell.getAttributeNS(table, 'style-name'), cellStyle = cellStyleName ? styleMap.get(cellStyleName) : undefined, conditional = cellStyleName ? conditionalStyleMap.get(cellStyleName) : undefined, validationName = cell.getAttributeNS(table, 'content-validation-name') ?? undefined, hyperlink = importOdfHyperlink(cell), matrixRowsRaw = cell.getAttributeNS(table, 'number-matrix-rows-spanned'), matrixColsRaw = cell.getAttributeNS(table, 'number-matrix-columns-spanned'), matrixRows = matrixRowsRaw ? Number(matrixRowsRaw) : 0, matrixCols = matrixColsRaw ? Number(matrixColsRaw) : 0, push = (raw, dateFormatCode) => rowValues.push({ raw: formulaRaw ?? raw, repeat, spanCols: countAttr(cell, table, 'number-columns-spanned', 1), spanRows: countAttr(cell, table, 'number-rows-spanned', 1), ...(formulaRaw && formula && Number.isSafeInteger(matrixRows) && Number.isSafeInteger(matrixCols) && matrixRows > 0 && matrixCols > 0 && matrixRows * matrixCols <= 20_000 ? { matrixRows, matrixCols } : {}), ...(dateFormatCode ? { dateFormatCode } : {}), ...(cellStyle ? { style: cellStyle } : {}), ...(conditional ? { conditional } : {}), ...(validationName ? { validationName } : {}), ...(hyperlink ? { hyperlink } : {}) });
+                let value = '';
+                if (type === 'float' || type === 'percentage' || type === 'currency') {
+                    const raw = cell.getAttributeNS(office, 'value'), numeric = Number(raw);
+                    value = raw && Number.isFinite(numeric) ? String(numeric) : cellText(cell);
+                }
+                else if (type === 'boolean')
+                    value = cell.getAttributeNS(office, 'boolean-value') === 'true' ? 'TRUE' : 'FALSE';
+                else if (type === 'error') {
+                    value = cell.getAttributeNS(office, 'string-value') ?? cellText(cell);
+                    push(odsCachedErrorFormula(value) ?? `'${value}`);
+                    continue;
+                }
+                else if (type === 'date') {
+                    const dateValue = cell.getAttributeNS(office, 'date-value') ?? '', serial = isoDateSerial(dateValue);
+                    value = serial === null ? cellText(cell) : String(serial);
+                    if (serial !== null)
+                        push(value, cellStyle?.dateFormatCode ?? (/T/.test(dateValue) ? 'yyyy-mm-dd hh:mm:ss' : 'yyyy-mm-dd'));
+                    else
+                        push(`'${value}`);
+                    continue;
+                }
+                else if (type === 'time') {
+                    const serial = timeSerial(cell.getAttributeNS(office, 'time-value') ?? '');
+                    value = serial === null ? cellText(cell) : String(serial);
+                    if (serial !== null)
+                        push(value, cellStyle?.dateFormatCode ?? 'hh:mm:ss');
+                    else
+                        push(`'${value}`);
+                    continue;
+                }
+                else
+                    value = cellText(cell);
+                const cachedError = formula && !formulaRaw ? odsCachedErrorFormula(value) : null;
+                push(cachedError ?? (type === '' || type === 'string' ? `'${value}` : value));
+            }
+            const effectiveRows = Math.min(repeatRows, Math.max(0, MAX_WORKSHEET_ROWS - rowIndex));
+            if (effectiveRows < repeatRows)
+                clipped = true;
+            let validationColumn = 0;
+            for (const item of rowValues) {
+                if (item.validationName) {
+                    const permitted = Math.min(item.repeat, Math.max(0, MAX_WORKSHEET_COLUMNS - validationColumn)), effectiveEnd = Math.min(rowIndex + effectiveRows - 1, rowIndex + repeatRows - 1);
+                    if (permitted > 0 && effectiveEnd >= rowIndex) {
+                        validationRanges.push({ name: item.validationName, fromRow: rowIndex, toRow: effectiveEnd, fromCol: validationColumn, toCol: validationColumn + permitted - 1 });
+                        maxRow = Math.max(maxRow, effectiveEnd);
+                        maxCol = Math.max(maxCol, validationColumn + permitted - 1);
+                    }
+                }
+                validationColumn += item.repeat;
+            }
+            if (!rowValues.some(item => item.raw !== "'" || item.style || item.conditional || item.dateFormatCode || item.spanCols > 1 || item.spanRows > 1 || item.validationName || item.hyperlink)) {
+                rowIndex += repeatRows;
+                if (rowIndex >= MAX_WORKSHEET_ROWS)
+                    break;
+                continue;
+            }
+            for (let rowOffset = 0; rowOffset < effectiveRows; rowOffset++) {
+                let column = 0;
+                for (const item of rowValues) {
+                    const permitted = Math.min(item.repeat, Math.max(0, MAX_WORKSHEET_COLUMNS - column));
+                    if (permitted < item.repeat)
+                        clipped = true;
+                    if (item.spanCols > 1 || item.spanRows > 1) {
+                        if (item.repeat !== 1 || rowOffset + item.spanRows > MAX_WORKSHEET_ROWS - rowIndex || column + item.spanCols > MAX_WORKSHEET_COLUMNS)
+                            warnings.push(`${sourceName}: an OpenDocument merged range at ${colToName(column)}${rowIndex + rowOffset + 1} exceeded supported bounds and was ignored.`);
+                        else
+                            try {
+                                mergedRanges = addMergedRange(mergedRanges, `${colToName(column)}${rowIndex + rowOffset + 1}:${colToName(column + item.spanCols - 1)}${rowIndex + rowOffset + item.spanRows}`, MAX_WORKSHEET_ROWS, MAX_WORKSHEET_COLUMNS);
+                                maxRow = Math.max(maxRow, rowIndex + rowOffset + item.spanRows - 1);
+                                maxCol = Math.max(maxCol, column + item.spanCols - 1);
+                            }
+                            catch (error) {
+                                warnings.push(`${sourceName}: an invalid or overlapping OpenDocument merged range was ignored (${error instanceof Error ? error.message : 'invalid range'}).`);
+                            }
+                    }
+                    if ((item.raw !== "'" || item.style || item.conditional || item.dateFormatCode || item.hyperlink) && permitted) {
+                        if (populated + permitted > MAX_WORKSHEET_POPULATED_CELLS)
+                            throw Error(`${sourceName} exceeds GridForge’s ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()} populated-cell import limit.`);
+                        if (workbookPopulated + populated + permitted > MAX_WORKBOOK_POPULATED_CELLS)
+                            throw Error(`This ODS workbook exceeds GridForge’s ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()} total imported-cell limit.`);
+                        for (let duplicate = 0; duplicate < permitted; duplicate++) {
+                            const ref = `${colToName(column + duplicate)}${rowIndex + rowOffset + 1}`, raw = item.raw.startsWith('=') && (rowOffset || duplicate) ? shiftFormula(item.raw, rowOffset, duplicate) : item.raw;
+                            if (item.matrixRows && item.matrixCols && item.raw.startsWith('=') && item.matrixRows * item.matrixCols <= 20_000)
+                                for (let matrixRow = 0; matrixRow < item.matrixRows; matrixRow++)
+                                    for (let matrixColumn = 0; matrixColumn < item.matrixCols; matrixColumn++)
+                                        if (matrixRow || matrixColumn)
+                                            matrixCovered.add(`${colToName(column + matrixColumn)}${rowIndex + rowOffset + matrixRow + 1}`);
+                            if (!matrixCovered.has(ref) && (raw !== "'" || item.style || item.dateFormatCode))
+                                edits.push({ ref, raw });
+                            if (item.conditional && conditionalCellCount < 100_000)
+                                for (const rule of item.conditional) {
+                                    const key = JSON.stringify({ operator: rule.operator, threshold: rule.threshold, threshold2: rule.threshold2, formula: rule.formula, color: rule.color }), group = conditionalGroups.get(key) ?? { rule, points: new Set() };
+                                    group.points.add(`${rowIndex + rowOffset}:${column + duplicate}`);
+                                    conditionalGroups.set(key, group);
+                                    conditionalCellCount++;
+                                }
+                            if (item.hyperlink) {
+                                if (hyperlinkEdits.length < 10_000)
+                                    hyperlinkEdits.push({ ref, ...item.hyperlink });
+                                else if (hyperlinkEdits.length === 10_000)
+                                    warnings.push(`${sourceName}: hyperlinks beyond the 10,000-link limit were skipped.`);
+                            }
+                            const importedStyle = { ...(item.style ?? {}), ...(item.dateFormatCode ? { dateFormatCode: item.dateFormatCode } : {}) };
+                            if (Object.keys(importedStyle).length) {
+                                styles.push({ ref, style: importedStyle });
+                                formattedCells++;
+                            }
+                        }
+                        populated += permitted;
+                        maxCol = Math.max(maxCol, column + permitted - 1);
+                        maxRow = Math.max(maxRow, rowIndex + rowOffset);
+                    }
+                    column += item.repeat;
+                    if (column >= MAX_WORKSHEET_COLUMNS)
+                        break;
+                }
+            }
+            rowIndex += repeatRows;
+            if (rowIndex >= MAX_WORKSHEET_ROWS)
+                break;
+        }
+        for (const range of validationRanges) {
+            const source = validationDefinitions.get(range.name)?.sourceRange;
+            if (!source)
+                continue;
+            const parts = source.split(':'), from = parseRef(parts[0] ?? ''), to = parseRef(parts[1] ?? parts[0] ?? '');
+            if (from && to) {
+                maxRow = Math.max(maxRow, to.row);
+                maxCol = Math.max(maxCol, to.col);
+            }
+        }
+        const rowExtent = Math.max(maxRow + 1, ...Object.keys(rowHeights).map(Number).map(index => index + 1), ...hiddenRows.map(index => index + 1)), columnExtent = Math.max(maxCol + 1, ...Object.keys(columnWidths).map(Number).map(index => index + 1), ...hiddenColumns.map(index => index + 1));
+        const workbook = new Workbook(Math.max(400, rowExtent), Math.max(52, columnExtent));
+        const targetSheet = sheetIndex === 0 ? (document.active.book = workbook, document.renameSheet(document.activeId, name), document.active) : document.addSheet(name, workbook, true);
+        targetSheet.hidden = sheetNode.getAttributeNS(table, 'display') === 'false';
+        targetSheet.tools.columnWidths = columnWidths;
+        targetSheet.tools.rowHeights = rowHeights;
+        targetSheet.tools.hiddenRows = hiddenRows;
+        targetSheet.tools.hiddenColumns = hiddenColumns;
+        targetSheet.tools.mergedRanges = mergedRanges;
+        const importedPageSetup = pageSetupFromOdf(sheetNode, tableMasterNames, masterPages, pageLayouts);
+        if (Object.keys(importedPageSetup).length)
+            try {
+                targetSheet.tools = validateTools({ ...targetSheet.tools, pageSetup: { ...targetSheet.tools.pageSetup, ...importedPageSetup } }, workbook.rows, workbook.cols);
+            }
+            catch (error) {
+                warnings.push(`${sourceName}: invalid OpenDocument print settings were ignored (${error instanceof Error ? error.message : 'invalid page setup'}).`);
+            }
+        const localNames = importOdfNames(children(sheetNode).find(node => node.namespaceURI === table && node.localName === 'named-expressions') ?? null);
+        if (localNames.length)
+            try {
+                workbook.setDefinedNames(localNames, false);
+            }
+            catch (error) {
+                warnings.push(`${sourceName}: defined names were partly ignored (${error instanceof Error ? error.message : 'invalid name'}).`);
+            }
+        const importedValidations = [], validationKey = (item) => { const { start: _start, end: _end, ...criteria } = item; return JSON.stringify(Object.fromEntries(Object.entries(criteria).sort(([a], [b]) => a.localeCompare(b)))); };
+        for (const range of validationRanges) {
+            const definition = validationDefinitions.get(range.name);
+            if (!definition)
+                continue;
+            const start = `${colToName(range.fromCol)}${range.fromRow + 1}`, end = `${colToName(range.toCol)}${range.toRow + 1}`, candidate = { ...definition, start, end };
+            const prior = importedValidations.findIndex(item => validationKey(item) === validationKey(candidate) && parseRef(item.start)?.col === range.fromCol && parseRef(item.end)?.col === range.toCol && parseRef(item.end).row + 1 === range.fromRow);
+            if (prior >= 0)
+                importedValidations[prior].end = end;
+            else if (importedValidations.length < 100)
+                importedValidations.push(candidate);
+            else {
+                warnings.push(`${sourceName}: additional OpenDocument validation ranges exceeded GridForge’s 100-rule limit.`);
+                break;
+            }
+        }
+        const importedFilter = importOdfFilter(databaseRangeContainer, sourceName), importedConditional = [...compactOdsConditionalCells(conditionalGroups), ...importOdsConditionalFormats(sheetNode, sourceName)].slice(0, 30), shapeRoot = children(sheetNode).find(node => node.namespaceURI === table && node.localName === 'shapes'), importedDrawings = shapeRoot ? importNativeOdfDrawings(shapeRoot, styleNodes, sourceName, sheetIndex, columnWidths, rowHeights) : [], chartEdits = [];
+        if (conditionalCellCount >= 100_000)
+            warnings.push(`${sourceName}: conditional styles beyond the 100,000-cell import limit were skipped.`);
+        if (shapeRoot)
+            for (const frame of children(shapeRoot).filter(node => node.namespaceURI === drawNs && node.localName === 'frame').slice(0, 24)) {
+                const description = children(frame).find(node => node.namespaceURI === 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0' && node.localName === 'desc')?.textContent ?? '', metadata = /GridForgeChart:([A-Za-z0-9%._~!$&'()*+,;=:@/-]{1,30000})/.exec(description)?.[1], nativeObject = children(frame).some(node => node.namespaceURI === drawNs && node.localName === 'object');
+                if (metadata || nativeObject)
+                    chartFramesSeen++;
+                if (metadata) {
+                    try {
+                        const raw = JSON.parse(decodeURIComponent(metadata));
+                        if (typeof raw.id !== 'string' || chartEdits.some(chart => chart.id === raw.id))
+                            raw.id = `chart-ods-${sheetIndex + 1}-${chartEdits.length + 1}`;
+                        chartEdits.push(validateChart(raw, workbook.rows, workbook.cols));
+                    }
+                    catch {
+                        warnings.push(`${sourceName}: a GridForge chart contained invalid settings and was skipped.`);
+                    }
+                }
+                else {
+                    const chart = importNativeOdfChart(frame, archive, sourceName, `chart-ods-${sheetIndex + 1}-${chartEdits.length + 1}`);
+                    if (chart)
+                        chartEdits.push(chart);
+                }
+            }
+        if (importedValidations.length || hyperlinkEdits.length || importedFilter || chartEdits.length || importedConditional.length || importedDrawings.length)
+            try {
+                targetSheet.tools = validateTools({ ...targetSheet.tools, dataValidations: importedValidations, hyperlinks: hyperlinkEdits, filter: importedFilter, charts: chartEdits, conditional: importedConditional, drawings: importedDrawings }, workbook.rows, workbook.cols);
+                validationRulesImported += targetSheet.tools.dataValidations.length;
+                hyperlinksImported += targetSheet.tools.hyperlinks.length;
+                chartsImported += targetSheet.tools.charts.length;
+                drawingsImported += targetSheet.tools.drawings.length;
+                if (targetSheet.tools.filter)
+                    filtersImported++;
+            }
+            catch (error) {
+                warnings.push(`${sourceName}: some OpenDocument validation rules, hyperlinks, charts, drawings, filters, or supported conditional styles were not restored (${error instanceof Error ? error.message : 'invalid worksheet tool'}).`);
+            }
+        const objectPayload = sheetNode.getAttributeNS(gridforgeNs, 'sheet-objects');
+        if (objectPayload) {
+            if (objectPayload.length > 1_000_000)
+                warnings.push(`${sourceName}: GridForge worksheet-object metadata exceeded the 1 MB import limit and was ignored.`);
+            else
+                try {
+                    const parsed = JSON.parse(objectPayload);
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                        throw Error('Invalid worksheet-object metadata.');
+                    const extension = {};
+                    for (const key of ['conditional', 'drawings', 'tables', 'pivotTables', 'pivotSlicers', 'queries'])
+                        if (parsed[key] !== undefined) {
+                            if (!Array.isArray(parsed[key]))
+                                throw Error(`Invalid ${key} metadata.`);
+                            extension[key] = parsed[key];
+                        }
+                    targetSheet.tools = validateTools({ ...targetSheet.tools, ...extension }, workbook.rows, workbook.cols);
+                    gridForgeObjectsRestored += Object.values(extension).reduce((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0);
+                }
+                catch (error) {
+                    warnings.push(`${sourceName}: GridForge-only worksheet objects could not be restored (${error instanceof Error ? error.message : 'invalid metadata'}).`);
+                }
+        }
+        for (let offset = 0; offset < edits.length; offset += 2048)
+            workbook.applyEdits(edits.slice(offset, offset + 2048), false, false);
+        for (let offset = 0; offset < styles.length; offset += 2048)
+            workbook.applyStyles(styles.slice(offset, offset + 2048), false);
+        workbookPopulated += populated;
+    }
+    const nativePivotsImported = importOdfPivots(officeNode, document, warnings);
+    if (workbookNames.length)
+        try {
+            document.setWorkbookDefinedNames(workbookNames, true);
+        }
+        catch (error) {
+            warnings.push(`Workbook defined names were partly ignored (${error instanceof Error ? error.message : 'invalid name'}).`);
+        }
+    if (formulaFallback)
+        warnings.push(`${formulaFallback.toLocaleString()} ODS formulas used syntax GridForge could not translate and were imported as cached values.`);
+    if (formulaImported)
+        warnings.push(`${formulaImported.toLocaleString()} ODS formulas were translated to GridForge formulas and will be recalculated by GridForge; function and locale semantics can differ.`);
+    if (formulaPreserved)
+        warnings.push(`${formulaPreserved.toLocaleString()} original formula texts were restored from GridForge-specific ODS metadata; formulas outside the translation subset may not calculate like Calc formulas.`);
+    if (document.sheets.every(sheet => sheet.hidden)) {
+        document.sheets[0].hidden = false;
+        warnings.push('The source workbook marked every worksheet hidden; the first worksheet was made visible so the imported workbook remains usable.');
+    }
+    else if (document.active.hidden) {
+        const firstVisible = document.sheets.find(sheet => !sheet.hidden);
+        if (firstVisible)
+            document.activeId = firstVisible.id;
+    }
+    warnings.push(`ODS import restored ${formattedCells.toLocaleString()} cells with supported formatting, merged cells, ${validationRulesImported.toLocaleString()} data-validation rules, ${hyperlinksImported.toLocaleString()} hyperlinks, ${filtersImported.toLocaleString()} AutoFilters, ${chartsImported.toLocaleString()} GridForge charts, ${nativePivotsImported.toLocaleString()} native Data Pilot definitions, ${drawingsImported.toLocaleString()} editable drawings, ${gridForgeObjectsRestored.toLocaleString()} GridForge-only worksheet objects, print settings, row/column dimensions and hidden sheet/row/column state.`);
+    if (chartFramesSeen > chartsImported)
+        warnings.push(`${(chartFramesSeen - chartsImported).toLocaleString()} chart or drawing objects from other spreadsheet applications could not be converted to editable GridForge charts.`);
+    warnings.push('Conditional custom number formats and ODF conditional styles beyond numeric comparison or interval fills remain partial. Native Data Pilot import/export covers standard row, column, page, and aggregate fields, per-field name sorting, subtotals, and supported date, numeric, and manual grouping. ISO-week grouping, calculated display modes, multi-select page filters, manual/value sorting, and other application-specific pivot settings remain GridForge-metadata-only. Macros and unrelated embedded objects remain unsupported.');
+    if (clipped)
+        warnings.push('Worksheet rows or columns beyond GridForge’s configured limits were clipped.');
+    if (dimensionRowsClipped)
+        warnings.push(`Some repeated row heights or hidden-row settings were not expanded beyond the ${MAX_ODS_DIMENSION_ROWS_PER_SHEET.toLocaleString()}-row ODS dimension limit per worksheet.`);
+    return { document, warnings };
+}

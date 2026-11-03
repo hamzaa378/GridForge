@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-/** Complete registry manifest and reproducible per-function fixture generation.
+/** Re-evaluate GridForge against the frozen 506-case desktop-Excel fixture.
+ * Recipe coverage is checked, but the Excel-derived fixture is read-only here.
  * A worksheet-level smoke test per function is NOT equivalent to Excel parity.
  * No Python, Excel or external formula engine is used here.
  */
@@ -10,8 +11,12 @@ import {Workbook} from '../dist/engine/workbook.js';
 const ROOT=new URL('../',import.meta.url);
 const sources=JSON.parse(fs.readFileSync(new URL('../tests/parity_506_recipe_sources.json',import.meta.url)));
 const sourceByName=new Map(sources.map(x=>[x.name,x]));
-const offlineFunctionNames=functionNames.filter(name=>!connectedFunctionNames.includes(name));
-if(offlineFunctionNames.length!==506||new Set(offlineFunctionNames).size!==506||sourceByName.size!==506||offlineFunctionNames.some(name=>!sourceByName.has(name)))throw Error('Offline registry/fixture coverage is not exactly 506 unique names');
+// Keep the original Excel-comparison probe set frozen. The live registry now
+// has workbook-context GETPIVOTDATA and classifies CUBESETCOUNT as connected;
+// changing either probe would invalidate the saved desktop-Excel fixture.
+const historicalLocalNames=functionNames.filter(name=>!connectedFunctionNames.includes(name)&&name!=='GETPIVOTDATA');
+const offlineFunctionNames=[...historicalLocalNames,'CUBESETCOUNT'].sort();
+if(offlineFunctionNames.length!==506||new Set(offlineFunctionNames).size!==506||sourceByName.size!==506||offlineFunctionNames.some(name=>!sourceByName.has(name)))throw Error('Historical Excel parity fixture must cover 506 unique names');
 const volatile=new Set(['RAND','RANDBETWEEN','RANDARRAY','NOW','TODAY']);
 const nonExcelOrLimited=new Set(['BYROW','BYCOL','MAKEARRAY','MAP','REDUCE','SCAN','LET','LAMBDA','ISOMITTED','GROUPBY','PIVOTBY','FLATTEN','TRIMRANGE','PERCENTOF','DETECTLANGUAGE','TRANSLATE','IMAGE','FIELDVALUE','FILTERXML','FORECAST.ETS','FORECAST.ETS.CONFINT','FORECAST.ETS.SEASONALITY','FORECAST.ETS.STAT','CUBESETCOUNT','INFO','SHEET','SHEETS','BAHTTEXT','PHONETIC']);
 const arrays=new Set(['CHOOSECOLS','CHOOSEROWS','DROP','EXPAND','FILTER','FREQUENCY','GROWTH','HSTACK','LINEST','LOGEST','MAKEARRAY','MAP','MDETERM_____','MINVERSE','MMULT','MODE.MULT','MUNIT','RANDARRAY','SCAN','SEQUENCE','SORT','SORTBY','TAKE','TEXTSPLIT','TOCOL','TOROW','TRANSPOSE','TREND','TRIMRANGE','UNIQUE','VSTACK','WRAPCOLS','WRAPROWS','BYROW','BYCOL','GROUPBY','PIVOTBY','FLATTEN']);
@@ -73,7 +78,7 @@ function argFormula(arg, inputs, serial){
  }
  throw Error('Unsupported fixture argument '+JSON.stringify(arg));
 }
-const records=[];
+const generatedRecords=[];
 for(const name of offlineFunctionNames){
  const recipe=sourceByName.get(name);
  const inputs=common(recipe.stage);
@@ -88,10 +93,14 @@ for(const name of offlineFunctionNames){
  // Wrapping in INDEX makes that scalar observable without falsely claiming spill parity.
  if(matrixOutput&&!/^=INDEX\(/i.test(formula)){formula=`=INDEX(${formula.slice(1)},1,1)`;}
  const scope=volatile.has(name)?'volatile':nonExcelOrLimited.has(name)?'limited-semantics':matrixOutput?'array-index':'scalar';
- records.push({id:`F${String(records.length+1).padStart(4,'0')}`,function:name,category:functionCategory(name),stage:recipe.stage,scope,formula,inputs});
+ generatedRecords.push({id:`F${String(generatedRecords.length+1).padStart(4,'0')}`,function:name,category:functionCategory(name),stage:recipe.stage,scope,formula,inputs});
 }
-const output={schema:'gridforge-excel-full-registry/1',functionCount:506,comparisonCell:'Z20',description:'One auditable formula invocation per registered function. Not proof of behavior beyond each fixture.',cases:records};
-fs.writeFileSync(new URL('../tests/excel_parity_506_cases.json',import.meta.url),JSON.stringify(output,null,2)+'\n');
+// Excel's saved specimen hash is tied to the frozen case document. Rebuilding
+// the source recipes would change inputs and invalidate that actual Excel run.
+const output=JSON.parse(fs.readFileSync(new URL('../tests/excel_parity_506_cases.json',import.meta.url),'utf8'));
+const records=output.cases;
+if(records.length!==506||records.some((record,index)=>record.id!==`F${String(index+1).padStart(4,'0')}`||!functions[record.function]))throw Error('Frozen Excel comparison fixture is incomplete or uses an unregistered name.');
+if(generatedRecords.length!==506)throw Error('Current recipe registry no longer covers the frozen Excel comparison set.');
 const results=[];
 for(const c of records){
  const book=new Workbook(400,52);

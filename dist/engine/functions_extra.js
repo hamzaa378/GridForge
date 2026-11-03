@@ -4,7 +4,7 @@
  * dates use Excel's 1900 date system
  * with UTC arithmetic; unsupported advanced Excel options are documented.
  */
-import { SheetError, flatten, number, text, bool, matchCriterion } from './functions.js';
+import { SheetError, flatten, number, text, bool, isSheetError, matchCriterion } from './functions.js';
 import { parseLocaleNumberText } from './locale_number.js';
 import { parseTimeOfDayText } from './time_text.js';
 const fail = (code, message) => { throw new SheetError(code, message); };
@@ -84,6 +84,38 @@ const gcd = (a, b) => { a = Math.abs(Math.trunc(a)); b = Math.abs(Math.trunc(b))
     b = r;
 } return a; };
 const one = (name, example, fn) => def(name, example, a => { req(a, 1); return finite(fn(n(a, 0))); });
+const logicalXor = (args) => {
+    if (args.length < 1 || args.length > 255)
+        fail('#ARG!', 'XOR requires 1 to 255 arguments.');
+    let found = false, parity = false;
+    const visit = (value, fromArray) => {
+        if (Array.isArray(value)) {
+            for (const row of value)
+                for (const cell of row)
+                    visit(cell, true);
+            return;
+        }
+        if (isSheetError(value))
+            throw value;
+        if (value === null || value === '') {
+            if (fromArray)
+                return;
+            found = true;
+            return;
+        }
+        if (typeof value === 'string') {
+            if (fromArray)
+                return;
+            fail('#VALUE!', 'XOR direct arguments must be logical values or numbers.');
+        }
+        found = true;
+        parity = parity !== (typeof value === 'boolean' ? value : value !== 0);
+    };
+    args.forEach(value => visit(value, false));
+    if (!found)
+        fail('#VALUE!', 'XOR requires at least one logical value.');
+    return parity;
+};
 // Excel 1900 serial dates: serial 60 is Excel's fictitious 1900-02-29.
 const dayMs = 86400000, epoch = Date.UTC(1899, 11, 31);
 const excelDate = (v) => { const t = v.getTime(); if (!Number.isFinite(t))
@@ -364,7 +396,7 @@ export const moreFunctions = {
             fail('#NUM!', 'WORKDAY too many iterations.');
     } return serial; }),
     // 8 logical / conditional aggregations / lookup functions
-    XOR: def('TRUE for an odd number of truthy arguments.', '=XOR(TRUE,FALSE,TRUE)', a => flatten(a).reduce((acc, v) => acc + (bool(v) ? 1 : 0), 0) % 2 === 1),
+    XOR: def('TRUE for an odd number of logical arguments; text and blanks in referenced arrays are ignored.', '=XOR(TRUE,FALSE,TRUE)', logicalXor),
     IFS: def('First true condition and corresponding value, lazily evaluated.', '=IFS(A1>90,"A",A1>80,"B",TRUE,"C")', () => fail('#INTERNAL!', 'IFS must be evaluated lazily.')),
     SWITCH: def('Match expression against cases, with optional default, lazily.', '=SWITCH(A1,1,"one",2,"two","other")', () => fail('#INTERNAL!', 'SWITCH must be evaluated lazily.')),
     SUMIFS: def('Sum values matching multiple criteria ranges.', '=SUMIFS(C1:C5,A1:A5,"North",B1:B5,">3")', a => { const x = multipleCriteria(a, true); return finite(sum(x.values.filter((v, i) => matchesAll(x.ranges, x.criteria, i) && typeof v === 'number'))); }),
@@ -379,7 +411,7 @@ export const moreFunctions = {
         const vertical = lookupMatrix.length > 1 && lookupMatrix[0].length === 1, horizontal = lookupMatrix.length === 1 && lookupMatrix[0].length > 1;
         if (lookupMatrix.some(row => row.length !== lookupMatrix[0].length) || lookupMatrix.length > 1 && lookupMatrix[0].length > 1)
             fail('#VALUE!', 'XLOOKUP lookup_array must be a single row or column.');
-        if (vertical ? returnMatrix.length !== lookup.length : horizontal ? returnMatrix.some(row => row.length !== lookup.length) : returnMatrix.length !== 1 && returnMatrix[0].length !== 1)
+        if (vertical ? returnMatrix.length !== lookup.length : horizontal ? returnMatrix.some(row => row.length !== lookup.length) : returnMatrix.length !== 1 || returnMatrix[0].length !== 1)
             fail('#VALUE!', 'XLOOKUP return_array must align with lookup_array.');
         if (returnMatrix.some(row => row.length !== returnMatrix[0].length))
             fail('#VALUE!', 'XLOOKUP return_array must be rectangular.');

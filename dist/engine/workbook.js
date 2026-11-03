@@ -1,5 +1,5 @@
 import { colToName, normalizeRef, parseFormula, parseRef, externalReferences, FormulaSyntaxError } from './parser.js';
-import { bool, error, functions, matchCriterion, number, SheetError, text } from './functions.js';
+import { bool, error, functions, isSheetError, matchCriterion, number, SheetError, text } from './functions.js';
 import { cleanStyle, isExcelDateNumberFormat } from './format.js';
 import { resolveStructuredFormula } from './tables.js';
 import { MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_POPULATED_CELLS, MAX_WORKSHEET_ROWS } from './limits.js';
@@ -7,6 +7,7 @@ function allowsSparseLargeLocalRanges(node, rows, cols, sheetName) {
     if (node.type !== 'call')
         return false;
     const localRange = (argument) => ((argument.type === 'ref' || argument.type === 'range') && (!argument.sheet || argument.sheet.toLocaleLowerCase() === sheetName.toLocaleLowerCase()));
+    const scalarCriterion = (argument) => argument.type === 'literal' || argument.type === 'error' || argument.type === 'ref' || (argument.type === 'unary' && scalarCriterion(argument.expr)) || (argument.type === 'binary' && scalarCriterion(argument.left) && scalarCriterion(argument.right));
     if (['SUM', 'AVERAGE', 'MIN', 'MAX', 'PRODUCT', 'STDEV', 'VAR', 'STDEV.S', 'VAR.S', 'STDEV.P', 'VAR.P'].includes(node.name))
         return node.args.length >= 1 && node.args.length <= 255 && node.args.every(localRange);
     if (node.name === 'MEDIAN')
@@ -15,10 +16,14 @@ function allowsSparseLargeLocalRanges(node, rows, cols, sheetName) {
         return node.args.length === 2 && localRange(node.args[0]) && node.args[1].type !== 'range' && !(node.args[1].type === 'ref' && node.args[1].sheet && node.args[1].sheet.toLocaleLowerCase() !== sheetName.toLocaleLowerCase());
     if (['COUNT', 'COUNTA', 'COUNTBLANK'].includes(node.name))
         return node.args.length >= 1 && node.args.length <= 255 && node.args.every(localRange);
+    if (node.name === 'COUNTIF')
+        return node.args.length === 2 && localRange(node.args[0]) && scalarCriterion(node.args[1]);
+    if (node.name === 'SUMIF' || node.name === 'AVERAGEIF')
+        return (node.args.length === 2 || node.args.length === 3) && localRange(node.args[0]) && (node.args.length === 2 || localRange(node.args[2]));
     if (node.name === 'COUNTIFS')
         return node.args.length >= 2 && node.args.length % 2 === 0 && node.args.filter((_, index) => index % 2 === 0).every(localRange);
     if (['SUMIFS', 'AVERAGEIFS', 'MAXIFS', 'MINIFS'].includes(node.name))
-        return node.args.length >= 3 && node.args.length % 2 === 1 && node.args.every((argument, index) => index % 2 === 0 ? localRange(argument) : true);
+        return node.args.length >= 3 && node.args.length % 2 === 1 && localRange(node.args[0]) && node.args.filter((_, index) => index >= 1 && index % 2 === 1).every(localRange);
     return false;
 }
 function collectLocalFormulaDependencies(node, rows, cols, allowLargeRanges = false) {
@@ -59,6 +64,13 @@ function collectLocalFormulaDependencies(node, rows, cols, allowLargeRanges = fa
 }
 const displayNumber = (n) => Number.isFinite(n) ? (Object.is(n, -0) ? '0' : String(Number(n.toPrecision(15)))) : '#NUM!';
 const MAX_SPILL_CELLS = 20_000;
+const logicalTest = (value, functionName) => {
+    if (isSheetError(value))
+        throw value;
+    if (typeof value === 'string')
+        return error('#VALUE!', `${functionName} logical test must evaluate to a logical value or number.`);
+    return typeof value === 'boolean' ? value : typeof value === 'number' ? value !== 0 : false;
+};
 export function display(result) {
     if (result.error)
         return result.error.code;
@@ -153,6 +165,15 @@ export class Workbook {
         return; const point = parseRef(ref); if (!point)
         return; const rows = this.populatedRowsByColumn.get(point.col); rows?.delete(point.row); if (rows?.size === 0)
         this.populatedRowsByColumn.delete(point.col); }
+    /** Return only stored cells in a rectangle, using the sparse column index. */
+    populatedRefsInBounds(top, bottom, left, right) {
+        const refs = [];
+        for (let col = left; col <= right; col++)
+            for (const row of this.populatedRowsByColumn.get(col) ?? [])
+                if (row >= top && row <= bottom)
+                    refs.push(`${colToName(col)}${row + 1}`);
+        return refs;
+    }
     /** Link this worksheet to its containing document so formulas can resolve sheet-qualified references. */
     setSheetContext(name, resolver, onCellsChanged, spillResolver, documentSheetNames = [], hiddenRowsForSheet, nestedAggregateForSheet, rawResolver, deferRecalculation = false, hiddenColumnsForSheet) {
         const namesChanged = this.sheetName !== name || this.documentSheetNames.join('\u0000') !== documentSheetNames.join('\u0000');
@@ -390,6 +411,17 @@ export class Workbook {
         this.valueRevisionCounter++;
     }
     getRaw(ref) { return this.raw.get(known(ref, this.rows, this.cols)) ?? ''; }
+    /** Collect finite numeric results from a range without scanning its blank cells. */
+    getNumericValuesInRange(fromRef, toRef) { const from = parseRef(fromRef), to = parseRef(toRef); if (!from || !to)
+        return []; const top = Math.min(from.row, to.row), bottom = Math.min(this.rows - 1, Math.max(from.row, to.row)), left = Math.min(from.col, to.col), right = Math.min(this.cols - 1, Math.max(from.col, to.col)); if (top > bottom || left > right)
+        return []; const values = []; for (let col = left; col <= right; col++)
+        for (const row of this.populatedRowsByColumn.get(col) ?? []) {
+            if (row < top || row > bottom)
+                continue;
+            const result = this.getValue(`${colToName(col)}${row + 1}`);
+            if (!result.error && typeof result.value === 'number' && Number.isFinite(result.value))
+                values.push(result.value);
+        } return values; }
     /** Return safe navigation metadata for a direct HYPERLINK formula, when its target is understood. */
     getHyperlinkInfo(ref) {
         const key = known(ref, this.rows, this.cols), node = this.ast.get(key);
@@ -838,6 +870,33 @@ export class Workbook {
         this.setDefinedNames(op.namesAfter, false); this.applyEdits(op.after, false); this.applyStyles(op.styleAfter, false); this.undoStack.push(op); return true; }
     get canUndo() { return this.undoStack.length > 0; }
     get canRedo() { return this.redoStack.length > 0; }
+    get undoToken() { return this.undoStack.at(-1) ?? null; }
+    get redoToken() { return this.redoStack.at(-1) ?? null; }
+    recordHistoryCheckpoint() { this.undoStack.push({ before: [], after: [], styleBefore: [], styleAfter: [] }); if (this.undoStack.length > 150)
+        this.undoStack.shift(); this.redoStack = []; }
+    /** Evaluate a formula as if it were entered in `ref`, without changing workbook cells.
+     *  Used by formula-driven features such as conditional formatting. */
+    evaluateFormulaAt(formula, ref) {
+        try {
+            ref = known(ref, this.rows, this.cols);
+            const ast = parseFormula(formula);
+            // Keep the cell context for ROW()/COLUMN(), but use absolute reference
+            // spelling so a formula condition can read the target cell's calculated
+            // value without being mistaken for a circular cell formula dependency.
+            const point = parseRef(ref);
+            const contextRef = `$${colToName(point.col)}$${point.row + 1}`, identity = this.sheetName ? `${this.sheetName}!${contextRef}` : contextRef;
+            const value = this.evaluate(ast, [identity]);
+            if (Array.isArray(value))
+                return { value: null, error: diag('#VALUE!', 'This formula must return a single value.') };
+            if (isSheetError(value))
+                return { value: null, error: diag(value.code, value.message) };
+            return { value: value };
+        }
+        catch (e) {
+            const x = e instanceof SheetError ? e : new SheetError('#ERROR!', e instanceof Error ? e.message : String(e));
+            return { value: null, error: diag(x.code, x.message) };
+        }
+    }
     getValue(ref, visiting = []) {
         try {
             ref = known(ref, this.rows, this.cols);
@@ -847,12 +906,11 @@ export class Workbook {
         }
         const child = this.spillChildren.get(ref);
         if (child) {
-            const owner = this.getValue(child.owner, visiting);
+            const owner = this.getValue(child.owner, visiting), current = this.spillChildren.get(ref);
+            if (current)
+                return current.error ? { value: null, error: current.error } : { value: current.value };
             if (owner.error)
                 return owner;
-            const current = this.spillChildren.get(ref);
-            if (current)
-                return { value: current.value };
             return { value: null, error: diag('#REF!', `Spill cell ${ref} is no longer available.`) };
         }
         const identity = this.sheetName ? `${this.sheetName}!${ref}` : ref;
@@ -881,6 +939,8 @@ export class Workbook {
                 const value = this.evaluate(ast, [...visiting, identity]);
                 if (Array.isArray(value))
                     output = this.placeSpill(ref, value, ast);
+                else if (isSheetError(value))
+                    output = { value: null, error: diag(value.code, value.message) };
                 else
                     output = { value: value };
             }
@@ -1241,14 +1301,18 @@ export class Workbook {
                 if (ref === owner)
                     continue;
                 const cell = value[r][c] ?? null;
-                this.spillChildren.set(ref, { owner, value: cell });
+                if (isSheetError(cell))
+                    this.spillChildren.set(ref, { owner, value: null, error: diag(cell.code, cell.message) });
+                else
+                    this.spillChildren.set(ref, { owner, value: cell });
                 this.indexPopulatedCell(ref);
                 children.push(ref);
             }
         this.spillAreas.set(owner, children);
         if (children.length)
             this.invalidate(children);
-        return { value: (value[0][0] ?? null) };
+        const first = value[0][0] ?? null;
+        return isSheetError(first) ? { value: null, error: diag(first.code, first.message) } : { value: first };
     }
     hasExternalReference(node) {
         if (!node)
@@ -1305,18 +1369,18 @@ export class Workbook {
         return value;
     }
     getSpillValues(ref, visiting = []) {
-        const key = known(ref, this.rows, this.cols), result = this.getValue(key, visiting);
-        if (result.error)
-            error(result.error.code, result.error.message);
-        const children = this.spillAreas.get(key);
-        if (!children)
+        const key = known(ref, this.rows, this.cols), result = this.getValue(key, visiting), children = this.spillAreas.get(key);
+        if (!children) {
+            if (result.error)
+                error(result.error.code, result.error.message);
             error('#REF!', `${key} is not the anchor of a spilled array.`);
+        }
         const origin = parseRef(key), positions = children.map(cell => parseRef(cell)), height = Math.max(1, ...positions.map(p => p.row - origin.row + 1)), width = Math.max(1, ...positions.map(p => p.col - origin.col + 1));
         const matrix = Array.from({ length: height }, () => Array.from({ length: width }, () => null));
-        matrix[0][0] = result.value;
+        matrix[0][0] = result.error ? new SheetError(result.error.code, result.error.message) : result.value;
         for (const child of children) {
-            const p = parseRef(child), value = this.spillChildren.get(child)?.value ?? null;
-            matrix[p.row - origin.row][p.col - origin.col] = value;
+            const p = parseRef(child), value = this.spillChildren.get(child);
+            matrix[p.row - origin.row][p.col - origin.col] = value?.error ? new SheetError(value.error.code, value.error.message) : value?.value ?? null;
         }
         return matrix;
     }
@@ -1370,8 +1434,9 @@ export class Workbook {
                         if (!result)
                             return error('#REF!', `Worksheet '${n.sheet}' does not exist.`);
                         if (result.error)
-                            error(result.error.code, `${n.sheet}!${ref}: ${result.error.message}`);
-                        line.push(result.value);
+                            line.push(new SheetError(result.error.code, `${n.sheet}!${ref}: ${result.error.message}`));
+                        else
+                            line.push(result.value);
                     }
                     matrix.push(line);
                 }
@@ -1386,8 +1451,9 @@ export class Workbook {
                     const key = `${colToName(col)}${row + 1}`;
                     const val = this.getValue(key, visiting);
                     if (val.error)
-                        error(val.error.code, `${key}: ${val.error.message}`);
-                    line.push(val.value);
+                        line.push(new SheetError(val.error.code, `${key}: ${val.error.message}`));
+                    else
+                        line.push(val.value);
                 }
                 matrix.push(line);
             }
@@ -1435,7 +1501,8 @@ export class Workbook {
                 // calculated.
                 return value[0]?.[0] ?? null;
             }
-            const value = this.evaluate(n.expr, visiting), apply = (item) => { const scalar = number(item); return n.op === '-' ? -scalar : n.op === '%' ? scalar / 100 : scalar; };
+            const value = this.evaluate(n.expr, visiting), apply = (item) => { if (isSheetError(item))
+                return item; const scalar = number(item); return n.op === '-' ? -scalar : n.op === '%' ? scalar / 100 : scalar; };
             if (Array.isArray(value)) {
                 const matrix = value;
                 if (matrix.length * Math.max(0, ...matrix.map(row => row.length)) > MAX_SPILL_CELLS)
@@ -1461,7 +1528,14 @@ export class Workbook {
                 return error('#VALUE!', 'Array operator ranges must have matching row and column counts.');
             if (rows * cols > MAX_SPILL_CELLS)
                 return error('#NUM!', `Array operation exceeds the ${MAX_SPILL_CELLS.toLocaleString()}-cell limit.`);
-            return Array.from({ length: rows }, (_, row) => Array.from({ length: cols }, (_, col) => this.binaryValue(n.op, leftArray ? (leftMatrix[row]?.[col] ?? null) : (leftMatrix[0]?.[0] ?? null), rightArray ? (rightMatrix[row]?.[col] ?? null) : (rightMatrix[0]?.[0] ?? null))));
+            return Array.from({ length: rows }, (_, row) => Array.from({ length: cols }, (_, col) => { try {
+                return this.binaryValue(n.op, leftArray ? (leftMatrix[row]?.[col] ?? null) : (leftMatrix[0]?.[0] ?? null), rightArray ? (rightMatrix[row]?.[col] ?? null) : (rightMatrix[0]?.[0] ?? null));
+            }
+            catch (cause) {
+                if (cause instanceof SheetError)
+                    return new SheetError(cause.code, cause.message);
+                throw cause;
+            } }));
         }
         if (n.type === 'call') {
             if (n.name === '__INVOKE_LAMBDA__') {
@@ -1550,6 +1624,14 @@ export class Workbook {
             const invokeValues = (lambda, values) => this.invokeLambda(lambda, values.map(value => ({ value, omitted: false })), visiting);
             const asMatrix = (value) => Array.isArray(value) ? value : [[value]];
             const scalarLambdaResult = (value) => Array.isArray(value) ? error('#CALC!', 'A lambda used by MAP, REDUCE, or SCAN cannot return a nested array.') : value;
+            const invokeArrayLambda = (lambda, values) => { let result; try {
+                result = invokeValues(lambda, values);
+            }
+            catch (cause) {
+                if (cause instanceof SheetError)
+                    return new SheetError(cause.code, cause.message);
+                throw cause;
+            } return scalarLambdaResult(result); };
             if (n.name === 'GROUPBY' || n.name === 'PIVOTBY')
                 return this.evaluateGroupFormula(n, visiting);
             if (n.name === '__INVOKE_LAMBDA__') {
@@ -1566,13 +1648,13 @@ export class Workbook {
                     return error('#VALUE!', 'MAKEARRAY dimensions must be positive whole numbers.');
                 if (rowValue * columnValue > 20000)
                     return error('#NUM!', 'Array results are limited to 20,000 elements.');
-                return Array.from({ length: rowValue }, (_, row) => Array.from({ length: columnValue }, (_, column) => scalarLambdaResult(invoke(n.args[2], [{ type: 'literal', value: row + 1, start: n.start, end: n.end }, { type: 'literal', value: column + 1, start: n.start, end: n.end }]))));
+                return Array.from({ length: rowValue }, (_, row) => Array.from({ length: columnValue }, (_, column) => invokeArrayLambda(n.args[2], [row + 1, column + 1])));
             }
             if ((n.name === 'BYROW' || n.name === 'BYCOL') && n.args.length === 2 && lambdaArgument(n.args[1])) {
                 const source = asMatrix(this.evaluate(n.args[0], visiting)), height = source.length, width = Math.max(0, ...source.map(row => row.length));
                 if (height * width > 20000)
                     return error('#NUM!', 'Array results are limited to 20,000 elements.');
-                return n.name === 'BYROW' ? source.map(row => [scalarLambdaResult(invokeValues(n.args[1], [[[...row]]]))]) : [Array.from({ length: width }, (_, column) => scalarLambdaResult(invokeValues(n.args[1], [[[...source.map(row => row[column] ?? null)]]])))];
+                return n.name === 'BYROW' ? source.map(row => [invokeArrayLambda(n.args[1], [[[...row]]])]) : [Array.from({ length: width }, (_, column) => invokeArrayLambda(n.args[1], [[[...source.map(row => row[column] ?? null)]]]))];
             }
             if (n.name === 'MAP' && n.args.length >= 2 && lambdaArgument(n.args.at(-1))) {
                 const lambda = n.args.at(-1), arrays = n.args.slice(0, -1).map(argument => asMatrix(this.evaluate(argument, visiting))), height = arrays[0].length, width = Math.max(0, ...arrays[0].map(row => row.length));
@@ -1580,7 +1662,7 @@ export class Workbook {
                     return error('#VALUE!', 'All MAP arrays must have matching dimensions.');
                 if (height * width > 20000)
                     return error('#NUM!', 'Array results are limited to 20,000 elements.');
-                return Array.from({ length: height }, (_, row) => Array.from({ length: width }, (_, column) => scalarLambdaResult(invokeValues(lambda, arrays.map(matrix => matrix[row]?.[column] ?? null)))));
+                return Array.from({ length: height }, (_, row) => Array.from({ length: width }, (_, column) => invokeArrayLambda(lambda, arrays.map(matrix => matrix[row]?.[column] ?? null))));
             }
             if ((n.name === 'REDUCE' || n.name === 'SCAN') && n.args.length === 3 && lambdaArgument(n.args[2])) {
                 let accumulator = this.evaluate(n.args[0], visiting);
@@ -1592,7 +1674,7 @@ export class Workbook {
                 const result = Array.from({ length: height }, () => Array.from({ length: width }, () => null));
                 for (let row = 0; row < height; row++)
                     for (let column = 0; column < width; column++) {
-                        accumulator = scalarLambdaResult(invokeValues(n.args[2], [accumulator, source[row]?.[column] ?? null]));
+                        accumulator = invokeArrayLambda(n.args[2], [accumulator, source[row]?.[column] ?? null]);
                         result[row][column] = accumulator;
                     }
                 return n.name === 'REDUCE' ? accumulator : result;
@@ -1644,23 +1726,120 @@ export class Workbook {
                 const sheetName = argument.sheet ?? this.sheetName, index = this.documentSheetNames.findIndex(name => name.toLocaleLowerCase() === sheetName.toLocaleLowerCase());
                 return index < 0 ? error('#REF!', `Worksheet '${sheetName}' does not exist.`) : index + 1;
             }
+            if (n.name === 'AREAS') {
+                if (n.args.length !== 1)
+                    return error('#ARG!', 'AREAS needs one reference.');
+                const argument = n.args[0];
+                if (argument.type !== 'ref' && argument.type !== 'range' && argument.type !== 'spillRef')
+                    return error('#VALUE!', 'AREAS requires a worksheet reference.');
+                const sheetName = argument.sheet ?? this.sheetName, from = parseRef(argument.type === 'range' ? argument.from : argument.ref), to = parseRef(argument.type === 'range' ? argument.to : argument.ref);
+                if (!from || !to || from.row >= this.rows || to.row >= this.rows || from.col >= this.cols || to.col >= this.cols)
+                    return error('#REF!', 'AREAS reference is outside the workbook.');
+                if (argument.sheet && !this.documentSheetNames.some(name => name.toLocaleLowerCase() === sheetName.toLocaleLowerCase()))
+                    return error('#REF!', `Worksheet '${sheetName}' does not exist.`);
+                return 1;
+            }
             const f = functions[n.name];
             if (!f) {
                 const candidates = Object.keys(functions).filter(x => x.startsWith(n.name.slice(0, 2))).slice(0, 4);
                 return error('#NAME?', `Unknown function ${n.name}.${candidates.length ? ` Did you mean ${candidates.join(' or ')}?` : ''}`);
             }
-            if ((n.name === 'SUMIF' || n.name === 'AVERAGEIF') && n.args.length === 3) {
-                const criteriaNode = n.args[0], sumNode = n.args[2], isReference = (node) => node.type === 'ref' || node.type === 'range';
-                if (isReference(criteriaNode) && isReference(sumNode)) {
-                    const criteriaFrom = parseRef(criteriaNode.type === 'range' ? criteriaNode.from : criteriaNode.ref), criteriaTo = parseRef(criteriaNode.type === 'range' ? criteriaNode.to : criteriaNode.ref), sumStart = parseRef(sumNode.type === 'range' ? sumNode.from : sumNode.ref);
-                    if (!criteriaFrom || !criteriaTo || !sumStart)
+            if (n.name === 'AND' || n.name === 'OR' || n.name === 'XOR') {
+                if (n.args.length < 1 || n.args.length > 255)
+                    return error('#ARG!', `${n.name} requires 1 to 255 arguments.`);
+                const args = n.args.map(argument => {
+                    if (argument.type !== 'ref' && argument.type !== 'range')
+                        return this.evaluate(argument, visiting);
+                    const first = parseRef(argument.type === 'range' ? argument.from : argument.ref), last = parseRef(argument.type === 'range' ? argument.to : argument.ref);
+                    if (!first || !last)
+                        return [[new SheetError('#REF!', `${n.name} contains an invalid reference.`)]];
+                    const top = Math.min(first.row, last.row), bottom = Math.max(first.row, last.row), left = Math.min(first.col, last.col), right = Math.max(first.col, last.col);
+                    if (bottom >= this.rows || right >= this.cols)
+                        return [[new SheetError('#REF!', `${n.name} reference is outside the worksheet.`)]];
+                    const values = [];
+                    for (let row = top; row <= bottom; row++) {
+                        const line = [];
+                        for (let col = left; col <= right; col++) {
+                            const ref = `${colToName(col)}${row + 1}`, result = argument.sheet ? this.externalSheetResolver?.(argument.sheet, ref, visiting) : this.getValue(ref, visiting);
+                            if (!result) {
+                                line.push(new SheetError('#REF!', `Worksheet '${argument.sheet}' does not exist.`));
+                                continue;
+                            }
+                            line.push(result.error ? new SheetError(result.error.code, `${argument.sheet ? `${argument.sheet}!` : ''}${ref}: ${result.error.message}`) : result.value);
+                        }
+                        values.push(line);
+                    }
+                    return values;
+                });
+                return f.run(args);
+            }
+            if ((n.name === 'SUMIF' || n.name === 'AVERAGEIF') && (n.args.length === 2 || n.args.length === 3)) {
+                const criteriaNode = n.args[0], sumNode = n.args[2] ?? criteriaNode, isReference = (node) => node.type === 'ref' || node.type === 'range';
+                const isLocal = (node) => isReference(node) && (!node.sheet || node.sheet.toLocaleLowerCase() === this.sheetName.toLocaleLowerCase());
+                if (isLocal(criteriaNode) && isLocal(sumNode)) {
+                    const criteriaFrom = parseRef(criteriaNode.type === 'range' ? criteriaNode.from : criteriaNode.ref), criteriaTo = parseRef(criteriaNode.type === 'range' ? criteriaNode.to : criteriaNode.ref), sumFrom = parseRef(sumNode.type === 'range' ? sumNode.from : sumNode.ref), sumTo = parseRef(sumNode.type === 'range' ? sumNode.to : sumNode.ref);
+                    if (!criteriaFrom || !criteriaTo || !sumFrom || !sumTo)
                         return error('#REF!', 'Conditional aggregation contains an invalid reference.');
                     const topRow = Math.min(criteriaFrom.row, criteriaTo.row), bottomRow = Math.max(criteriaFrom.row, criteriaTo.row), leftCol = Math.min(criteriaFrom.col, criteriaTo.col), rightCol = Math.max(criteriaFrom.col, criteriaTo.col), height = bottomRow - topRow + 1, width = rightCol - leftCol + 1;
                     if (bottomRow >= this.rows || rightCol >= this.cols)
                         return error('#REF!', 'Criteria range extends beyond worksheet boundaries.');
-                    if (sumStart.row + height > this.rows || sumStart.col + width > this.cols)
+                    const sumTop = Math.min(sumFrom.row, sumTo.row), sumLeft = Math.min(sumFrom.col, sumTo.col);
+                    if (Math.max(sumFrom.row, sumTo.row) >= this.rows || Math.max(sumFrom.col, sumTo.col) >= this.cols || sumTop + height > this.rows || sumLeft + width > this.cols)
                         return error('#REF!', 'Aligned aggregation range extends beyond worksheet boundaries.');
+                    const criterion = this.evaluateScalar(n.args[1], visiting);
+                    if (Array.isArray(criterion))
+                        return error('#VALUE!', `${n.name} criteria must be a single value.`);
+                    const sumBottom = sumTop + height - 1, sumRight = sumLeft + width - 1;
+                    const candidateOffsets = new Set();
+                    const criteriaRefs = this.populatedRefsInBounds(topRow, bottomRow, leftCol, rightCol), sumRefs = this.populatedRefsInBounds(sumTop, sumBottom, sumLeft, sumRight);
+                    for (const ref of criteriaRefs) {
+                        const result = this.getValue(ref, visiting);
+                        if (result.error)
+                            return error(result.error.code, `${ref}: ${result.error.message}`);
+                        const point = parseRef(ref);
+                        candidateOffsets.add((point.row - topRow) * width + point.col - leftCol);
+                    }
+                    // Preserve range error propagation while avoiding construction of a
+                    // dense matrix: only stored cells can contain a formula error.
+                    for (const ref of sumRefs) {
+                        const result = this.getValue(ref, visiting);
+                        if (result.error)
+                            return error(result.error.code, `${ref}: ${result.error.message}`);
+                    }
+                    // Blank criteria can match empty cells throughout the criteria range.
+                    // Only stored sum cells can contribute a numeric value, so include
+                    // those offsets without materializing a million-cell matrix.
+                    if (matchCriterion(null, criterion))
+                        for (const ref of sumRefs) {
+                            const point = parseRef(ref);
+                            candidateOffsets.add((point.row - sumTop) * width + point.col - sumLeft);
+                        }
+                    let total = 0, count = 0;
+                    for (const offset of candidateOffsets) {
+                        const rowOffset = Math.floor(offset / width), colOffset = offset % width, criteriaRef = `${colToName(leftCol + colOffset)}${topRow + rowOffset + 1}`, sumRef = `${colToName(sumLeft + colOffset)}${sumTop + rowOffset + 1}`;
+                        const criteriaResult = this.getValue(criteriaRef, visiting);
+                        if (criteriaResult.error)
+                            return error(criteriaResult.error.code, `${criteriaRef}: ${criteriaResult.error.message}`);
+                        if (!matchCriterion(criteriaResult.value, criterion))
+                            continue;
+                        const sumResult = this.getValue(sumRef, visiting);
+                        if (sumResult.error)
+                            return error(sumResult.error.code, `${sumRef}: ${sumResult.error.message}`);
+                        if (typeof sumResult.value === 'number' && Number.isFinite(sumResult.value)) {
+                            total += sumResult.value;
+                            count++;
+                        }
+                    }
+                    if (n.name === 'SUMIF')
+                        return Number.isFinite(total) ? total : error('#NUM!', 'The result is not a finite number.');
+                    return count ? Number.isFinite(total / count) ? total / count : error('#NUM!', 'The result is not a finite number.') : error('#DIV/0!', 'No numeric values matched.');
+                }
+                if (isReference(criteriaNode) && isReference(sumNode)) {
                     const criteria = this.evaluate(criteriaNode, visiting), criterion = this.evaluate(n.args[1], visiting), aligned = [];
+                    const criteriaFrom = parseRef(criteriaNode.type === 'range' ? criteriaNode.from : criteriaNode.ref), criteriaTo = parseRef(criteriaNode.type === 'range' ? criteriaNode.to : criteriaNode.ref), sumStart = parseRef(sumNode.type === 'range' ? sumNode.from : sumNode.ref);
+                    if (!criteriaFrom || !criteriaTo || !sumStart)
+                        return error('#REF!', 'Conditional aggregation contains an invalid reference.');
+                    const height = Math.abs(criteriaTo.row - criteriaFrom.row) + 1, width = Math.abs(criteriaTo.col - criteriaFrom.col) + 1;
                     for (let row = 0; row < height; row++) {
                         const line = [];
                         for (let col = 0; col < width; col++)
@@ -1722,19 +1901,9 @@ export class Workbook {
                         const top = Math.min(first.row, last.row), bottom = Math.max(first.row, last.row), left = Math.min(first.col, last.col), right = Math.max(first.col, last.col);
                         if (bottom >= this.rows || right >= this.cols)
                             return error('#REF!', `${n.name} reference is outside worksheet boundaries.`);
-                        const stored = new Set();
-                        for (const ref of this.raw.keys()) {
-                            const point = parseRef(ref);
-                            if (point && point.row >= top && point.row <= bottom && point.col >= left && point.col <= right)
-                                stored.add(ref);
-                        }
-                        for (const ref of this.spillChildren.keys()) {
-                            const point = parseRef(ref);
-                            if (point && point.row >= top && point.row <= bottom && point.col >= left && point.col <= right)
-                                stored.add(ref);
-                        }
+                        const stored = this.populatedRefsInBounds(top, bottom, left, right);
                         if (n.name === 'COUNTBLANK')
-                            total += (bottom - top + 1) * (right - left + 1) - stored.size;
+                            total += (bottom - top + 1) * (right - left + 1) - stored.length;
                         for (const ref of stored) {
                             const result = this.getValue(ref, visiting);
                             if (n.name === 'COUNT') {
@@ -1797,19 +1966,9 @@ export class Workbook {
                         const top = Math.min(first.row, last.row), bottom = Math.max(first.row, last.row), left = Math.min(first.col, last.col), right = Math.max(first.col, last.col);
                         if (bottom >= this.rows || right >= this.cols)
                             return error('#REF!', 'COUNTIF reference is outside worksheet boundaries.');
-                        const stored = new Set();
-                        for (const ref of this.raw.keys()) {
-                            const point = parseRef(ref);
-                            if (point && point.row >= top && point.row <= bottom && point.col >= left && point.col <= right)
-                                stored.add(ref);
-                        }
-                        for (const ref of this.spillChildren.keys()) {
-                            const point = parseRef(ref);
-                            if (point && point.row >= top && point.row <= bottom && point.col >= left && point.col <= right)
-                                stored.add(ref);
-                        }
+                        const stored = this.populatedRefsInBounds(top, bottom, left, right);
                         const normalizedCriterion = criterion === null ? 0 : criterion;
-                        let count = matchCriterion(null, normalizedCriterion) ? (bottom - top + 1) * (right - left + 1) - stored.size : 0;
+                        let count = matchCriterion(null, normalizedCriterion) ? (bottom - top + 1) * (right - left + 1) - stored.length : 0;
                         for (const ref of stored) {
                             const result = this.getValue(ref, visiting);
                             if (result.error)
@@ -1841,13 +2000,10 @@ export class Workbook {
                     if (bounds.some(current => current.height !== shape.height || current.width !== shape.width))
                         return error('#VALUE!', 'COUNTIFS criteria ranges must have the same dimensions.');
                     for (const area of bounds)
-                        for (const ref of this.raw.keys()) {
-                            const point = parseRef(ref);
-                            if (point && point.row >= area.top && point.row < area.top + area.height && point.col >= area.left && point.col < area.left + area.width) {
-                                const result = this.getValue(ref, visiting);
-                                if (result.error)
-                                    return error(result.error.code, `${ref}: ${result.error.message}`);
-                            }
+                        for (const ref of this.populatedRefsInBounds(area.top, area.top + area.height - 1, area.left, area.left + area.width - 1)) {
+                            const result = this.getValue(ref, visiting);
+                            if (result.error)
+                                return error(result.error.code, `${ref}: ${result.error.message}`);
                         }
                     const criteria = [];
                     for (let index = 1; index < n.args.length; index += 2) {
@@ -1859,16 +2015,8 @@ export class Workbook {
                     const populated = new Set();
                     for (let rangeIndex = 0; rangeIndex < rangeNodes.length; rangeIndex++) {
                         const area = bounds[rangeIndex], range = rangeNodes[rangeIndex];
-                        for (const ref of this.raw.keys()) {
+                        for (const ref of this.populatedRefsInBounds(area.top, area.top + area.height - 1, area.left, area.left + area.width - 1)) {
                             const point = parseRef(ref);
-                            if (!point || point.row < area.top || point.row >= area.top + area.height || point.col < area.left || point.col >= area.left + area.width)
-                                continue;
-                            populated.add((point.row - area.top) * shape.width + (point.col - area.left));
-                        }
-                        for (const ref of this.spillChildren.keys()) {
-                            const point = parseRef(ref);
-                            if (!point || point.row < area.top || point.row >= area.top + area.height || point.col < area.left || point.col >= area.left + area.width)
-                                continue;
                             populated.add((point.row - area.top) * shape.width + (point.col - area.left));
                         }
                     }
@@ -1913,13 +2061,10 @@ export class Workbook {
                     if (criteriaBounds.some(current => current.height !== shape.height || current.width !== shape.width))
                         return error('#VALUE!', `${n.name} result and criteria ranges must have the same dimensions.`);
                     for (const area of [shape, ...criteriaBounds])
-                        for (const ref of this.raw.keys()) {
-                            const point = parseRef(ref);
-                            if (point && point.row >= area.top && point.row < area.top + area.height && point.col >= area.left && point.col < area.left + area.width) {
-                                const result = this.getValue(ref, visiting);
-                                if (result.error)
-                                    return error(result.error.code, `${ref}: ${result.error.message}`);
-                            }
+                        for (const ref of this.populatedRefsInBounds(area.top, area.top + area.height - 1, area.left, area.left + area.width - 1)) {
+                            const result = this.getValue(ref, visiting);
+                            if (result.error)
+                                return error(result.error.code, `${ref}: ${result.error.message}`);
                         }
                     const criteria = [];
                     for (let index = 2; index < n.args.length; index += 2) {
@@ -1928,16 +2073,10 @@ export class Workbook {
                             return error('#VALUE!', `${n.name} criteria must be single values.`);
                         criteria.push(criterion ?? 0);
                     }
-                    const resultRefs = new Set();
-                    for (const ref of this.raw.keys())
-                        resultRefs.add(ref);
-                    for (const ref of this.spillChildren.keys())
-                        resultRefs.add(ref);
+                    const resultRefs = this.populatedRefsInBounds(shape.top, shape.top + shape.height - 1, shape.left, shape.left + shape.width - 1);
                     let total = 0, matched = 0, extreme;
                     for (const ref of resultRefs) {
                         const point = parseRef(ref);
-                        if (!point || point.row < shape.top || point.row >= shape.top + shape.height || point.col < shape.left || point.col >= shape.left + shape.width)
-                            continue;
                         const offset = (point.row - shape.top) * shape.width + (point.col - shape.left), rowOffset = Math.floor(offset / shape.width), colOffset = offset % shape.width;
                         let satisfies = true;
                         for (let index = 0; index < rangeNodes.length; index++) {
@@ -2065,7 +2204,7 @@ export class Workbook {
                 if (n.args.length !== 2)
                     error('#ARG!', 'IFNA takes a value and a fallback.');
                 try {
-                    return this.evaluate(n.args[0], visiting);
+                    return this.replaceArrayErrors(this.evaluate(n.args[0], visiting), n.args[1], visiting, '#N/A');
                 }
                 catch (e) {
                     if (e instanceof SheetError && e.code === '#N/A')
@@ -2077,7 +2216,9 @@ export class Workbook {
                 if (n.args.length !== 1)
                     error('#ARG!', 'ERROR.TYPE needs one argument.');
                 try {
-                    this.evaluate(n.args[0], visiting);
+                    const value = this.evaluate(n.args[0], visiting);
+                    if (isSheetError(value))
+                        throw value;
                 }
                 catch (e) {
                     if (e instanceof SheetError) {
@@ -2088,20 +2229,94 @@ export class Workbook {
                 }
                 return error('#N/A', 'The argument is not an error.');
             }
+            if (['ISNUMBER', 'ISTEXT', 'ISLOGICAL', 'ISNONTEXT', 'NOT'].includes(n.name)) {
+                if (n.args.length !== 1)
+                    error('#ARG!', `${n.name} takes one argument.`);
+                let source;
+                try {
+                    source = this.evaluateArrayAware(n.args[0], visiting);
+                }
+                catch (cause) {
+                    if (cause instanceof SheetError) {
+                        if (n.name === 'ISNONTEXT')
+                            return true;
+                        if (n.name !== 'NOT')
+                            return false;
+                    }
+                    throw cause;
+                }
+                const test = (cell) => {
+                    if (n.name === 'ISNUMBER')
+                        return !isSheetError(cell) && typeof cell === 'number';
+                    if (n.name === 'ISTEXT')
+                        return !isSheetError(cell) && typeof cell === 'string';
+                    if (n.name === 'ISLOGICAL')
+                        return !isSheetError(cell) && typeof cell === 'boolean';
+                    if (n.name === 'ISNONTEXT')
+                        return typeof cell !== 'string';
+                    try {
+                        return !logicalTest(cell, 'NOT');
+                    }
+                    catch (cause) {
+                        if (cause instanceof SheetError)
+                            return new SheetError(cause.code, cause.message);
+                        throw cause;
+                    }
+                };
+                if (Array.isArray(source))
+                    return source.map(row => row.map(test));
+                return test(source);
+            }
+            if (n.name === 'N' || n.name === 'T') {
+                if (n.args.length !== 1)
+                    error('#ARG!', `${n.name} takes one argument.`);
+                let source;
+                try {
+                    source = this.evaluateArrayAware(n.args[0], visiting);
+                }
+                catch (cause) {
+                    if (cause instanceof SheetError)
+                        return cause;
+                    throw cause;
+                }
+                const convert = (cell) => {
+                    if (isSheetError(cell))
+                        return cell;
+                    return n.name === 'N' ? (typeof cell === 'number' ? cell : typeof cell === 'boolean' ? cell ? 1 : 0 : 0) : typeof cell === 'string' ? cell : '';
+                };
+                if (Array.isArray(source))
+                    return source.map(row => row.map(convert));
+                return convert(source);
+            }
             if (n.name === 'ISBLANK') {
                 if (n.args.length !== 1)
                     error('#ARG!', 'ISBLANK needs one argument.');
                 const argument = n.args[0];
-                if (argument.type !== 'ref')
+                if (argument.type !== 'ref' && argument.type !== 'range')
                     return false;
-                if (!argument.sheet || argument.sheet.toLocaleLowerCase() === this.sheetName.toLocaleLowerCase())
-                    return this.getRaw(known(argument.ref, this.rows, this.cols)) === '';
-                try {
-                    return this.evaluate(argument, visiting) === null;
+                const first = parseRef(argument.type === 'range' ? argument.from : argument.ref), last = parseRef(argument.type === 'range' ? argument.to : argument.ref);
+                if (!first || !last || Math.max(first.row, last.row) >= this.rows || Math.max(first.col, last.col) >= this.cols)
+                    return error('#REF!', 'ISBLANK reference is outside worksheet boundaries.');
+                const local = !argument.sheet || argument.sheet.toLocaleLowerCase() === this.sheetName.toLocaleLowerCase(), height = Math.abs(last.row - first.row) + 1, width = Math.abs(last.col - first.col) + 1;
+                if (height * width > MAX_SPILL_CELLS)
+                    return error('#NUM!', `Array operation exceeds the ${MAX_SPILL_CELLS.toLocaleString()}-cell limit.`);
+                const values = [];
+                for (let row = Math.min(first.row, last.row); row <= Math.max(first.row, last.row); row++) {
+                    const line = [];
+                    for (let col = Math.min(first.col, last.col); col <= Math.max(first.col, last.col); col++) {
+                        const ref = `${colToName(col)}${row + 1}`;
+                        if (local) {
+                            const key = known(ref, this.rows, this.cols);
+                            line.push(this.getRaw(key) === '' && !this.spillChildren.has(key));
+                        }
+                        else {
+                            const cell = this.externalSheetResolver?.(argument.sheet, ref, visiting);
+                            line.push(!!cell && !cell.error && cell.value === null);
+                        }
+                    }
+                    values.push(line);
                 }
-                catch {
-                    return false;
-                }
+                return argument.type === 'ref' ? values[0]?.[0] ?? false : values;
             }
             if (n.name === 'ISREF') {
                 if (n.args.length !== 1)
@@ -2230,14 +2445,50 @@ export class Workbook {
             if (n.name === 'IF') {
                 if (n.args.length < 2 || n.args.length > 3)
                     error('#ARG!', 'IF(condition, true_value, false_value) takes 2–3 arguments.');
-                const condition = bool(this.evaluateScalar(n.args[0], visiting));
-                return condition ? this.evaluate(n.args[1], visiting) : n.args[2] ? this.evaluate(n.args[2], visiting) : false;
+                const conditionValue = this.evaluateArrayAware(n.args[0], visiting);
+                if (!Array.isArray(conditionValue)) {
+                    const condition = logicalTest(conditionValue, 'IF');
+                    return condition ? this.evaluate(n.args[1], visiting) : n.args[2] ? this.evaluate(n.args[2], visiting) : false;
+                }
+                const height = conditionValue.length, width = Math.max(0, ...conditionValue.map(row => row.length));
+                if (height * width > MAX_SPILL_CELLS)
+                    return error('#NUM!', `Array operation exceeds the ${MAX_SPILL_CELLS.toLocaleString()}-cell limit.`);
+                const truth = conditionValue.map(row => row.map(cell => { try {
+                    return logicalTest(cell, 'IF');
+                }
+                catch (cause) {
+                    return cause instanceof SheetError ? new SheetError(cause.code, cause.message) : (() => { throw cause; })();
+                } }));
+                const branch = (node, selected, fallback) => {
+                    if (!node)
+                        return Array.from({ length: height }, () => Array.from({ length: width }, () => fallback));
+                    if (!selected.some(row => row.some(Boolean)))
+                        return Array.from({ length: height }, () => Array.from({ length: width }, () => null));
+                    let value;
+                    try {
+                        value = this.evaluateArrayAware(node, visiting);
+                    }
+                    catch (cause) {
+                        if (cause instanceof SheetError)
+                            value = cause;
+                        else
+                            throw cause;
+                    }
+                    if (!Array.isArray(value))
+                        return Array.from({ length: height }, () => Array.from({ length: width }, () => value));
+                    const valueWidth = Math.max(0, ...value.map(row => row.length));
+                    if (value.length !== height || valueWidth !== width)
+                        return error('#VALUE!', 'IF array branches must match the condition dimensions or return one scalar value.');
+                    return value;
+                };
+                const trueMask = truth.map(row => row.map(value => value === true)), falseMask = truth.map(row => row.map(value => value === false)), trueValues = branch(n.args[1], trueMask, null), falseValues = branch(n.args[2], falseMask, false);
+                return truth.map((row, rowIndex) => row.map((value, columnIndex) => isSheetError(value) ? value : value ? trueValues[rowIndex]?.[columnIndex] ?? null : falseValues[rowIndex]?.[columnIndex] ?? false));
             }
             if (n.name === 'IFERROR') {
                 if (n.args.length !== 2)
                     error('#ARG!', 'IFERROR(value, fallback) takes exactly 2 arguments.');
                 try {
-                    return this.evaluate(n.args[0], visiting);
+                    return this.replaceArrayErrors(this.evaluate(n.args[0], visiting), n.args[1], visiting);
                 }
                 catch (e) {
                     if (e instanceof SheetError || e instanceof FormulaSyntaxError)
@@ -2260,7 +2511,11 @@ export class Workbook {
                 if (n.args.length !== 1)
                     error('#ARG!', `${n.name} takes one argument.`);
                 try {
-                    this.evaluate(n.args[0], visiting);
+                    const value = this.evaluate(n.args[0], visiting);
+                    if (Array.isArray(value))
+                        return value.map(row => row.map(cell => isSheetError(cell) ? n.name === 'ISERROR' || n.name === 'ISNA' && cell.code === '#N/A' || n.name === 'ISERR' && cell.code !== '#N/A' : false));
+                    if (isSheetError(value))
+                        throw value;
                     return false;
                 }
                 catch (e) {
@@ -2276,25 +2531,220 @@ export class Workbook {
                     error('#VALUE!', 'CHOOSE index is out of range.');
                 return this.evaluate(n.args[idx], visiting);
             }
+            if (n.name === 'HSTACK' || n.name === 'VSTACK') {
+                // Stacking treats each argument as an array input. A scalar expression
+                // that evaluates to an error occupies one output position; it must not
+                // abort construction of the other stacked rows or columns.
+                const values = [];
+                for (const argument of n.args) {
+                    try {
+                        values.push(this.evaluate(argument, visiting));
+                    }
+                    catch (cause) {
+                        if (cause instanceof SheetError)
+                            values.push(cause);
+                        else
+                            throw cause;
+                    }
+                }
+                return f.run(values);
+            }
             if (n.name === 'IFS') {
                 if (n.args.length < 2 || n.args.length % 2 !== 0)
                     error('#ARG!', 'IFS needs condition, value pairs.');
-                for (let i = 0; i < n.args.length; i += 2)
-                    if (bool(this.evaluateScalar(n.args[i], visiting)))
-                        return this.evaluate(n.args[i + 1], visiting);
-                return error('#N/A', 'IFS did not match any condition.');
+                let output = null, unmatched = null, height = 0, width = 0;
+                const hasUnmatched = () => unmatched?.some(row => row.some(Boolean)) ?? false;
+                for (let i = 0; i < n.args.length; i += 2) {
+                    if (output && !hasUnmatched())
+                        break;
+                    let condition;
+                    try {
+                        condition = this.evaluateArrayAware(n.args[i], visiting);
+                    }
+                    catch (cause) {
+                        if (!output)
+                            throw cause;
+                        const failure = cause instanceof SheetError ? new SheetError(cause.code, cause.message) : error('#VALUE!', 'IFS condition could not be evaluated.');
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (unmatched[row][col]) {
+                                    output[row][col] = failure;
+                                    unmatched[row][col] = false;
+                                }
+                        break;
+                    }
+                    if (!Array.isArray(condition) && !output) {
+                        if (logicalTest(condition, 'IFS'))
+                            return this.evaluate(n.args[i + 1], visiting);
+                        continue;
+                    }
+                    if (Array.isArray(condition) && !output) {
+                        height = condition.length;
+                        width = Math.max(0, ...condition.map(row => row.length));
+                        if (height * width > MAX_SPILL_CELLS)
+                            return error('#NUM!', `Array operation exceeds the ${MAX_SPILL_CELLS.toLocaleString()}-cell limit.`);
+                        output = Array.from({ length: height }, () => Array.from({ length: width }, () => null));
+                        unmatched = Array.from({ length: height }, () => Array.from({ length: width }, () => true));
+                    }
+                    let tests;
+                    if (Array.isArray(condition)) {
+                        const conditionWidth = Math.max(0, ...condition.map(row => row.length));
+                        if (condition.length !== height || conditionWidth !== width)
+                            return error('#VALUE!', 'IFS condition arrays must have matching dimensions.');
+                        tests = condition;
+                    }
+                    else
+                        tests = Array.from({ length: height }, () => Array.from({ length: width }, () => condition));
+                    const selected = Array.from({ length: height }, () => Array.from({ length: width }, () => false));
+                    for (let row = 0; row < height; row++)
+                        for (let col = 0; col < width; col++) {
+                            if (!unmatched[row][col])
+                                continue;
+                            try {
+                                if (logicalTest(tests[row]?.[col], 'IFS')) {
+                                    selected[row][col] = true;
+                                    unmatched[row][col] = false;
+                                }
+                            }
+                            catch (cause) {
+                                output[row][col] = (cause instanceof SheetError ? new SheetError(cause.code, cause.message) : error('#VALUE!', 'IFS condition is invalid.'));
+                                unmatched[row][col] = false;
+                            }
+                        }
+                    if (!selected.some(row => row.some(Boolean)))
+                        continue;
+                    let result;
+                    try {
+                        result = this.evaluateArrayAware(n.args[i + 1], visiting);
+                    }
+                    catch (cause) {
+                        const failure = cause instanceof SheetError ? new SheetError(cause.code, cause.message) : error('#VALUE!', 'IFS result could not be evaluated.');
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (selected[row][col])
+                                    output[row][col] = failure;
+                        continue;
+                    }
+                    if (Array.isArray(result)) {
+                        const resultWidth = Math.max(0, ...result.map(row => row.length));
+                        if (result.length !== height || resultWidth !== width)
+                            return error('#VALUE!', 'IFS array results must match the condition dimensions or return one scalar value.');
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (selected[row][col])
+                                    output[row][col] = result[row]?.[col] ?? null;
+                    }
+                    else
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (selected[row][col])
+                                    output[row][col] = result;
+                }
+                if (!output)
+                    return error('#N/A', 'IFS did not match any condition.');
+                for (let row = 0; row < height; row++)
+                    for (let col = 0; col < width; col++)
+                        if (unmatched[row][col])
+                            output[row][col] = new SheetError('#N/A', 'IFS did not match any condition.');
+                return output;
             }
             if (n.name === 'SWITCH') {
                 if (n.args.length < 3)
                     error('#ARG!', 'SWITCH(expression, case, result, [default]) needs at least 3 arguments.');
-                const target = this.evaluateScalar(n.args[0], visiting), hasDefault = n.args.length % 2 === 0;
+                const expression = this.evaluateArrayAware(n.args[0], visiting), hasDefault = n.args.length % 2 === 0;
                 const finish = hasDefault ? n.args.length - 1 : n.args.length;
-                for (let i = 1; i < finish; i += 2) {
-                    const candidate = this.evaluateScalar(n.args[i], visiting);
-                    if (typeof target === 'number' && typeof candidate === 'number' ? target === candidate : text(target).toLowerCase() === text(candidate).toLowerCase())
-                        return this.evaluate(n.args[i + 1], visiting);
+                const matches = (target, candidate) => typeof target === 'number' && typeof candidate === 'number' ? target === candidate : text(target).toLowerCase() === text(candidate).toLowerCase();
+                if (!Array.isArray(expression)) {
+                    const target = expression;
+                    for (let i = 1; i < finish; i += 2) {
+                        const candidate = this.evaluateScalar(n.args[i], visiting);
+                        if (matches(target, candidate))
+                            return this.evaluate(n.args[i + 1], visiting);
+                    }
+                    return hasDefault ? this.evaluate(n.args[n.args.length - 1], visiting) : error('#N/A', 'SWITCH has no matching case.');
                 }
-                return hasDefault ? this.evaluate(n.args[n.args.length - 1], visiting) : error('#N/A', 'SWITCH has no matching case.');
+                const height = expression.length, width = Math.max(0, ...expression.map(row => row.length));
+                if (height * width > MAX_SPILL_CELLS)
+                    return error('#NUM!', `Array operation exceeds the ${MAX_SPILL_CELLS.toLocaleString()}-cell limit.`);
+                const output = Array.from({ length: height }, () => Array.from({ length: width }, () => null)), unmatched = Array.from({ length: height }, () => Array.from({ length: width }, () => true));
+                const hasUnmatched = () => unmatched.some(row => row.some(Boolean));
+                const assign = (selected, node) => {
+                    if (!selected.some(row => row.some(Boolean)))
+                        return true;
+                    let value;
+                    try {
+                        value = this.evaluateArrayAware(node, visiting);
+                    }
+                    catch (cause) {
+                        const failure = cause instanceof SheetError ? new SheetError(cause.code, cause.message) : new SheetError('#VALUE!', 'SWITCH result could not be evaluated.');
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (selected[row][col])
+                                    output[row][col] = failure;
+                        return true;
+                    }
+                    if (!Array.isArray(value)) {
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (selected[row][col])
+                                    output[row][col] = value;
+                        return true;
+                    }
+                    const valueWidth = Math.max(0, ...value.map(row => row.length));
+                    if (value.length !== height || valueWidth !== width)
+                        return false;
+                    for (let row = 0; row < height; row++)
+                        for (let col = 0; col < width; col++)
+                            if (selected[row][col])
+                                output[row][col] = value[row]?.[col] ?? null;
+                    return true;
+                };
+                for (let i = 1; i < finish && hasUnmatched(); i += 2) {
+                    let candidate;
+                    try {
+                        candidate = this.evaluateScalar(n.args[i], visiting);
+                    }
+                    catch (cause) {
+                        const failure = cause instanceof SheetError ? new SheetError(cause.code, cause.message) : new SheetError('#VALUE!', 'SWITCH case could not be evaluated.');
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (unmatched[row][col]) {
+                                    output[row][col] = failure;
+                                    unmatched[row][col] = false;
+                                }
+                        break;
+                    }
+                    const selected = Array.from({ length: height }, () => Array.from({ length: width }, () => false));
+                    for (let row = 0; row < height; row++)
+                        for (let col = 0; col < width; col++)
+                            if (unmatched[row][col]) {
+                                const target = expression[row]?.[col] ?? null;
+                                if (isSheetError(target)) {
+                                    output[row][col] = target;
+                                    unmatched[row][col] = false;
+                                    continue;
+                                }
+                                if (matches(target, candidate)) {
+                                    selected[row][col] = true;
+                                    unmatched[row][col] = false;
+                                }
+                            }
+                    if (!assign(selected, n.args[i + 1]))
+                        return error('#VALUE!', 'SWITCH array results must match the expression dimensions or return one scalar value.');
+                }
+                if (hasUnmatched()) {
+                    if (hasDefault) {
+                        const selected = unmatched.map(row => row.map(Boolean));
+                        if (!assign(selected, n.args[n.args.length - 1]))
+                            return error('#VALUE!', 'SWITCH default array must match the expression dimensions or return one scalar value.');
+                    }
+                    else
+                        for (let row = 0; row < height; row++)
+                            for (let col = 0; col < width; col++)
+                                if (unmatched[row][col])
+                                    output[row][col] = new SheetError('#N/A', 'SWITCH has no matching case.');
+                }
+                return output;
             }
             if (n.name === 'COUNT') {
                 if (n.args.length < 1 || n.args.length > 255)
@@ -2351,7 +2801,7 @@ export class Workbook {
                 const countRef = (ref, sheet) => {
                     if (localSheet(sheet)) {
                         const key = known(ref, this.rows, this.cols), spilled = this.spillChildren.get(key);
-                        if (this.getRaw(key) !== '' || spilled && spilled.value !== null)
+                        if (this.getRaw(key) !== '' || spilled && (spilled.error || spilled.value !== null))
                             count++;
                         return;
                     }
@@ -2430,11 +2880,8 @@ export class Workbook {
                         if (!result)
                             return error('#REF!', `Worksheet '${source.sheet}' does not exist.`);
                         if (result.error) {
-                            if (ignoreErrors) {
-                                line.push(null);
-                                continue;
-                            }
-                            return error(result.error.code, `${source.sheet ? `${source.sheet}!` : ''}${ref}: ${result.error.message}`);
+                            line.push(new SheetError(result.error.code, `${source.sheet ? `${source.sheet}!` : ''}${ref}: ${result.error.message}`));
+                            continue;
                         }
                         line.push(result.value);
                     }
@@ -2446,8 +2893,50 @@ export class Workbook {
         }
         return error('#ERROR!', 'Unexpected AST node.');
     }
+    evaluateArrayAware(node, visiting) {
+        if (node.type !== 'ref' && node.type !== 'range')
+            return this.evaluate(node, visiting);
+        const first = parseRef(node.type === 'range' ? node.from : node.ref), last = parseRef(node.type === 'range' ? node.to : node.ref);
+        if (!first || !last)
+            return new SheetError('#REF!', 'Array-aware reference is invalid.');
+        const top = Math.min(first.row, last.row), bottom = Math.max(first.row, last.row), left = Math.min(first.col, last.col), right = Math.max(first.col, last.col);
+        if (bottom >= this.rows || right >= this.cols)
+            return new SheetError('#REF!', 'Array-aware reference is outside worksheet boundaries.');
+        const height = bottom - top + 1, width = right - left + 1;
+        if (height * width > MAX_SPILL_CELLS)
+            return new SheetError('#NUM!', `Array operation exceeds the ${MAX_SPILL_CELLS.toLocaleString()}-cell limit.`);
+        const values = [];
+        for (let row = top; row <= bottom; row++) {
+            const line = [];
+            for (let col = left; col <= right; col++) {
+                const ref = `${colToName(col)}${row + 1}`, result = node.sheet ? this.externalSheetResolver?.(node.sheet, ref, visiting) : this.getValue(ref, visiting);
+                if (!result) {
+                    line.push(new SheetError('#REF!', `Worksheet '${node.sheet}' does not exist.`));
+                    continue;
+                }
+                line.push(result.error ? new SheetError(result.error.code, `${node.sheet ? `${node.sheet}!` : ''}${ref}: ${result.error.message}`) : result.value);
+            }
+            values.push(line);
+        }
+        return node.type === 'ref' ? values[0]?.[0] ?? null : values;
+    }
+    replaceArrayErrors(value, fallback, visiting, onlyCode) {
+        const shouldReplace = (cell) => isSheetError(cell) && (!onlyCode || cell.code === onlyCode);
+        if (isSheetError(value))
+            return shouldReplace(value) ? this.evaluate(fallback, visiting) : value;
+        if (!Array.isArray(value) || !value.some(row => row.some(shouldReplace)))
+            return value;
+        const replacement = this.evaluate(fallback, visiting);
+        return value.map((row, rowIndex) => row.map((cell, columnIndex) => {
+            if (!shouldReplace(cell))
+                return cell;
+            return Array.isArray(replacement) ? replacement[rowIndex]?.[columnIndex] ?? replacement[0]?.[0] ?? null : replacement;
+        }));
+    }
     evaluateScalar(n, visiting) {
         const v = this.evaluate(n, visiting);
+        if (isSheetError(v))
+            throw v;
         return Array.isArray(v) ? error('#VALUE!', 'Cannot perform scalar arithmetic on a whole range.') : v;
     }
     inspect(ref) {

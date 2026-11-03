@@ -1,12 +1,14 @@
 # GridForge v10.8 — Excel-native chart engine
 
+> **Current-source note (v12.0.194 working tree):** The chart source cap has since grown to 10,000 plotted points and 24 series. XLSX and ODS round-trip regressions now cover 24-series charts; ODS exports a bounded embedded data table, and both formats support custom pie/doughnut colors across the full 10,000-point capacity. SVG previews draw all 24 supported series, wrap large legends, and display at most 90 categories for responsiveness; an optional data table shows up to four series. Specialized/chart-object behavior has not been checked in desktop Excel or LibreOffice.
+
 ## What changed
 
 GridForge no longer exports charts only as an SVG or GridForge JSON. The **XLSX exporter now writes Excel DrawingML chart objects** (`xl/charts/chartN.xml`), anchored DrawingML objects (`xl/drawings/drawingN.xml`), worksheet/drawing relationships and OOXML content-type entries. Chart values are linked to actual worksheet cell addresses, with a cached display value from the GridForge formula engine. The importer reads supported Excel chart parts back into native, editable GridForge chart definitions without contacting external services.
 
 ### Available chart types
 
-Column, bar, line, area, pie, scatter (numeric XY), doughnut, stacked columns and stacked bars. Up to 24 charts per worksheet, up to 250 source rows, 12 columns and 8 series rendered per chart. First text column provides category labels; the first header row provides names. Scatter uses the first numeric series for X and the next numeric series for Y. For category charts, the first numeric column is not treated as the X axis when a textual category column exists.
+Column, bar, line, area, pie, scatter (numeric XY), doughnut, stacked columns and stacked bars. Current source supports up to 24 charts per worksheet, 10,000 plotted source points and 24 series per chart; SVG previews render all 24 series. First text column provides category labels; the first header row provides names. Scatter uses the first numeric series for X and the next numeric series for Y. For category charts, the first numeric column is not treated as the X axis when a textual category column exists.
 
 ### Editable controls
 

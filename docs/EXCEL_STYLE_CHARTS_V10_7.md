@@ -1,4 +1,4 @@
-> **Historical v10.7 document.** The statement below that native XLSX charts are unsupported is superseded by GridForge v10.8. See `EXCEL_NATIVE_CHARTS_V10_8.md`.
+> **Historical v10.7 document.** The statements below about native XLSX charts being unsupported and the 250-row/12-column/8-series limit are superseded by the current source. GridForge now supports up to 10,000 plotted points and 24 series; the SVG preview renders all 24, with a 90-category responsiveness cap. See `EXCEL_NATIVE_CHARTS_V10_8.md`.
 
 # GridForge v10.7 — Excel-style charts and formatting
 

@@ -1,6 +1,6 @@
 {
   "name": "gridforge-gdg-frontend-task2",
-  "version": "12.0.126",
+  "version": "12.0.201",
   "private": true,
   "type": "module",
   "description": "GridForge standalone spreadsheet with flexible Excel-style, Modern, Compact, and High Contrast workspaces, cloud workbook access, charts, formulas, PivotTables, and Windows installer.",
@@ -29,6 +29,7 @@
     "parity:506:gridforge": "npm run build && node scripts/build_excel_parity_506.mjs",
     "parity:506:excel": "python scripts/excel_parity_506_desktop.py",
     "parity:506:compare": "python scripts/excel_parity_506_compare.py",
+    "audit:ods-formulas": "npm run build && node scripts/audit_ods_formula_coverage.mjs",
     "parity:snapshot": "npm run build && node scripts/verify_excel_snapshot.mjs",
     "regression:ribbon": "python scripts/smoke_ribbon_v10_4.py",
     "parity:connected:excel": "python scripts/excel_connected_windows.py",

@@ -5,8 +5,8 @@
   "metrics": {
     "registered": 506,
     "executed": 506,
-    "successful": 500,
-    "errors": 6,
+    "successful": 484,
+    "errors": 22,
     "exceptions": 0,
     "scope": {
       "scalar": 445,
@@ -3903,8 +3903,9 @@
         "N3": 6
       },
       "gridforge": {
-        "type": "number",
-        "value": 9
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "BYROW and BYCOL require a LAMBDA expression."
       }
     },
     {
@@ -3984,8 +3985,9 @@
         "N3": 6
       },
       "gridforge": {
-        "type": "number",
-        "value": 3
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "BYROW and BYCOL require a LAMBDA expression."
       }
     },
     {
@@ -8251,8 +8253,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 3
+        "type": "error",
+        "value": "#N/A",
+        "message": "CUBESETCOUNT needs a set object from an OLAP cube connection; plain delimited text is not a cube set."
       }
     },
     {
@@ -13256,8 +13259,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "string",
-        "value": "500"
+        "type": "error",
+        "value": "#FIELD!",
+        "message": "The value does not contain a supported linked data type."
       }
     },
     {
@@ -14548,8 +14552,9 @@
         "P4": 8
       },
       "gridforge": {
-        "type": "number",
-        "value": 1
+        "type": "error",
+        "value": "#N/A",
+        "message": "FORECAST.ETS values and timeline must have the same number of points."
       }
     },
     {
@@ -14627,8 +14632,9 @@
         "P4": 8
       },
       "gridforge": {
-        "type": "number",
-        "value": 0
+        "type": "error",
+        "value": "#ARG!",
+        "message": "Expected 3–6 arguments."
       }
     },
     {
@@ -16038,8 +16044,9 @@
         "P3": 5
       },
       "gridforge": {
-        "type": "string",
-        "value": "A"
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "GROUPBY and PIVOTBY need an aggregate function name or LAMBDA."
       }
     },
     {
@@ -18839,7 +18846,7 @@
       },
       "gridforge": {
         "type": "string",
-        "value": "GridForge 10"
+        "value": "16.0"
       }
     },
     {
@@ -19251,7 +19258,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.15322137877181552
+        "value": 0.1532213787718155
       }
     },
     {
@@ -20373,8 +20380,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "boolean",
-        "value": true
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "ISOMITTED expects a LAMBDA parameter name."
       }
     },
     {
@@ -20946,8 +20954,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 2
+        "type": "error",
+        "value": "#CALC!",
+        "message": "A LAMBDA must be invoked or passed to a lambda-aware function."
       }
     },
     {
@@ -21508,8 +21517,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 2
+        "type": "error",
+        "value": "#PARSE!",
+        "message": "LET variable names must be valid identifiers, not cell references."
       }
     },
     {
@@ -22449,8 +22459,9 @@
         "J5": 0.2
       },
       "gridforge": {
-        "type": "number",
-        "value": 1
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "MAKEARRAY requires a LAMBDA expression."
       }
     },
     {
@@ -22530,8 +22541,9 @@
         "N3": 6
       },
       "gridforge": {
-        "type": "number",
-        "value": 1
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "MAP requires a LAMBDA expression as its final argument."
       }
     },
     {
@@ -25881,7 +25893,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 46322.66599822917
+        "value": 46329.09045263889
       }
     },
     {
@@ -28064,8 +28076,9 @@
         "S3": 5
       },
       "gridforge": {
-        "type": "string",
-        "value": "A"
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "GROUPBY and PIVOTBY need an aggregate function name or LAMBDA."
       }
     },
     {
@@ -29453,7 +29466,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.2974123997042267
+        "value": 0.5354324654626765
       }
     },
     {
@@ -29528,7 +29541,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 0.2919310922845496
+        "value": 0.7163789059081824
       }
     },
     {
@@ -29607,7 +29620,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 6
+        "value": 1
       }
     },
     {
@@ -30089,8 +30102,9 @@
         "P4": 4
       },
       "gridforge": {
-        "type": "number",
-        "value": 9
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "REDUCE requires a LAMBDA expression as its final argument."
       }
     },
     {
@@ -31510,8 +31524,9 @@
         "P4": 4
       },
       "gridforge": {
-        "type": "number",
-        "value": 1
+        "type": "error",
+        "value": "#VALUE!",
+        "message": "SCAN requires a LAMBDA expression as its final argument."
       }
     },
     {
@@ -36656,7 +36671,7 @@
       },
       "gridforge": {
         "type": "number",
-        "value": 46322
+        "value": 46329
       }
     },
     {
@@ -39676,8 +39691,9 @@
         }
       },
       "gridforge": {
-        "type": "number",
-        "value": 400
+        "type": "error",
+        "value": "#NUM!",
+        "message": "XNPV requires a nonzero discount rate greater than -1."
       }
     },
     {

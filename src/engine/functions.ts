@@ -1,6 +1,6 @@
 /** Built-ins are intentionally small, explicit, and testable. */
 import type { Value } from './parser.js';
-import {localeNumberSeparators,parseLocaleCurrencyText,parseLocaleNumberText} from './locale_number.js';
+import {localeNumberSeparators,parseLocaleCurrencyText,parseLocaleNumberText,type LocaleNumberSeparators} from './locale_number.js';
 import {splitTrailingDateTimeText} from './time_text.js';
 import { moreFunctions } from './functions_extra.js';
 import {v5Functions,v5FunctionNames,v5Categories,parseExcelDateValue,parseExcelTimeValue} from './functions_v5.js';
@@ -9,27 +9,53 @@ import {v9Functions,v9Aliases,v9FunctionNames,v9Categories} from './functions_v9
 import {buildV10Functions,v10Categories} from './functions_v10.js';
 import {connectedFunctionDefinitions,connectedFunctionNames,connectedFunctionRequirements} from './functions_connected.js';
 export {v6FunctionNames,v6Categories,v9FunctionNames,v9Categories};
-export type Datum = Value | Datum[][];
 export class SheetError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'SheetError'; }
 }
+export const isSheetError=(value:unknown):value is SheetError=>value instanceof SheetError;
+export type Datum = Value | Datum[][];
 export const error = (code: string, message: string): never => { throw new SheetError(code, message); };
 export const flatten = (xs: Datum[]): Value[] => {
   const all: Value[] = [];
-  const visit = (x: Datum): void => { if (Array.isArray(x)) x.forEach(row => row.forEach(visit)); else all.push(x); };
+  const visit = (x: Datum): void => { if (Array.isArray(x)) x.forEach(row => row.forEach(visit)); else if(isSheetError(x))throw x;else all.push(x); };
   xs.forEach(visit); return all;
 };
+const flattenIgnoringErrors=(xs:Datum[]):Value[]=>{const all:Value[]=[];const visit=(x:Datum):void=>{if(Array.isArray(x))x.forEach(row=>row.forEach(visit));else if(!isSheetError(x))all.push(x);};xs.forEach(visit);return all;};
+const countIncludingErrors=(xs:Datum[],includeBlank:boolean):number=>{let count=0;const visit=(x:Datum):void=>{if(Array.isArray(x)){x.forEach(row=>row.forEach(visit));return;}if(isSheetError(x)){if(!includeBlank)count++;return;}if(includeBlank||x!==null)count++;};xs.forEach(visit);return count;};
 export function number(x: Value): number {
+  if(isSheetError(x))throw x;
   if (x === null || x === '') return 0;
   if (typeof x === 'boolean') return x ? 1 : 0;
   const n = Number(x);
   if (!Number.isFinite(n)) return error('#VALUE!', `Expected a number, received '${x}'.`);
   return n;
 }
-export function text(x: Value): string { return x === null ? '' : typeof x === 'boolean' ? (x ? 'TRUE' : 'FALSE') : String(x); }
-export function bool(x: Value): boolean { return x === null || x === '' ? false : typeof x === 'string' ? x.toUpperCase() !== 'FALSE' : Boolean(x); }
+export function text(x: Value): string { if(isSheetError(x))throw x;return x === null ? '' : typeof x === 'boolean' ? (x ? 'TRUE' : 'FALSE') : String(x); }
+export function bool(x: Value): boolean { if(isSheetError(x))throw x;return x === null || x === '' ? false : typeof x === 'string' ? x.toUpperCase() !== 'FALSE' : Boolean(x); }
+const logicalAggregate=(args:Datum[],all:boolean):boolean=>{
+  let found=false,result=all;
+  const visit=(value:Datum,fromArray:boolean):void=>{
+    if(Array.isArray(value)){for(const row of value)for(const cell of row)visit(cell,true);return;}
+    if(isSheetError(value))throw value;
+    if(value===null||value===''){
+      if(fromArray)return;
+      found=true;result=all?false:result;return;
+    }
+    if(typeof value==='string'){
+      if(fromArray)return;
+      error('#VALUE!',`${all?'AND':'OR'} direct arguments must be logical values or numbers.`);
+    }
+    found=true;
+    const truth=typeof value==='boolean'?value:value!==0;
+    result=all?result&&truth:result||truth;
+  };
+  for(const argument of args)visit(argument,false);
+  if(!found)error('#VALUE!',`${all?'AND':'OR'} requires at least one logical value.`);
+  return result;
+};
 const scalar = (x: Datum | undefined): Value => {
   if (Array.isArray(x)) return error('#VALUE!', 'Expected a single cell, not a range.');
+  if(isSheetError(x))throw x;
   return x ?? null;
 };
 const at = (xs: Datum[], idx: number): Value => scalar(xs[idx]);
@@ -50,7 +76,7 @@ const multipleRound = (value:number,significance:number,direction:'up'|'down'):n
   const stableQuotient=Math.abs(quotient-nearest)<=tolerance?nearest:quotient;
   return result((direction==='up'?Math.ceil(stableQuotient):Math.floor(stableQuotient))*significance);
 };
-export function matchCriterion(v: Value, criterion: Value): boolean {
+export function matchCriterion(v: Value, criterion: Value, locale?:LocaleNumberSeparators): boolean {
   const c = text(criterion); const m = /^(<=|>=|<>|!=|=|<|>)(.*)$/.exec(c);
   const operand = m ? m[2]! : c; const op = m ? m[1]! : '=';
   // Excel criteria can contain * / ? wildcards and ~ escapes. Only apply
@@ -70,13 +96,17 @@ export function matchCriterion(v: Value, criterion: Value): boolean {
   const aNum = Number(v); let bNum = Number(operand);
   let numeric = v !== null && v !== '' && operand !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
   if(!numeric&&typeof v==='number'&&operand.trim()&&!/[*?~]/.test(operand)){
-    const candidate=localeNumberSeparators().normalizeDigits(operand.trim()),dateLike=/^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{1,4})?|\d{1,2}\s+[\p{L}.]{2,16}(?:,?\s+\d{2,4})?|[\p{L}.]{2,16}\s+\d{1,2}(?:,?\s+\d{2,4})?)$/u.test(candidate),timeLike=candidate.includes(':');
-    try{
-      const dateTime=splitTrailingDateTimeText(candidate);
-      if(dateTime){bNum=parseExcelDateValue(dateTime[0])+parseExcelTimeValue(dateTime[1]);numeric=Number.isFinite(bNum);}
-      else if(dateLike){bNum=parseExcelDateValue(candidate);numeric=Number.isFinite(bNum);}
-      else if(timeLike){bNum=parseExcelTimeValue(candidate);numeric=Number.isFinite(bNum);}
-    }catch{/* Keep ordinary text criteria on the text comparison path. */}
+    const separators=locale??localeNumberSeparators(),localizedNumber=parseLocaleNumberText(operand.trim(),separators.decimal,separators.group);
+    if(localizedNumber!==null){bNum=localizedNumber;numeric=true;}
+    if(!numeric){
+      const candidate=separators.normalizeDigits(operand.trim()),dateLike=/^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{1,4})?|\d{1,2}\s+[\p{L}.]{2,16}(?:,?\s+\d{2,4})?|[\p{L}.]{2,16}\s+\d{1,2}(?:,?\s+\d{2,4})?)$/u.test(candidate),timeLike=candidate.includes(':');
+      try{
+        const dateTime=splitTrailingDateTimeText(candidate);
+        if(dateTime){bNum=parseExcelDateValue(dateTime[0])+parseExcelTimeValue(dateTime[1]);numeric=Number.isFinite(bNum);}
+        else if(dateLike){bNum=parseExcelDateValue(candidate);numeric=Number.isFinite(bNum);}
+        else if(timeLike){bNum=parseExcelTimeValue(candidate);numeric=Number.isFinite(bNum);}
+      }catch{/* Keep ordinary text criteria on the text comparison path. */}
+    }
   }
   const cmp = numeric ? Math.sign(aNum - bNum) : text(v).toLowerCase().localeCompare(operand.toLowerCase());
   switch (op) { case '=': return cmp === 0; case '<>': case '!=': return cmp !== 0; case '>': return cmp > 0; case '<': return cmp < 0; case '>=': return cmp >= 0; case '<=': return cmp <= 0; default: return false; }
@@ -97,9 +127,9 @@ export const functions: Record<string, FunctionDefinition> = {
  AVERAGE: D('Arithmetic mean of numeric values.', '=AVERAGE(B1:B8)', a => {const n=nums(a); return n.length ? result(n.reduce((s,x)=>s+x,0)/n.length) : error('#DIV/0!', 'AVERAGE has no numeric values.');}),
  MIN: D('Smallest numeric value.', '=MIN(A1:A10)', a => {const n=nums(a);return n.length ? Math.min(...n) : 0;}),
  MAX: D('Largest numeric value.', '=MAX(A1:A10)', a => {const n=nums(a);return n.length ? Math.max(...n) : 0;}),
- COUNT: D('Count numeric cells and numeric text or logical values passed directly; text and errors in ranges are ignored.', '=COUNT(A1:A10)', a => a.reduce<number>((count,argument)=>count+(Array.isArray(argument)?flatten([argument]).filter(value=>typeof value==='number'&&Number.isFinite(value)).length:typeof argument==='number'||typeof argument==='boolean'||typeof argument==='string'&&parseLocaleNumberText(argument)!==null?1:0),0)),
- COUNTA: D('Count nonempty values, including empty text and errors.', '=COUNTA(A1:A10)', a => flatten(a).filter(x=>x!==null).length),
- COUNTBLANK: D('Count blank cells in a range.', '=COUNTBLANK(A1:A10)', a => flatten(a).filter(x=>!nonEmpty(x)).length),
+ COUNT: D('Count numeric cells and numeric text or logical values passed directly; text and errors in ranges are ignored.', '=COUNT(A1:A10)', a => a.reduce<number>((count,argument)=>count+(Array.isArray(argument)?flattenIgnoringErrors([argument]).filter(value=>typeof value==='number'&&Number.isFinite(value)).length:typeof argument==='number'||typeof argument==='boolean'||typeof argument==='string'&&parseLocaleNumberText(argument)!==null?1:0),0)),
+ COUNTA: D('Count nonempty values, including empty text and errors.', '=COUNTA(A1:A10)', a => countIncludingErrors(a,false)),
+ COUNTBLANK: D('Count blank cells in a range.', '=COUNTBLANK(A1:A10)', a => flattenIgnoringErrors(a).filter(x=>!nonEmpty(x)).length),
  MEDIAN: D('Median of numeric values.', '=MEDIAN(A1:A10)', a => {const n=sortNums(a);return n.length ? n.length%2 ? n[(n.length-1)/2]! : (n[n.length/2-1]!+n[n.length/2]!)/2 : error('#NUM!','MEDIAN has no numeric values.');}),
  PRODUCT: D('Multiply numeric values.', '=PRODUCT(A1:A3)', a => result(nums(a).reduce((p,n)=>p*n,1))),
  ABS: D('Absolute value.', '=ABS(-8)', a => {want(a,1,1);return Math.abs(numericArg(a,0));}),
@@ -133,8 +163,8 @@ export const functions: Record<string, FunctionDefinition> = {
  VALUE: D('Convert locale-formatted numbers, currency, dates, and times from text.', '=VALUE("$1,000")', a => {want(a,1,1);const value=at(a,0);if(typeof value==='string'){if(!value.trim())return error('#VALUE!','VALUE could not parse empty text.');const parsed=parseLocaleNumberText(value)??parseLocaleCurrencyText(value);if(parsed!==null)return parsed;const normalized=localeNumberSeparators().normalizeDigits(value.normalize('NFKC')).trim(),dateTime=/^(.+?)[ T]+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)$/i.exec(normalized);if(dateTime)try{return parseExcelDateValue(dateTime[1]!)+parseExcelTimeValue(dateTime[2]!);}catch{}try{return parseExcelTimeValue(normalized);}catch{}try{return parseExcelDateValue(normalized);}catch{return error('#VALUE!',`VALUE could not parse '${value}' using the current locale.`);}}return number(value);}),
  IF: D('Choose one of two branches lazily.', '=IF(A1>10,"high","low")', () => error('#INTERNAL!','IF is evaluated lazily by the evaluator.')),
  IFERROR: D('Fallback on a formula evaluation error.', '=IFERROR(A1/B1,0)', () => error('#INTERNAL!','IFERROR is evaluated lazily by the evaluator.')),
- AND: D('True if all conditions are true.', '=AND(A1>0,B1>0)', a => flatten(a).every(bool)),
- OR: D('True if any condition is true.', '=OR(A1>0,B1>0)', a => flatten(a).some(bool)),
+ AND: D('True if all conditions are true; text and blanks in referenced arrays are ignored.', '=AND(A1>0,B1>0)', a => logicalAggregate(a,true)),
+ OR: D('True if any condition is true; text and blanks in referenced arrays are ignored.', '=OR(A1>0,B1>0)', a => logicalAggregate(a,false)),
  NOT: D('Negate a boolean.', '=NOT(A1>10)', a => {want(a,1,1);return !bool(at(a,0));}),
  ISNUMBER: D('Check if a value is numeric.', '=ISNUMBER(A1)', a => {want(a,1,1);return typeof at(a,0)==='number';}),
  ISTEXT: D('Check if a value contains text.', '=ISTEXT(A1)', a => {want(a,1,1);return typeof at(a,0)==='string';}),

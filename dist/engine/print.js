@@ -1,9 +1,60 @@
-import { display } from './workbook.js';
 import { parseRef, colToName } from './parser.js';
+import { cleanStyle, styledDisplay } from './format.js';
 const escape = (value) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+function printCellCss(style) {
+    const rules = [];
+    if (style.fontFamily)
+        rules.push(`font-family:"${style.fontFamily.replace(/[\\"]/g, '\\$&')}"`);
+    if (style.fontSize)
+        rules.push(`font-size:${style.fontSize}pt`);
+    if (style.bold)
+        rules.push('font-weight:700');
+    if (style.italic)
+        rules.push('font-style:italic');
+    const decorations = [style.underline ? 'underline' : '', style.strike ? 'line-through' : ''].filter(Boolean);
+    if (decorations.length)
+        rules.push(`text-decoration:${decorations.join(' ')}`);
+    if (style.color)
+        rules.push(`color:${style.color}`);
+    if (style.background)
+        rules.push(`background-color:${style.background}`);
+    if (style.align)
+        rules.push(`text-align:${style.align}`);
+    if (style.verticalAlign)
+        rules.push(`vertical-align:${style.verticalAlign}`);
+    rules.push(`white-space:${style.wrap ? 'pre-wrap' : 'pre'}`);
+    if (style.indent) {
+        const amount = Math.min(25, style.indent) * 0.1;
+        rules.push(style.align === 'right' ? `padding-right:${amount}in` : `padding-left:${amount}in`);
+    }
+    const width = (weight) => weight === 'thick' ? '2.25pt' : weight === 'medium' ? '1.25pt' : '0.5pt', line = (edge) => edge ? `${width(edge.weight)} ${edge.style} ${edge.color ?? '#000000'}` : undefined;
+    if (style.borderEdges) {
+        for (const edge of ['left', 'right', 'top', 'bottom']) {
+            const value = line(style.borderEdges[edge]);
+            if (value)
+                rules.push(`border-${edge}:${value}`);
+        }
+    }
+    else if (style.border) {
+        const active = style.border === 'all' ? ['left', 'right', 'top', 'bottom'] : [style.border], value = `${width(style.borderWeight ?? 'thin')} ${style.borderStyle ?? 'solid'} ${style.borderColor ?? '#000000'}`;
+        for (const edge of active)
+            rules.push(`border-${edge}:${value}`);
+    }
+    if (style.borderDiagonal) {
+        const diagonal = style.borderDiagonal, color = diagonal.color ?? '#000000', lines = [];
+        if (diagonal.up)
+            lines.push(`linear-gradient(to top right,transparent 49%,${color} 50%,transparent 51%)`);
+        if (diagonal.down)
+            lines.push(`linear-gradient(to bottom right,transparent 49%,${color} 50%,transparent 51%)`);
+        if (lines.length)
+            rules.push(`background-image:${lines.join(',')}`);
+    }
+    return rules.join(';');
+}
+function printCell(book, ref, header = false) { const style = cleanStyle(book.getStyle(ref)), css = printCellCss(style), tag = header ? 'th' : 'td'; return `<${tag}${css ? ` style="${escape(css)}"` : ''}>${escape(styledDisplay(book.getValue(ref), style))}</${tag}>`; }
 function headerText(value, sheetName) { return escape(value).replace(/&amp;P/g, '<span class="page-number"></span>').replace(/&amp;N/g, '<span class="page-count"></span>').replace(/&amp;A/g, escape(sheetName)).replace(/&amp;D/g, new Intl.DateTimeFormat().format(new Date())); }
 /** Build a self-contained, print-ready worksheet view for the browser print dialog. */
-export function buildPrintHtml(book, setup, sheetName) {
+export function buildPrintHtml(book, setup, sheetName, autoPrint = true) {
     let start = parseRef('A1'), end = { row: 0, col: 0 };
     if (setup.printArea) {
         const [a, b] = setup.printArea.split(':'), first = parseRef(a), last = parseRef(b ?? a);
@@ -38,9 +89,9 @@ export function buildPrintHtml(book, setup, sheetName) {
     const header = headerValues.some(Boolean) ? `<header class="print-band print-header">${headerValues.map(value => `<span>${headerText(value, sheetName)}</span>`).join('')}</header>` : '', footer = footerValues.some(Boolean) ? `<footer class="print-band print-footer">${footerValues.map(value => `<span>${headerText(value, sheetName)}</span>`).join('')}</footer>` : '';
     const columnHeadingRow = headings ? `<tr><th></th>${Array.from({ length: columnCount }, (_, i) => `<th>${colToName(start.col + i)}</th>`).join('')}</tr>` : '';
     // Browser printing can repeat vertical table headers safely; horizontal repeated columns require page slicing and remain in XLSX output only.
-    const repeatedHeaderRows = repeatedRows.map(row => `<tr>${headings ? `<th>${row + 1}</th>` : ''}${Array.from({ length: columnCount }, (_, c) => `<th>${escape(display(book.getValue(`${colToName(start.col + c)}${row + 1}`)))}</th>`).join('')}</tr>`).join('');
+    const repeatedHeaderRows = repeatedRows.map(row => `<tr>${headings ? `<th>${row + 1}</th>` : ''}${Array.from({ length: columnCount }, (_, c) => printCell(book, `${colToName(start.col + c)}${row + 1}`, true)).join('')}</tr>`).join('');
     const tableHeader = columnHeadingRow || repeatedHeaderRows ? `<thead>${columnHeadingRow}${repeatedHeaderRows}</thead>` : '';
-    const repeatedSet = new Set(repeatedRows), body = Array.from({ length: end.row - start.row + 1 }, (_, r) => { const row = start.row + r; if (repeatedSet.has(row))
-        return ''; return `<tr>${headings ? `<th>${row + 1}</th>` : ''}${Array.from({ length: columnCount }, (_, c) => `<td>${escape(display(book.getValue(`${colToName(start.col + c)}${row + 1}`)))}</td>`).join('')}</tr>`; }).join('');
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${escape(sheetName)} — Print</title><style>@page{size:${paper} ${setup.orientation};margin:${setup.marginTop}in ${setup.marginRight}in ${setup.marginBottom}in ${setup.marginLeft}in}*{box-sizing:border-box}body{font:10pt Calibri,Arial,sans-serif;color:#111;margin:0}h1{font-size:15pt;margin:0 0 10pt}table{border-collapse:collapse;width:100%;table-layout:auto}thead{display:table-header-group}td,th{padding:3pt 5pt;${grid ? 'border:1px solid #aab2bd;' : 'border:0;'}text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}thead th,tbody th{background:#eef2f7;font-weight:600}.print-band{position:fixed;left:0;right:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8pt;font-size:8pt;color:#444}.print-band span:nth-child(2){text-align:center}.print-band span:nth-child(3){text-align:right}.print-header{top:-0.45in}.print-footer{bottom:-0.45in}.page-number:after{content:counter(page)}.page-count:after{content:counter(pages)}${setup.fitWidth ? `table{max-width:100%}body{zoom:${Math.max(0.25, Math.min(1, 1 / (setup.fitWidth || 1)))} }` : ''}</style></head><body>${header}<h1>${escape(sheetName)}</h1><table>${tableHeader}<tbody>${body}</tbody></table>${footer}<script>addEventListener('load',()=>setTimeout(()=>print(),200))<\/script></body></html>`;
+    const repeatedSet = new Set(repeatedRows), manualRowBreaks = new Set(setup.rowBreaks ?? []), body = Array.from({ length: end.row - start.row + 1 }, (_, r) => { const row = start.row + r; if (repeatedSet.has(row))
+        return ''; return `<tr${manualRowBreaks.has(row) ? ' class="manual-page-break"' : ''}>${headings ? `<th>${row + 1}</th>` : ''}${Array.from({ length: columnCount }, (_, c) => printCell(book, `${colToName(start.col + c)}${row + 1}`)).join('')}</tr>`; }).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${escape(sheetName)} — Print</title><style>@page{size:${paper} ${setup.orientation};margin:${setup.marginTop}in ${setup.marginRight}in ${setup.marginBottom}in ${setup.marginLeft}in}*{box-sizing:border-box}body{font:10pt Calibri,Arial,sans-serif;color:#111;margin:0}h1{font-size:15pt;margin:0 0 10pt}table{border-collapse:collapse;width:100%;table-layout:auto}thead{display:table-header-group}td,th{padding:3pt 5pt;${grid ? 'border:1px solid #aab2bd;' : 'border:0;'}text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}thead th,tbody th{background:#eef2f7;font-weight:600}tr.manual-page-break{break-before:page;page-break-before:always}.print-band{position:fixed;left:0;right:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8pt;font-size:8pt;color:#444}.print-band span:nth-child(2){text-align:center}.print-band span:nth-child(3){text-align:right}.print-header{top:-0.45in}.print-footer{bottom:-0.45in}.page-number:after{content:counter(page)}.page-count:after{content:counter(pages)}${setup.fitWidth ? `table{max-width:100%}body{zoom:${Math.max(0.25, Math.min(1, 1 / (setup.fitWidth || 1)))} }` : ''}</style></head><body>${header}<h1>${escape(sheetName)}</h1><table>${tableHeader}<tbody>${body}</tbody></table>${footer}${autoPrint ? '<script>addEventListener("load",()=>setTimeout(()=>print(),200))<\\/script>' : ''}</body></html>`;
 }

@@ -1,0 +1,1 @@
+# GridForge v12.0.132 — Localized date names`n`nCustom date formats now render month and weekday names with the runtime locale, including abbreviated names. Date serial calculations remain UTC-based to avoid time-zone shifts. Numeric date separators and AM/PM markers remain controlled by the supplied Excel format code.

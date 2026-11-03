@@ -1,4 +1,5 @@
 /** A hand-written tokenizer + Pratt parser. No spreadsheet/formula libraries are used. */
+import {localeNumberSeparators} from './locale_number.js';
 export type Value = string | number | boolean | null;
 export type Node =
   | { type: 'literal'; value: Value; start: number; end: number }
@@ -87,17 +88,24 @@ export function tokenize(input: string): Token[] {
 }
 /** Normalize decimal commas when the formula uses semicolons as its list separator. */
 export function normalizeFormulaLocale(source:string):string {
-  let quoted=false,hasSemicolon=false;
+  const separators=localeNumberSeparators(),decimalComma=separators.decimal===',';let quoted=false,hasSemicolon=false;
   for(let i=0;i<source.length;i++){
     if(source[i]==='"'){if(quoted&&source[i+1]==='"'){i++;continue;}quoted=!quoted;continue;}
     if(!quoted&&source[i]===';'){hasSemicolon=true;break;}
   }
-  if(!hasSemicolon)return source;
   quoted=false;let out='';
   for(let i=0;i<source.length;i++){
     const character=source[i]!;
     if(character==='"'){out+=character;if(quoted&&source[i+1]==='"'){out+='"';i++;continue;}quoted=!quoted;continue;}
-    out+=!quoted&&character===','&&/\d/.test(source[i-1]??'')&&/\d/.test(source[i+1]??'')?'.':character;
+    if(quoted){out+=character;continue;}
+    if(separators.normalizeDigits(character)!==character){out+=separators.normalizeDigits(character);continue;}
+    // In decimal-comma locales, remove a locale grouping mark only when it forms
+    // a complete three-digit group. This keeps ordinary list separators intact.
+    if(decimalComma&&separators.group&&source.startsWith(separators.group,i)&&/\d/.test(source[i-1]??'')){
+      const group=separators.group.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),decimal=separators.decimal.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      if(new RegExp(`^${group}(?=\\p{Decimal_Number}{3}(?:${group}\\p{Decimal_Number}{3})*(?:${decimal}|[Ee][+-]?\\p{Decimal_Number}+|\\P{Decimal_Number}|$))`,'u').test(source.slice(i))){i+=separators.group.length-1;continue;}
+    }
+    out+=character===','&&(decimalComma||hasSemicolon)&&/\d/.test(source[i-1]??'')&&/\d/.test(source[i+1]??'')?'.':character;
   }
   return out;
 }
@@ -115,7 +123,7 @@ class Parser {
       if(this.peek().text===','||this.peek().text===')')args.push({type:'literal',value:null,start:this.peek().start,end:this.peek().start});
       else args.push(this.expr(0));
       if(this.consume(')'))break;
-      const next=this.peek();if(next.text!==','&&next.text!==';')throw new FormulaSyntaxError("Expected ',' or ';' between function arguments.",next.start,"Separate arguments with one consistent list separator and close with ')'.");
+      const next=this.peek();if(next.kind==='eof')throw new FormulaSyntaxError('Missing closing parenthesis.',next.start,"Add ')' after the last function argument.");if(next.text!==','&&next.text!==';')throw new FormulaSyntaxError("Expected ',' or ';' between function arguments.",next.start,"Separate arguments with one consistent list separator and close with ')'.");
       if(separator&&separator!==next.text)throw new FormulaSyntaxError('Do not mix comma and semicolon argument separators in one function call.',next.start,'Use either commas or semicolons throughout this function call.');
       separator=next.text as ','|';';this.take();
     }

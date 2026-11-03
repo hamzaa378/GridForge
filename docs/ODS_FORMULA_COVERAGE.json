@@ -1,0 +1,4569 @@
+{
+  "schema": "gridforge-ods-formula-coverage/1",
+  "summary": {
+    "fixtureCount": 506,
+    "openFormula": 404,
+    "microsoftCompatibility": 84,
+    "libreOfficeSpecific": 3,
+    "gridForgeRecoveryOnly": 15,
+    "recoveryMetadataCopies": 18,
+    "openFormulaPercent": 79.84,
+    "method": "One frozen desktop-Excel parity formula per case. Standard OpenFormula, Microsoft-namespace, LibreOffice-specific, and GridForge-only serialization are counted separately; none proves full calculation parity."
+  },
+  "formulas": [
+    {
+      "function": "ABS",
+      "formula": "=ABS(-8)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ACCRINT",
+      "formula": "=ACCRINT(45000,45300,45500,0.05)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ACCRINTM",
+      "formula": "=ACCRINTM(45000,45300,0.05)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ACOS",
+      "formula": "=ACOS(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ACOSH",
+      "formula": "=ACOSH(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ACOT",
+      "formula": "=ACOT(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ACOTH",
+      "formula": "=ACOTH(2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ADDRESS",
+      "formula": "=ADDRESS(4,2,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AGGREGATE",
+      "formula": "=AGGREGATE(9,4,S1:U1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AMORDEGRC",
+      "formula": "=AMORDEGRC(1200,45000,45200,100,1,0.1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AMORLINC",
+      "formula": "=AMORLINC(1200,45000,45200,100,1,0.1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AND",
+      "formula": "=AND(TRUE,FALSE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ARABIC",
+      "formula": "=ARABIC(\"XIV\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AREAS",
+      "formula": "=AREAS(A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ARRAYTOTEXT",
+      "formula": "=ARRAYTOTEXT(A1:A2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ASC",
+      "formula": "=ASC(\"Ｈｅｌｌｏ\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ASIN",
+      "formula": "=ASIN(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ASINH",
+      "formula": "=ASINH(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ATAN",
+      "formula": "=ATAN(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ATAN2",
+      "formula": "=ATAN2(1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ATANH",
+      "formula": "=ATANH(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AVEDEV",
+      "formula": "=AVEDEV(2,4,6)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AVERAGE",
+      "formula": "=AVERAGE(B1:B8)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AVERAGEA",
+      "formula": "=AVERAGEA(TRUE,2,\"x\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AVERAGEIF",
+      "formula": "=AVERAGEIF(A1:A5,\">2\",B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "AVERAGEIFS",
+      "formula": "=AVERAGEIFS(B1:B5,C1:C5,\"North\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BAHTTEXT",
+      "formula": "=BAHTTEXT(12)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BASE",
+      "formula": "=BASE(255,16)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BESSELI",
+      "formula": "=BESSELI(1,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BESSELJ",
+      "formula": "=BESSELJ(1,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BESSELK",
+      "formula": "=BESSELK(1,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BESSELY",
+      "formula": "=BESSELY(1,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BETA.DIST",
+      "formula": "=BETA.DIST(0.5,2,2,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BETA.INV",
+      "formula": "=BETA.INV(0.5,2,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BETADIST",
+      "formula": "=BETADIST(0.5,2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BETAINV",
+      "formula": "=BETAINV(0.5,2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BIN2DEC",
+      "formula": "=BIN2DEC(\"1010\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BIN2HEX",
+      "formula": "=BIN2HEX(\"1010\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BIN2OCT",
+      "formula": "=BIN2OCT(\"1010\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BINOM.DIST",
+      "formula": "=BINOM.DIST(2,4,0.5,FALSE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BINOM.DIST.RANGE",
+      "formula": "=BINOM.DIST.RANGE(10,0.5,3,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BINOM.INV",
+      "formula": "=BINOM.INV(10,0.5,0.5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BINOMDIST",
+      "formula": "=BINOMDIST(2,4,0.5,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BITAND",
+      "formula": "=BITAND(6,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BITLSHIFT",
+      "formula": "=BITLSHIFT(3,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BITOR",
+      "formula": "=BITOR(6,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BITRSHIFT",
+      "formula": "=BITRSHIFT(16,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BITXOR",
+      "formula": "=BITXOR(6,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "BYCOL",
+      "formula": "=INDEX(BYCOL(M1:N3,\"SUM\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "BYROW",
+      "formula": "=INDEX(BYROW(M1:N3,\"SUM\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "CEILING",
+      "formula": "=CEILING(13,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CEILING.MATH",
+      "formula": "=CEILING.MATH(7.2,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CEILING.PRECISE",
+      "formula": "=CEILING.PRECISE(-4.1,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CELL",
+      "formula": "=CELL(\"address\",B3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHAR",
+      "formula": "=CHAR(65)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHIDIST",
+      "formula": "=CHIDIST(3,4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHIINV",
+      "formula": "=CHIINV(0.25,4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHISQ.DIST",
+      "formula": "=CHISQ.DIST(2,3,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHISQ.DIST.RT",
+      "formula": "=CHISQ.DIST.RT(2,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHISQ.INV",
+      "formula": "=CHISQ.INV(0.5,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHISQ.INV.RT",
+      "formula": "=CHISQ.INV.RT(0.5,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHISQ.TEST",
+      "formula": "=CHISQ.TEST(M1:N1,P1:Q1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHITEST",
+      "formula": "=CHITEST(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHOOSE",
+      "formula": "=CHOOSE(2,1/0,42)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHOOSECOLS",
+      "formula": "=INDEX(CHOOSECOLS(M1:N3,1),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CHOOSEROWS",
+      "formula": "=INDEX(CHOOSEROWS(M1:N3,1),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CLEAN",
+      "formula": "=CLEAN(\"a\"&CHAR(10)&\"b\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CODE",
+      "formula": "=CODE(\"A\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COLUMN",
+      "formula": "=COLUMN(B3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COLUMNS",
+      "formula": "=COLUMNS(A1:C5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COMBIN",
+      "formula": "=COMBIN(5,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COMBINA",
+      "formula": "=COMBINA(3,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COMPLEX",
+      "formula": "=COMPLEX(3,4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CONCAT",
+      "formula": "=CONCAT(\"A\",\"B\")",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CONCATENATE",
+      "formula": "=CONCATENATE(\"ab\",\"cd\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CONFIDENCE",
+      "formula": "=CONFIDENCE(0.05,2,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CONFIDENCE.NORM",
+      "formula": "=CONFIDENCE.NORM(0.05,2,100)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CONFIDENCE.T",
+      "formula": "=CONFIDENCE.T(0.05,3,20)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CONVERT",
+      "formula": "=CONVERT(1,\"mi\",\"km\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CORREL",
+      "formula": "=CORREL(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COS",
+      "formula": "=COS(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COSH",
+      "formula": "=COSH(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COT",
+      "formula": "=COT(PI()/4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COTH",
+      "formula": "=COTH(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUNT",
+      "formula": "=COUNT(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUNTA",
+      "formula": "=COUNTA(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUNTBLANK",
+      "formula": "=COUNTBLANK(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUNTIF",
+      "formula": "=COUNTIF(A1:A5,\">2\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUNTIFS",
+      "formula": "=COUNTIFS(C1:C5,\"North\",A1:A5,\">2\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUPDAYBS",
+      "formula": "=COUPDAYBS(45000,47000,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUPDAYS",
+      "formula": "=COUPDAYS(45000,47000,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUPDAYSNC",
+      "formula": "=COUPDAYSNC(45000,47000,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUPNCD",
+      "formula": "=COUPNCD(45000,47000,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUPNUM",
+      "formula": "=COUPNUM(45000,47000,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COUPPCD",
+      "formula": "=COUPPCD(45000,47000,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COVAR",
+      "formula": "=COVAR(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COVARIANCE.P",
+      "formula": "=COVARIANCE.P(M1:O1,P1:R1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COVARIANCE.S",
+      "formula": "=COVARIANCE.S(M1:O1,P1:R1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COVARIANCEP",
+      "formula": "=COVARIANCEP(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "COVARIANCES",
+      "formula": "=COVARIANCES(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CRITBINOM",
+      "formula": "=CRITBINOM(10,0.5,0.5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CSC",
+      "formula": "=CSC(PI()/2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CSCH",
+      "formula": "=CSCH(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CUBESETCOUNT",
+      "formula": "=CUBESETCOUNT(\"A,B,C\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "CUMIPMT",
+      "formula": "=CUMIPMT(0.01,12,1000,1,1,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "CUMPRINC",
+      "formula": "=CUMPRINC(0.01,12,1000,1,1,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DATE",
+      "formula": "=DATE(2026,10,20)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DATEDIF",
+      "formula": "=DATEDIF(DATE(2020,1,1),DATE(2022,4,1),\"Y\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DATEVALUE",
+      "formula": "=DATEVALUE(\"2026-10-20\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DAVERAGE",
+      "formula": "=DAVERAGE(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DAY",
+      "formula": "=DAY(DATE(2026,10,20))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DAYS",
+      "formula": "=DAYS(DATE(2026,10,20),DATE(2026,10,10))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DAYS360",
+      "formula": "=DAYS360(DATE(2026,1,1),DATE(2026,4,1))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DB",
+      "formula": "=DB(10000,1000,5,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DCOUNT",
+      "formula": "=DCOUNT(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DCOUNTA",
+      "formula": "=DCOUNTA(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DDB",
+      "formula": "=DDB(1000,0,5,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DEC2BIN",
+      "formula": "=DEC2BIN(10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DEC2HEX",
+      "formula": "=DEC2HEX(255)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DEC2OCT",
+      "formula": "=DEC2OCT(8)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DECIMAL",
+      "formula": "=DECIMAL(\"FF\",16)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DEGREES",
+      "formula": "=DEGREES(PI())",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DELTA",
+      "formula": "=DELTA(4,4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DETECTLANGUAGE",
+      "formula": "=DETECTLANGUAGE(\"Hello\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "DEVSQ",
+      "formula": "=DEVSQ(2,4,6)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DGET",
+      "formula": "=DGET(D1:E4,\"Sales\",D1:E2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DISC",
+      "formula": "=DISC(45000,45100,98,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DMAX",
+      "formula": "=DMAX(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DMIN",
+      "formula": "=DMIN(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DOLLAR",
+      "formula": "=DOLLAR(1234.5,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DOLLARDE",
+      "formula": "=DOLLARDE(1.02,16)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DOLLARFR",
+      "formula": "=DOLLARFR(1.125,16)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DPRODUCT",
+      "formula": "=DPRODUCT(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DROP",
+      "formula": "=INDEX(DROP(M1:N3,1),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DSTDEV",
+      "formula": "=DSTDEV(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DSTDEVP",
+      "formula": "=DSTDEVP(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DSUM",
+      "formula": "=DSUM(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DURATION",
+      "formula": "=DURATION(45000,47000,0.05,0.06,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DVAR",
+      "formula": "=DVAR(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "DVARP",
+      "formula": "=DVARP(D1:E4,\"Sales\",G1:G2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ECMA.CEILING",
+      "formula": "=ECMA.CEILING(7.2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EDATE",
+      "formula": "=DAY(EDATE(DATE(2026,1,31),1))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EFFECT",
+      "formula": "=EFFECT(0.12,12)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ENCODEURL",
+      "formula": "=ENCODEURL(\"a b\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EOMONTH",
+      "formula": "=DAY(EOMONTH(DATE(2026,2,3),0))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ERF",
+      "formula": "=ERF(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ERF.PRECISE",
+      "formula": "=ERF.PRECISE(0.3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ERFC",
+      "formula": "=ERFC(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ERFC.PRECISE",
+      "formula": "=ERFC.PRECISE(0.3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ERROR.TYPE",
+      "formula": "=ERROR.TYPE(1/0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EUROCONVERT",
+      "formula": "=EUROCONVERT(100,\"EUR\",\"DEM\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EVEN",
+      "formula": "=EVEN(-3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EXACT",
+      "formula": "=EXACT(\"A\",\"A\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EXP",
+      "formula": "=EXP(1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EXPAND",
+      "formula": "=INDEX(EXPAND(M1:N3,5,3,0),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EXPON.DIST",
+      "formula": "=EXPON.DIST(2,0.5,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "EXPONDIST",
+      "formula": "=EXPONDIST(2,0.5,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "F.DIST",
+      "formula": "=F.DIST(1,4,8,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "F.DIST.RT",
+      "formula": "=F.DIST.RT(1,4,8)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "F.INV",
+      "formula": "=F.INV(0.6,4,8)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "F.INV.RT",
+      "formula": "=F.INV.RT(0.6,4,8)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "F.TEST",
+      "formula": "=F.TEST(M1:P1,P1:S1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FACT",
+      "formula": "=FACT(5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FACTDOUBLE",
+      "formula": "=FACTDOUBLE(7)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FALSE",
+      "formula": "=FALSE()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FDIST",
+      "formula": "=FDIST(2,5,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FIELDVALUE",
+      "formula": "=FIELDVALUE(\"cost=500;region=North\",\"cost\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "FILTER",
+      "formula": "=INDEX(FILTER(M1:N3,P1:P3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FILTERXML",
+      "formula": "=FILTERXML(\"<item>ok</item>\",\"item\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FIND",
+      "formula": "=FIND(\"a\",\"cable\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FINDB",
+      "formula": "=FINDB(\"b\",\"abc\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FINV",
+      "formula": "=FINV(0.25,5,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FISHER",
+      "formula": "=FISHER(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FISHERINV",
+      "formula": "=FISHERINV(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FIXED",
+      "formula": "=FIXED(1234.5,1,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FLATTEN",
+      "formula": "=INDEX(FLATTEN(M1:N3),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FLOOR",
+      "formula": "=FLOOR(13,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FLOOR.MATH",
+      "formula": "=FLOOR.MATH(7.2,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FLOOR.PRECISE",
+      "formula": "=FLOOR.PRECISE(-4.1,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORECAST",
+      "formula": "=FORECAST(7,B1:B5,A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORECAST.ETS",
+      "formula": "=FORECAST.ETS(5,P1:P4,S1:S4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORECAST.ETS.CONFINT",
+      "formula": "=FORECAST.ETS.CONFINT(5,P1:P4,S1:S4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORECAST.ETS.SEASONALITY",
+      "formula": "=FORECAST.ETS.SEASONALITY(5,P1:P4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORECAST.ETS.STAT",
+      "formula": "=FORECAST.ETS.STAT(5,P1:P4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORECAST.LINEAR",
+      "formula": "=FORECAST.LINEAR(6,B1:B5,A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FORMULATEXT",
+      "formula": "=FORMULATEXT(E2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FREQUENCY",
+      "formula": "=INDEX(FREQUENCY(A1:A5,B1:B2),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FTEST",
+      "formula": "=FTEST(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FV",
+      "formula": "=FV(0,10,-100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "FVSCHEDULE",
+      "formula": "=FVSCHEDULE(100,A1:A2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMA",
+      "formula": "=GAMMA(5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMA.DIST",
+      "formula": "=GAMMA.DIST(2,3,2,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMA.INV",
+      "formula": "=GAMMA.INV(0.5,3,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMADIST",
+      "formula": "=GAMMADIST(2,2,2,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMAINV",
+      "formula": "=GAMMAINV(0.5,2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMALN",
+      "formula": "=GAMMALN(5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAMMALN.PRECISE",
+      "formula": "=GAMMALN.PRECISE(5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GAUSS",
+      "formula": "=GAUSS(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GCD",
+      "formula": "=GCD(24,36)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GEOMEAN",
+      "formula": "=GEOMEAN(1,4,16)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GESTEP",
+      "formula": "=GESTEP(7,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "GROUPBY",
+      "formula": "=INDEX(GROUPBY(M1:M3,P1:P3,\"SUM\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "GROWTH",
+      "formula": "=INDEX(GROWTH(B1:B5,A1:A5,A1:A5),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HARMEAN",
+      "formula": "=HARMEAN(1,2,4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HEX2BIN",
+      "formula": "=HEX2BIN(\"A\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HEX2DEC",
+      "formula": "=HEX2DEC(\"FF\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HEX2OCT",
+      "formula": "=HEX2OCT(\"A\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HLOOKUP",
+      "formula": "=HLOOKUP(\"Q2\",H1:J2,2,FALSE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HOUR",
+      "formula": "=HOUR(TIME(14,30,0))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HSTACK",
+      "formula": "=INDEX(HSTACK(M1:N3,P1:Q3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HYPERLINK",
+      "formula": "=HYPERLINK(\"https://example.com\",\"Example\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HYPGEOM.DIST",
+      "formula": "=HYPGEOM.DIST(1,3,4,12,FALSE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "HYPGEOMDIST",
+      "formula": "=HYPGEOMDIST(2,5,6,20)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IF",
+      "formula": "=IF(2>1,5,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IFERROR",
+      "formula": "=IFERROR(1/0,7)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IFNA",
+      "formula": "=IFNA(NA(),7)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IFS",
+      "formula": "=IFS(FALSE,1/0,TRUE,42)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMABS",
+      "formula": "=IMABS(\"3+4i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMAGE",
+      "formula": "=IMAGE(\"https://example.org/sample.png\",\"Example\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "IMAGINARY",
+      "formula": "=IMAGINARY(\"3+4i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMARGUMENT",
+      "formula": "=IMARGUMENT(\"3+4i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMCONJUGATE",
+      "formula": "=IMCONJUGATE(\"3+4i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMCOS",
+      "formula": "=IMCOS(\"1+2i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMDIV",
+      "formula": "=IMDIV(\"3+4i\",\"1+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMEXP",
+      "formula": "=IMEXP(\"1+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMLN",
+      "formula": "=IMLN(\"1+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMLOG10",
+      "formula": "=IMLOG10(\"1+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMLOG2",
+      "formula": "=IMLOG2(\"1+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMPOWER",
+      "formula": "=IMPOWER(\"1+i\",\"2\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMPRODUCT",
+      "formula": "=IMPRODUCT(\"1+i\",\"1-i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMREAL",
+      "formula": "=IMREAL(\"3+4i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMSIN",
+      "formula": "=IMSIN(\"1+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMSQRT",
+      "formula": "=IMSQRT(\"3+4i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMSUB",
+      "formula": "=IMSUB(\"4+3i\",\"2+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IMSUM",
+      "formula": "=IMSUM(\"1+i\",\"2+i\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "INDEX",
+      "formula": "=INDEX(A1:B5,2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "INDIRECT",
+      "formula": "=INDIRECT(\"A3\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "INFO",
+      "formula": "=INFO(\"release\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "INT",
+      "formula": "=INT(3.9)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "INTERCEPT",
+      "formula": "=INTERCEPT(B1:B5,A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "INTRATE",
+      "formula": "=INTRATE(45000,46000,1000,1100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IPMT",
+      "formula": "=IPMT(0.1,1,2,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "IRR",
+      "formula": "=IRR(F1:F5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISBETWEEN",
+      "formula": "=ISBETWEEN(5,1,10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISBLANK",
+      "formula": "=ISBLANK(L40)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISERR",
+      "formula": "=ISERR(1/0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISERROR",
+      "formula": "=ISERROR(1/0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISEVEN",
+      "formula": "=ISEVEN(4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISFORMULA",
+      "formula": "=ISFORMULA(L39)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISLOGICAL",
+      "formula": "=ISLOGICAL(TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISNA",
+      "formula": "=ISNA(MATCH(99,A1:A5,0))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISNONTEXT",
+      "formula": "=ISNONTEXT(123)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISNUMBER",
+      "formula": "=ISNUMBER(A1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISO.CEILING",
+      "formula": "=ISO.CEILING(5.2,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISODD",
+      "formula": "=ISODD(3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISOMITTED",
+      "formula": "=ISOMITTED(L40)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISOWEEKNUM",
+      "formula": "=ISOWEEKNUM(DATE(2021,1,4))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISPMT",
+      "formula": "=ISPMT(0.05,2,12,1000)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISREF",
+      "formula": "=ISREF(A1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ISTEXT",
+      "formula": "=ISTEXT(A1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "JIS",
+      "formula": "=JIS(\"Hello\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "KURT",
+      "formula": "=KURT(A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LAMBDA",
+      "formula": "=LAMBDA(\"x\",2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LARGE",
+      "formula": "=LARGE(A1:A10,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LCM",
+      "formula": "=LCM(4,6)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LEFT",
+      "formula": "=LEFT(\"Hello\",2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LEFTB",
+      "formula": "=LEFTB(\"abc\",2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LEN",
+      "formula": "=LEN(\"Hello\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LENB",
+      "formula": "=LENB(\"abc\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LET",
+      "formula": "=LET(\"x\",2,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LINEST",
+      "formula": "=INDEX(LINEST(B1:B5,A1:A5),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LN",
+      "formula": "=LN(10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOG",
+      "formula": "=LOG(100,10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOG10",
+      "formula": "=LOG10(1000)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOGEST",
+      "formula": "=INDEX(LOGEST(B1:B5,A1:A5),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOGINV",
+      "formula": "=LOGINV(0.5,0,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOGNORM.DIST",
+      "formula": "=LOGNORM.DIST(1,0,1,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOGNORM.INV",
+      "formula": "=LOGNORM.INV(0.5,0,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOGNORMDIST",
+      "formula": "=LOGNORMDIST(1,0,1,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOOKUP",
+      "formula": "=LOOKUP(3,A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "LOWER",
+      "formula": "=LOWER(\"HELLO\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MAKEARRAY",
+      "formula": "=INDEX(MAKEARRAY(3,3,\"PRODUCT\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "MAP",
+      "formula": "=INDEX(MAP(M1:N3,\"ABS\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "MATCH",
+      "formula": "=MATCH(3,A1:A5,0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MAX",
+      "formula": "=MAX(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MAXA",
+      "formula": "=MAXA(-5,-1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MAXIFS",
+      "formula": "=MAXIFS(A1:A5,D1:D5,\"East\")",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MDETERM",
+      "formula": "=MDETERM(H1:I2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MDURATION",
+      "formula": "=MDURATION(45000,47000,0.05,0.06,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MEDIAN",
+      "formula": "=MEDIAN(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MID",
+      "formula": "=MID(\"Hello\",2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MIDB",
+      "formula": "=MIDB(\"abc\",2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MIN",
+      "formula": "=MIN(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MINA",
+      "formula": "=MINA(1,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MINIFS",
+      "formula": "=MINIFS(A1:A5,D1:D5,\"East\")",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MINUTE",
+      "formula": "=MINUTE(TIME(14,30,0))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MINVERSE",
+      "formula": "=INDEX(MINVERSE(H1:I2),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MIRR",
+      "formula": "=MIRR(F1:F5,0.1,0.1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MMULT",
+      "formula": "=INDEX(MMULT(H1:I2,H1:I2),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MOD",
+      "formula": "=MOD(17,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MODE",
+      "formula": "=MODE(1,2,2,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MODE.MULT",
+      "formula": "=INDEX(MODE.MULT(M1:Q1),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MODE.SNGL",
+      "formula": "=MODE.SNGL(1,2,2,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MONTH",
+      "formula": "=MONTH(DATE(2026,10,20))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MROUND",
+      "formula": "=MROUND(14,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MULTINOMIAL",
+      "formula": "=MULTINOMIAL(2,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "MUNIT",
+      "formula": "=INDEX(MUNIT(3),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "N",
+      "formula": "=N(TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NA",
+      "formula": "=NA()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NEGBINOMDIST",
+      "formula": "=NEGBINOMDIST(2,3,0.5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NETWORKDAYS",
+      "formula": "=NETWORKDAYS(DATE(2026,10,19),DATE(2026,10,23))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NETWORKDAYS.INTL",
+      "formula": "=NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NETWORKDAYSINTL",
+      "formula": "=NETWORKDAYSINTL(DATE(2026,10,19),DATE(2026,10,23),1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NOMINAL",
+      "formula": "=NOMINAL(EFFECT(0.12,12),12)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORM.DIST",
+      "formula": "=NORM.DIST(0,0,1,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORM.INV",
+      "formula": "=NORM.INV(0.5,0,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORM.S.DIST",
+      "formula": "=NORM.S.DIST(0,FALSE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORM.S.INV",
+      "formula": "=NORM.S.INV(0.5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORMDIST",
+      "formula": "=NORMDIST(0,0,1,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORMINV",
+      "formula": "=NORMINV(.5,0,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORMSDIST",
+      "formula": "=NORMSDIST(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NORMSINV",
+      "formula": "=NORMSINV(.5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NOT",
+      "formula": "=NOT(FALSE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NOW",
+      "formula": "=NOW()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NPER",
+      "formula": "=NPER(0,-100,1000)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NPV",
+      "formula": "=NPV(0.1,100,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "NUMBERVALUE",
+      "formula": "=NUMBERVALUE(\"1.234,5\",\",\",\".\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "OCT2BIN",
+      "formula": "=OCT2BIN(\"12\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "OCT2DEC",
+      "formula": "=OCT2DEC(\"12\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "OCT2HEX",
+      "formula": "=OCT2HEX(\"12\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ODD",
+      "formula": "=ODD(-4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ODDFPRICE",
+      "formula": "=ODDFPRICE(45000,47000,45200,45400,0.04,95,100,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ODDFYIELD",
+      "formula": "=ODDFYIELD(45000,47000,45200,45400,0.04,95,100,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ODDLPRICE",
+      "formula": "=ODDLPRICE(45000,47000,45200,45400,0.04,95,100,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ODDLYIELD",
+      "formula": "=ODDLYIELD(45000,47000,45200,45400,0.04,95,100,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "OFFSET",
+      "formula": "=OFFSET(A1,2,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "OR",
+      "formula": "=OR(TRUE,FALSE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PDURATION",
+      "formula": "=PDURATION(0.1,1000,2000)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PEARSON",
+      "formula": "=PEARSON(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERCENTILE",
+      "formula": "=PERCENTILE(A1:A5,0.25)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERCENTILE.EXC",
+      "formula": "=PERCENTILE.EXC(A1:A5,0.5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERCENTILE.INC",
+      "formula": "=PERCENTILE.INC(A1:A5,0.75)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERCENTOF",
+      "formula": "=PERCENTOF(M1:M2,P1:P3)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "PERCENTRANK",
+      "formula": "=PERCENTRANK(A1:A5,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERCENTRANK.EXC",
+      "formula": "=PERCENTRANK.EXC(A1:A5,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERCENTRANK.INC",
+      "formula": "=PERCENTRANK.INC(A1:A5,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERMUT",
+      "formula": "=PERMUT(5,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PERMUTATIONA",
+      "formula": "=PERMUTATIONA(3,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PHI",
+      "formula": "=PHI(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PHONETIC",
+      "formula": "=PHONETIC(\"Good morning\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PI",
+      "formula": "=PI()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PIVOTBY",
+      "formula": "=INDEX(PIVOTBY(M1:M3,P1:P3,S1:S3,\"SUM\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "PMT",
+      "formula": "=PMT(0,10,1000)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "POISSON",
+      "formula": "=POISSON(2,3,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "POISSON.DIST",
+      "formula": "=POISSON.DIST(0,2,FALSE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "POWER",
+      "formula": "=POWER(2,8)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PPMT",
+      "formula": "=PPMT(0.1,1,2,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PRICE",
+      "formula": "=PRICE(45000,45600,0.05,0.06,100,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PRICEDISC",
+      "formula": "=PRICEDISC(45000,45100,0.05,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PRICEMAT",
+      "formula": "=PRICEMAT(45000,45700,44800,0.04,0.05)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PROB",
+      "formula": "=PROB(A1:A5,J1:J5,2,4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PRODUCT",
+      "formula": "=PRODUCT(A1:A3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PROPER",
+      "formula": "=PROPER(\"heLLo woRLD\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "PV",
+      "formula": "=PV(0,10,-100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "QUARTILE",
+      "formula": "=QUARTILE(A1:A5,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "QUARTILE.EXC",
+      "formula": "=QUARTILE.EXC(A1:A5,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "QUARTILE.INC",
+      "formula": "=QUARTILE.INC(A1:A5,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "QUOTIENT",
+      "formula": "=QUOTIENT(-17,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RADIANS",
+      "formula": "=RADIANS(180)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RAND",
+      "formula": "=RAND()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RANDARRAY",
+      "formula": "=INDEX(RANDARRAY(2,3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RANDBETWEEN",
+      "formula": "=RANDBETWEEN(1,6)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RANK",
+      "formula": "=RANK(4,A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RANK.AVG",
+      "formula": "=RANK.AVG(2,A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RANK.EQ",
+      "formula": "=RANK.EQ(4,A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RATE",
+      "formula": "=RATE(10,-100,1000)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RECEIVED",
+      "formula": "=RECEIVED(45000,45100,100,0.05)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "REDUCE",
+      "formula": "=REDUCE(0,P1:P4,\"SUM\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "REGEXEXTRACT",
+      "formula": "=REGEXEXTRACT(\"AB123\",\"[0-9]+\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": true,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "REGEXREPLACE",
+      "formula": "=REGEXREPLACE(\"ab12\",\"[0-9]+\",\"ZZ\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": true,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "REGEXTEST",
+      "formula": "=REGEXTEST(\"ab12\",\"[0-9]+\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": true,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "REPLACE",
+      "formula": "=REPLACE(\"hello\",2,2,\"a\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "REPLACEB",
+      "formula": "=REPLACEB(\"abc\",2,1,\"Z\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "REPT",
+      "formula": "=REPT(\"xy\",3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RIGHT",
+      "formula": "=RIGHT(\"Hello\",2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RIGHTB",
+      "formula": "=RIGHTB(\"abc\",2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ROMAN",
+      "formula": "=ROMAN(14)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ROUND",
+      "formula": "=ROUND(3.14159,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ROUNDDOWN",
+      "formula": "=ROUNDDOWN(2.19,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ROUNDUP",
+      "formula": "=ROUNDUP(2.12,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ROW",
+      "formula": "=ROW(A4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ROWS",
+      "formula": "=ROWS(A1:C5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RRI",
+      "formula": "=RRI(2,100,121)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "RSQ",
+      "formula": "=RSQ(A1:A5,B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SCAN",
+      "formula": "=INDEX(SCAN(0,P1:P4,\"SUM\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "SEARCH",
+      "formula": "=SEARCH(\"A\",\"cable\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SEARCHB",
+      "formula": "=SEARCHB(\"B\",\"abc\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SEC",
+      "formula": "=SEC(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SECH",
+      "formula": "=SECH(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SECOND",
+      "formula": "=SECOND(TIME(14,30,45))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SEQUENCE",
+      "formula": "=INDEX(SEQUENCE(3,2),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SERIESSUM",
+      "formula": "=SERIESSUM(2,1,2,A1:A3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SHEET",
+      "formula": "=SHEET()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SHEETS",
+      "formula": "=SHEETS()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SIGN",
+      "formula": "=SIGN(-4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SIN",
+      "formula": "=SIN(PI()/2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SINH",
+      "formula": "=SINH(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SKEW",
+      "formula": "=SKEW(A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SKEW.P",
+      "formula": "=SKEW.P(A1:A3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SLN",
+      "formula": "=SLN(1000,0,5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SLOPE",
+      "formula": "=SLOPE(B1:B5,A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SMALL",
+      "formula": "=SMALL(A1:A10,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SORT",
+      "formula": "=INDEX(SORT(M1:N3,1,-1),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SORTBY",
+      "formula": "=INDEX(SORTBY(M1:N3,P1:P3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SQRT",
+      "formula": "=SQRT(81)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SQRTPI",
+      "formula": "=SQRTPI(4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STANDARDIZE",
+      "formula": "=STANDARDIZE(10,8,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STDEV",
+      "formula": "=STDEV(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STDEV.P",
+      "formula": "=STDEV.P(A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STDEV.S",
+      "formula": "=STDEV.S(A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STDEVA",
+      "formula": "=STDEVA(1,2,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STDEVP",
+      "formula": "=STDEVP(2,4,6)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STDEVPA",
+      "formula": "=STDEVPA(1,2,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "STEYX",
+      "formula": "=STEYX(B1:B5,A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUBSTITUTE",
+      "formula": "=SUBSTITUTE(A1,\"old\",\"new\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUBTOTAL",
+      "formula": "=SUBTOTAL(9,A1:A5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUM",
+      "formula": "=SUM(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMIF",
+      "formula": "=SUMIF(A1:A5,\">2\",B1:B5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMIFS",
+      "formula": "=SUMIFS(B1:B5,C1:C5,\"North\",A1:A5,\">2\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMPRODUCT",
+      "formula": "=SUMPRODUCT(A1:A3,B1:B3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMSQ",
+      "formula": "=SUMSQ(1,2,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMX2MY2",
+      "formula": "=SUMX2MY2(A1:A2,B1:B2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMX2PY2",
+      "formula": "=SUMX2PY2(A1:A2,B1:B2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SUMXMY2",
+      "formula": "=SUMXMY2(A1:A2,B1:B2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SWITCH",
+      "formula": "=SWITCH(2,1,1/0,2,99,0)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "SYD",
+      "formula": "=SYD(1000,0,5,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T",
+      "formula": "=T(\"Hello\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T.DIST",
+      "formula": "=T.DIST(1,7,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T.DIST.2T",
+      "formula": "=T.DIST.2T(1,7)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T.DIST.RT",
+      "formula": "=T.DIST.RT(1,7)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T.INV",
+      "formula": "=T.INV(0.5,7)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T.INV.2T",
+      "formula": "=T.INV.2T(0.5,7)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "T.TEST",
+      "formula": "=T.TEST(M1:P1,P1:S1,2,2)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TAKE",
+      "formula": "=INDEX(TAKE(M1:N3,1),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TAN",
+      "formula": "=TAN(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TANH",
+      "formula": "=TANH(0)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TBILLEQ",
+      "formula": "=TBILLEQ(45000,45100,0.05)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TBILLPRICE",
+      "formula": "=TBILLPRICE(45000,45100,0.05)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TBILLYIELD",
+      "formula": "=TBILLYIELD(45000,45100,98)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TDIST",
+      "formula": "=TDIST(1.5,10,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TEXT",
+      "formula": "=TEXT(0.125,\"0.0%\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TEXTAFTER",
+      "formula": "=TEXTAFTER(\"one-two-three\",\"-\",2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TEXTBEFORE",
+      "formula": "=TEXTBEFORE(\"one-two-three\",\"-\",2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TEXTJOIN",
+      "formula": "=TEXTJOIN(\"|\",TRUE,D1:D3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TEXTSPLIT",
+      "formula": "=INDEX(TEXTSPLIT(\"a,b,c\",\",\"),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TIME",
+      "formula": "=TIME(14,30,45)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TIMEVALUE",
+      "formula": "=TIMEVALUE(\"12:30:00\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TINV",
+      "formula": "=TINV(0.05,10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TOCOL",
+      "formula": "=INDEX(TOCOL(M1:N3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TODAY",
+      "formula": "=TODAY()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TOROW",
+      "formula": "=INDEX(TOROW(M1:N3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TRANSLATE",
+      "formula": "=TRANSLATE(\"hello\",\"en\",\"es\")",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "TRANSPOSE",
+      "formula": "=INDEX(TRANSPOSE(H1:I2),2,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TREND",
+      "formula": "=INDEX(TREND(B1:B5,A1:A5,A1:A5),1,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TRIM",
+      "formula": "=TRIM(A1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TRIMMEAN",
+      "formula": "=TRIMMEAN(A1:A5,0.4)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TRIMRANGE",
+      "formula": "=INDEX(TRIMRANGE(M1:N3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": true,
+      "recoveryMetadataPresent": true
+    },
+    {
+      "function": "TRUE",
+      "formula": "=TRUE()",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TRUNC",
+      "formula": "=TRUNC(-3.987,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TTEST",
+      "formula": "=TTEST(A1:A5,B1:B5,2,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "TYPE",
+      "formula": "=TYPE(\"hello\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "UNICHAR",
+      "formula": "=UNICHAR(9733)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "UNICODE",
+      "formula": "=UNICODE(\"★\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "UNIQUE",
+      "formula": "=INDEX(UNIQUE(M1:M4),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "UPPER",
+      "formula": "=UPPER(\"hello\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VALUE",
+      "formula": "=VALUE(\"4.5\")",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VALUETOTEXT",
+      "formula": "=VALUETOTEXT(\"cat\",1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VAR",
+      "formula": "=VAR(A1:A10)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VAR.P",
+      "formula": "=VAR.P(A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VAR.S",
+      "formula": "=VAR.S(A1:A5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VARA",
+      "formula": "=VARA(1,2,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VARP",
+      "formula": "=VARP(2,4,6)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VARPA",
+      "formula": "=VARPA(1,2,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VDB",
+      "formula": "=VDB(10000,1000,5,0,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VLOOKUP",
+      "formula": "=VLOOKUP(\"k2\",D1:E3,2,FALSE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "VSTACK",
+      "formula": "=INDEX(VSTACK(M1:N3,P1:Q3),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WEEKDAY",
+      "formula": "=WEEKDAY(DATE(2026,10,20),2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WEEKNUM",
+      "formula": "=WEEKNUM(DATE(2026,1,1),1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WEIBULL",
+      "formula": "=WEIBULL(2,1,2,TRUE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WEIBULL.DIST",
+      "formula": "=WEIBULL.DIST(2,1,2,TRUE)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WORKDAY",
+      "formula": "=DAY(WORKDAY(DATE(2026,10,19),5))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WORKDAY.INTL",
+      "formula": "=WORKDAY.INTL(DATE(2026,10,19),5,1)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WRAPCOLS",
+      "formula": "=INDEX(WRAPCOLS(M1:M4,2),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "WRAPROWS",
+      "formula": "=INDEX(WRAPROWS(M1:M4,2),1,1)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "XIRR",
+      "formula": "=XIRR(F1:F5,G1:G5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "XLOOKUP",
+      "formula": "=XLOOKUP(\"k2\",D1:D3,E1:E3,\"missing\")",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "XMATCH",
+      "formula": "=XMATCH(\"East\",D1:D5)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "XNPV",
+      "formula": "=XNPV(0,F1:F5,G1:G5)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "XOR",
+      "formula": "=XOR(TRUE,FALSE,FALSE)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "YEAR",
+      "formula": "=YEAR(DATE(2026,10,20))",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "YEARFRAC",
+      "formula": "=YEARFRAC(DATE(2020,1,1),DATE(2021,1,1),3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "YIELD",
+      "formula": "=YIELD(45000,45600,0.05,99,100,2)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "YIELDDISC",
+      "formula": "=YIELDDISC(45000,45100,98,100)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "YIELDMAT",
+      "formula": "=YIELDMAT(45000,45600,44800,0.04,99)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "Z.TEST",
+      "formula": "=Z.TEST(A1:A5,3)",
+      "openFormula": false,
+      "microsoftCompatibility": true,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    },
+    {
+      "function": "ZTEST",
+      "formula": "=ZTEST(A1:A5,3)",
+      "openFormula": true,
+      "microsoftCompatibility": false,
+      "libreOfficeSpecific": false,
+      "gridForgeRecoveryOnly": false,
+      "recoveryMetadataPresent": false
+    }
+  ]
+}

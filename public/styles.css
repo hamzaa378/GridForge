@@ -19,6 +19,7 @@
 .reset-format{min-width:auto;font-size:10px}
 .fmt-selector-label,.color-field{display:flex;align-items:center;gap:6px;font-size:10px;color:#9eacc9;white-space:nowrap}
 .fmt-selector-label select{background:#222d46;border:1px solid #3e4b69;color:#dce2f8;font-size:11px;border-radius:6px;height:29px;padding:0 6px;max-width:128px}
+.fmt-selector-label input[list="fmt-font-list"]{background:#222d46;border:1px solid #3e4b69;color:#dce2f8;font-size:11px;border-radius:6px;height:29px;padding:0 6px;width:128px;max-width:22vw}
 .color-field input[type=color]{height:27px;width:34px;border:1px solid #3f4b63;background:#252f48;border-radius:6px;padding:2px;cursor:pointer}
 .sheet-tab-list{display:flex;gap:4px;max-width:min(45%,420px);overflow-x:auto;flex-shrink:1;align-self:stretch;align-items:end;scrollbar-width:thin}
 .sheet-tab{white-space:nowrap;flex-shrink:0}
@@ -156,7 +157,7 @@ html[data-theme="light"] .cell.total-data{background:#d9f5e8!important;color:#12
 html[data-theme="light"] .cell.has-error{color:#aa1d27}
 html[data-theme="light"] .row-heading,html[data-theme="light"] .col-heading,html[data-theme="light"] .corner{background:#edf3fa;color:#526a85;border-color:#d3dfec}
 html[data-theme="light"] .cell-editor{background:#fff;color:#1c3349}
-html[data-theme="light"] .sheet-tab,html[data-theme="light"] .sheet-action,html[data-theme="light"] .format-btn,html[data-theme="light"] .fmt-selector-label select{background:#edf3fa;border-color:#d0deee;color:#1c385a}
+html[data-theme="light"] .sheet-tab,html[data-theme="light"] .sheet-action,html[data-theme="light"] .format-btn,html[data-theme="light"] .fmt-selector-label select,html[data-theme="light"] .fmt-selector-label input[list="fmt-font-list"]{background:#edf3fa;border-color:#d0deee;color:#1c385a}
 html[data-theme="light"] .sheet-tab.active-tab{background:#d8eaff;color:#084e9a;border-bottom-color:#2563eb}
 html[data-theme="light"] .metrics,html[data-theme="light"] .statusbar{background:#fff;border-color:#dae2ee;color:#536983}
 html[data-theme="light"] .metric{border-color:#dce5ef}
@@ -279,6 +280,7 @@ html[data-theme="light"] .ribbon-content .tool-btn:hover{background:#e9f3ed;colo
 .format-toolbar{min-height:62px;height:62px;padding:7px 16px;gap:9px;border-top:1px solid #e4eae7;overflow-x:auto}
 .format-toolbar .fmt-selector-label{gap:6px;color:#607468;font-weight:630;font-size:10px}
 .format-toolbar .fmt-selector-label select{min-height:32px;max-width:none;border-radius:5px}
+.format-toolbar .fmt-selector-label input[list="fmt-font-list"]{height:32px;width:138px;max-width:20vw;padding:0 7px;border:1px solid #cbd7cf;border-radius:5px;background:#fff;color:#23352c;font-family:inherit;font-size:11px}
 .format-toolbar .fmt-selector-label input[type="text"]{height:32px;width:138px;max-width:20vw;padding:0 7px;border:1px solid #cbd7cf;border-radius:5px;background:#fff;color:#23352c;font-family:inherit;font-size:11px}
 .format-toolbar #fmt-font{min-width:104px}
 .format-toolbar #fmt-size{min-width:53px}
@@ -301,11 +303,15 @@ html[data-theme="light"] .cell:nth-child(even){background:#fff}
 html[data-theme="light"] .cell.selected{background:#e3f3e9!important}
 html[data-theme="light"] .cell.primary{background:#def4e7!important;box-shadow:inset 0 0 0 2px #178453}
 .cell.cell-wrap{white-space:normal;overflow-wrap:anywhere;line-height:1.08;padding-block:3px}
-.cell.border-all{outline:1px solid #657f75;outline-offset:-1px}
-.cell.border-bottom{border-bottom:2px solid #657f75}
-.cell.border-top{border-top:2px solid #657f75}
-.cell.border-left{border-left:2px solid #657f75}
-.cell.border-right{border-right:2px solid #657f75}
+.cell.border-all{outline:var(--cell-border-width,1px) var(--cell-border-style,solid) var(--cell-border-color,#657f75);outline-offset:-1px}
+.cell.border-bottom{border-bottom:var(--cell-border-bottom-width,var(--cell-border-width,1px)) var(--cell-border-bottom-style,var(--cell-border-style,solid)) var(--cell-border-bottom-color,var(--cell-border-color,#657f75))}
+.cell.border-top{border-top:var(--cell-border-top-width,var(--cell-border-width,1px)) var(--cell-border-top-style,var(--cell-border-style,solid)) var(--cell-border-top-color,var(--cell-border-color,#657f75))}
+.cell.border-left{border-left:var(--cell-border-left-width,var(--cell-border-width,1px)) var(--cell-border-left-style,var(--cell-border-style,solid)) var(--cell-border-left-color,var(--cell-border-color,#657f75))}
+.cell.border-right{border-right:var(--cell-border-right-width,var(--cell-border-width,1px)) var(--cell-border-right-style,var(--cell-border-style,solid)) var(--cell-border-right-color,var(--cell-border-color,#657f75))}
+.cell.border-diagonal-up::before,.cell.border-diagonal-down::before,.cell.border-diagonals::before,.cell.border-diagonals::after{content:"";position:absolute;left:-20.5%;top:50%;width:141%;border-top:var(--cell-border-diagonal-width,1px) var(--cell-border-diagonal-style,solid) var(--cell-border-diagonal-color,#000);pointer-events:none;z-index:2}
+.cell.border-diagonal-up::before,.cell.border-diagonals::before{transform:rotate(-45deg)}
+.cell.border-diagonal-down::before,.cell.border-diagonals::after{transform:rotate(45deg)}
+.border-color-choice input[type=color]{height:27px;width:34px;border:1px solid #3f4b63;background:#252f48;border-radius:6px;padding:2px;cursor:pointer}
 .grid-hide-lines .cell:not(.border-all):not(.border-bottom):not(.border-top):not(.border-left):not(.border-right){border-right-color:transparent!important;border-bottom-color:transparent!important}
 .cell.border-all.primary,.cell.border-all.selected{outline-color:#16814f}
 html:not([data-inspector="open"]) .metrics{display:none}
@@ -483,6 +489,7 @@ html[data-theme="light"] .chart-series-options{background:#f7f9fb;border-color:#
 .format-command-group[aria-label="Font"]{min-width:270px}.format-command-group[aria-label="Alignment"]{min-width:122px}.format-command-group[aria-label="Number"]{min-width:135px}.format-command-group[aria-label="Styles"]{min-width:280px}.format-command-group[aria-label="Cells"]{min-width:150px}
 .format-toolbar .fmt-selector-label{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:55px;color:#50575d;font-size:9px;white-space:nowrap}
 .format-toolbar .fmt-selector-label select{height:28px;min-height:28px;padding:2px 20px 2px 6px;border:1px solid #bfc5cb;border-radius:2px;background:#fff;color:#343a40;font-size:11px}
+.format-toolbar .fmt-selector-label input[list="fmt-font-list"]{height:28px;min-height:28px;width:106px;padding:2px 5px;border:1px solid #bfc5cb;border-radius:2px;background:#fff;color:#343a40;font-size:11px}
 .format-toolbar #fmt-font{min-width:106px}.format-toolbar #fmt-size{min-width:48px}.format-toolbar .format-btn{height:30px;min-height:30px;min-width:29px;padding:4px 6px;border:1px solid transparent;border-radius:2px;background:transparent;color:#333;font-size:11px}
 .format-toolbar .format-btn:hover{background:#e7edf1}.format-toolbar .format-btn.format-on{background:#d8eadf!important;border-color:#65a681!important;color:#155a35!important}
 .format-toolbar .color-field{display:flex;flex-direction:column;align-items:center;gap:3px;color:#555;font-size:9px}.format-toolbar .color-field input{height:25px;width:32px;padding:1px}
@@ -559,6 +566,9 @@ html[data-theme="dark"][data-workspace="excel"] .ribbon-content .tool-group[aria
    second row above them; the JS class toggle mirrors this selector. */
 html[data-current-ribbon="Draw"] #ribbon-content,html[data-current-ribbon="Page Layout"] #ribbon-content{display:none!important}
 #draw-ribbon,#page-layout-ribbon{flex:0 0 95px;height:95px;min-height:95px;max-height:95px;align-self:stretch}
+/* Keep these sibling command strips compact in every workspace and appearance preset,
+   including when a theme applies flex growth to generic toolbar children. */
+#app>#draw-ribbon,#app>#page-layout-ribbon{flex:0 0 96px!important;height:96px!important;min-height:96px!important;max-height:96px!important;align-self:stretch;overflow-x:auto;overflow-y:hidden}
 /* Lock these direct children to one compact ribbon row even if another theme or
    workspace stylesheet adds flex growth. This prevents the Draw toolbar from
    stretching down into the free worksheet area as in the reported screenshot. */
@@ -586,6 +596,7 @@ html[data-current-ribbon="Draw"] #app>#page-layout-ribbon,html[data-current-ribb
 .worksheet-ink-layer path{vector-effect:non-scaling-stroke}
 .page-break-overlay{z-index:16}
 .page-break-overlay path{fill:none;stroke:#3184d3;stroke-width:2;stroke-dasharray:8 5;vector-effect:non-scaling-stroke}
+.page-break-overlay path[data-manual="true"]{stroke:#c64f43;stroke-width:3;stroke-dasharray:4 3}
 html[data-theme="dark"] .draw-ribbon{background:#303438}
 html[data-theme="dark"] .draw-ribbon-group{border-color:#4d5255}
 html[data-theme="dark"] .draw-ribbon-group::after,html[data-theme="dark"] .draw-ribbon-group label,html[data-theme="dark"] .draw-state{color:#c2c6c9}
@@ -746,3 +757,5 @@ html[data-theme="dark"] .worksheet-pivot-slicer{background:#1d2c3b;border-color:
 
 
 .chart-option-group{display:grid;gap:2px;margin:12px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px}.chart-option-group legend{padding:0 6px;font-weight:700;font-size:12px;color:var(--text)}.chart-option-group .chart-option{margin:4px 0 0}
+.conditional-icon{flex:0 0 auto;margin-right:5px;font-family:Arial,sans-serif;font-size:1.15em;font-weight:700;line-height:1;}
+.conditional-rule-manager{display:grid;gap:7px;margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:7px}.conditional-rule-manager h3{margin:0;font-size:13px}.conditional-rule-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border)}.conditional-rule-description{font-size:12px;overflow-wrap:anywhere}.conditional-rules-empty{margin:2px 0;color:var(--muted);font-size:12px}.conditional-icon-threshold{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:7px 0}.conditional-icon-threshold .field-label{grid-column:1/-1}

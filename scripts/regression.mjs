@@ -3,19 +3,27 @@
  * Usage: npm run regression (all) | npm run regression:core (no browser)
  */
 import {spawnSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
+import {dirname,join} from 'node:path';
 import {performance} from 'node:perf_hooks';
 const coreOnly=process.argv.includes('--core-only');
 const started=performance.now();
+// When this script is launched by npm, reuse npm's JavaScript entry point so
+// Windows does not need shell execution for the fixed npm subcommands below.
+const bundledNpmEntry=join(dirname(process.execPath),'node_modules','npm','bin','npm-cli.js');
+const npmEntry=process.env.npm_execpath||(process.platform==='win32'&&existsSync(bundledNpmEntry)?bundledNpmEntry:undefined);
+const npmCommand=npmEntry?process.execPath:process.platform==='win32'?'npm.cmd':'npm';
+const npmPrefix=npmEntry?[npmEntry]:[];
 const commands=[
- ['TypeScript type checking','npm',['run','check']],
- ['Engine and document unit tests','npm',['test']],
- ['10,000-formula dependency benchmark','npm',['run','benchmark']],
- ['10,000-cell Data Studio stress and undo benchmark','npm',['run','benchmark:tools']],
+ ['TypeScript type checking',npmCommand,[...npmPrefix,'run','check']],
+ ['Engine and document unit tests',npmCommand,[...npmPrefix,'test']],
+ ['10,000-formula dependency benchmark',npmCommand,[...npmPrefix,'run','benchmark']],
+ ['10,000-cell Data Studio stress and undo benchmark',npmCommand,[...npmPrefix,'run','benchmark:tools']],
 ];
 if(!coreOnly){
  let python=process.platform==='win32'?'py':'python3';
  let pythonArgs=process.platform==='win32'?['-3','scripts/regression_browser.py']:['scripts/regression_browser.py'];
- if(process.platform==='win32' && spawnSync('py',['-3','--version'],{stdio:'ignore',shell:true}).status!==0){
+ if(process.platform==='win32' && spawnSync('py',['-3','--version'],{stdio:'ignore'}).status!==0){
    python='python';pythonArgs=['scripts/regression_browser.py'];
  }
  commands.push(['Isolated Chromium UI regression',python,pythonArgs]);
@@ -28,7 +36,7 @@ if(!coreOnly){
 let passed=0;
 for(const [label,cmd,args] of commands){
  console.log(`\n${'='.repeat(72)}\n${label}\n$ ${cmd} ${args.join(' ')}\n${'='.repeat(72)}`);
- const result=spawnSync(cmd,args,{stdio:'inherit',shell:process.platform==='win32',env:process.env});
+ const result=spawnSync(cmd,args,{stdio:'inherit',shell:process.platform==='win32'&&!npmEntry&&cmd==='npm.cmd',env:process.env});
  if(result.error||result.status!==0){
   console.error(`\nFAIL: ${label} (${result.error?.message??`exit ${result.status}`}).`);
   if(label.includes('Chromium')){

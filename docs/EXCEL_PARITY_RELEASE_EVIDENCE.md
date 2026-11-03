@@ -1,3 +1,5 @@
+> **Historical v10.1 evidence.** Current v12.0.198 formula fixture results are in [PARITY_GRIDFORGE_RESULTS.json](PARITY_GRIDFORGE_RESULTS.json): 136/136 static scalar references match, and all four non-scalar fixtures now record their full spill matrices. Desktop Excel comparison remains unmeasured; the current audit did not launch Excel. The dated test counts and UI checks below describe the old v10.1 run and are not current v12.0.198 results.
+
 # GridForge v10.1: Excel Compatibility Audit Evidence
 
 ## Test machine and scope

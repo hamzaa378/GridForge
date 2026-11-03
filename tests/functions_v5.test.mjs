@@ -15,6 +15,7 @@ function evalFormula(formula){
  book.applyEdits(Object.entries(edits).map(([ref,raw])=>({ref,raw})),false);
  return book.getValue('Z20');
 }
+function evalWithCells(cells,formula){const book=new Workbook(20,10);book.applyEdits([...Object.entries(cells).map(([ref,raw])=>({ref,raw:String(raw)})),{ref:'J1',raw:formula}],false);return book.getValue('J1');}
 const almost=(expected)=>(v)=>typeof v==='number'&&Math.abs(v-expected)<=Math.max(1,Math.abs(expected))*1e-5;
 const between=(lo,hi)=>(v)=>typeof v==='number'&&v>lo&&v<hi;
 const cases=[
@@ -65,7 +66,7 @@ const cases=[
  ['DDB','=DDB(1000,0,5,1)',400],
  ['MIRR','=MIRR(F1:F5,0.1,0.1)',between(0,.5)],
  ['IRR','=IRR(F1:F5)',between(0,.5)],
- ['XNPV','=XNPV(0,F1:F5,G1:G5)',400],
+ ['XNPV','=XNPV(0.1,F1:F5,G1:G5)',almost(115.27461389837171)],
  ['XIRR','=XIRR(F1:F5,G1:G5)',between(0,.5)],
  ['FVSCHEDULE','=FVSCHEDULE(100,A1:A2)',600],
  ['RRI','=RRI(2,100,121)',.1],
@@ -80,6 +81,24 @@ const cases=[
  ['ROWS','=ROWS(A1:C5)',5],['COLUMNS','=COLUMNS(A1:C5)',3],
  ['ADDRESS','=ADDRESS(4,2,1)','$B$4'],
 ];
+
+test('XNPV matches Excel zero-rate error and accepts negative rates above -1',()=>{
+ assert.equal(evalFormula('=XNPV(0,F1:F5,G1:G5)').error?.code,'#NUM!');
+ const negative=evalFormula('=XNPV(-0.1,F1:F5,G1:G5)');assert.equal(negative.error,undefined);assert.ok(Number.isFinite(negative.value));
+ assert.equal(evalFormula('=XNPV(-1,F1:F5,G1:G5)').error?.code,'#NUM!');
+ assert.equal(evalWithCells({A1:-100,A2:110,B1:1,B2:1},'=XNPV(0.1,A1:A2,B1:B2)').error?.code,'#NUM!');
+});
+
+test('XIRR truncates dates to whole days and rejects invalid or pre-start dates',()=>{
+ const whole=evalWithCells({A1:-100,A2:110,B1:1,B2:366},'=XIRR(A1:A2,B1:B2)');
+ const fractional=evalWithCells({A1:-100,A2:110,B1:1.9,B2:366.9},'=XIRR(A1:A2,B1:B2)');
+ assert.equal(whole.error,undefined);assert.ok(Math.abs(whole.value-.1)<1e-8);assert.ok(Math.abs(fractional.value-whole.value)<1e-10);
+ const unsorted=evalWithCells({A1:-100,A2:60,A3:50,B1:1,B2:366,B3:180},'=XIRR(A1:A3,B1:B3)');
+ const reordered=evalWithCells({A1:-100,A2:50,A3:60,B1:1,B2:180,B3:366},'=XIRR(A1:A3,B1:B3)');
+ assert.equal(unsorted.error,undefined);assert.equal(reordered.error,undefined);assert.ok(Math.abs(unsorted.value-reordered.value)<1e-9);
+ assert.equal(evalWithCells({A1:-100,A2:110,B1:366,B2:1},'=XIRR(A1:A2,B1:B2)').error.code,'#NUM!');
+ assert.equal(evalWithCells({A1:-100,A2:110,B1:0,B2:365},'=XIRR(A1:A2,B1:B2)').error.code,'#VALUE!');
+});
 
 test('v5: exactly 80 unique new functions and 216 overall, categorized by Excel-style families',()=>{
  assert.equal(v5FunctionNames.length,80);

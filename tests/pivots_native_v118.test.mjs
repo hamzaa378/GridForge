@@ -91,7 +91,7 @@ test('Top N and show-empty-items survive native PivotTable round-trip',async()=>
  const spec={id:'pivot-top-roundtrip',sourceRange:'A1:B4',destination:'D1',rowField:0,valueField:1,aggregation:'sum',showEmptyItemsFields:[0],valueFilter:{field:0,measureField:1,direction:'top',count:1}},result=buildPivotSummary(book,spec);book.applyEdits(result.edits,false);spec.lastOutputRange=result.outputRange;
  const doc=new SpreadsheetDocument(book);doc.active.tools.pivotTables.push(spec);const imported=await importXlsx(await exportXlsx(doc)),sheet=imported.document.active,pivot=sheet.tools.pivotTables[0];
  assert.ok(pivot,'the Top N PivotTable should import as an editable definition');
- assert.deepEqual(pivot.valueFilter,{field:0,measureField:1,measureIndex:0,direction:'top',count:1});
+ assert.deepEqual(pivot.valueFilters?.[0]??pivot.valueFilter,{field:0,measureField:1,measureIndex:0,direction:'top',count:1});
  assert.deepEqual(pivot.showEmptyItemsFields,[0]);
  assert.deepEqual(['D2','D3'].map(ref=>sheet.book.getValue(ref).value),['West','Grand Total']);
  assert.ok(!imported.warnings.some(warning=>warning.includes('PivotTable import skipped')),JSON.stringify(imported.warnings));

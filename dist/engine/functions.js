@@ -15,17 +15,35 @@ export class SheetError extends Error {
         this.name = 'SheetError';
     }
 }
+export const isSheetError = (value) => value instanceof SheetError;
 export const error = (code, message) => { throw new SheetError(code, message); };
 export const flatten = (xs) => {
     const all = [];
     const visit = (x) => { if (Array.isArray(x))
         x.forEach(row => row.forEach(visit));
+    else if (isSheetError(x))
+        throw x;
     else
         all.push(x); };
     xs.forEach(visit);
     return all;
 };
+const flattenIgnoringErrors = (xs) => { const all = []; const visit = (x) => { if (Array.isArray(x))
+    x.forEach(row => row.forEach(visit));
+else if (!isSheetError(x))
+    all.push(x); }; xs.forEach(visit); return all; };
+const countIncludingErrors = (xs, includeBlank) => { let count = 0; const visit = (x) => { if (Array.isArray(x)) {
+    x.forEach(row => row.forEach(visit));
+    return;
+} if (isSheetError(x)) {
+    if (!includeBlank)
+        count++;
+    return;
+} if (includeBlank || x !== null)
+    count++; }; xs.forEach(visit); return count; };
 export function number(x) {
+    if (isSheetError(x))
+        throw x;
     if (x === null || x === '')
         return 0;
     if (typeof x === 'boolean')
@@ -35,11 +53,48 @@ export function number(x) {
         return error('#VALUE!', `Expected a number, received '${x}'.`);
     return n;
 }
-export function text(x) { return x === null ? '' : typeof x === 'boolean' ? (x ? 'TRUE' : 'FALSE') : String(x); }
-export function bool(x) { return x === null || x === '' ? false : typeof x === 'string' ? x.toUpperCase() !== 'FALSE' : Boolean(x); }
+export function text(x) { if (isSheetError(x))
+    throw x; return x === null ? '' : typeof x === 'boolean' ? (x ? 'TRUE' : 'FALSE') : String(x); }
+export function bool(x) { if (isSheetError(x))
+    throw x; return x === null || x === '' ? false : typeof x === 'string' ? x.toUpperCase() !== 'FALSE' : Boolean(x); }
+const logicalAggregate = (args, all) => {
+    let found = false, result = all;
+    const visit = (value, fromArray) => {
+        if (Array.isArray(value)) {
+            for (const row of value)
+                for (const cell of row)
+                    visit(cell, true);
+            return;
+        }
+        if (isSheetError(value))
+            throw value;
+        if (value === null || value === '') {
+            if (fromArray)
+                return;
+            found = true;
+            result = all ? false : result;
+            return;
+        }
+        if (typeof value === 'string') {
+            if (fromArray)
+                return;
+            error('#VALUE!', `${all ? 'AND' : 'OR'} direct arguments must be logical values or numbers.`);
+        }
+        found = true;
+        const truth = typeof value === 'boolean' ? value : value !== 0;
+        result = all ? result && truth : result || truth;
+    };
+    for (const argument of args)
+        visit(argument, false);
+    if (!found)
+        error('#VALUE!', `${all ? 'AND' : 'OR'} requires at least one logical value.`);
+    return result;
+};
 const scalar = (x) => {
     if (Array.isArray(x))
         return error('#VALUE!', 'Expected a single cell, not a range.');
+    if (isSheetError(x))
+        throw x;
     return x ?? null;
 };
 const at = (xs, idx) => scalar(xs[idx]);
@@ -61,7 +116,7 @@ const multipleRound = (value, significance, direction) => {
     const stableQuotient = Math.abs(quotient - nearest) <= tolerance ? nearest : quotient;
     return result((direction === 'up' ? Math.ceil(stableQuotient) : Math.floor(stableQuotient)) * significance);
 };
-export function matchCriterion(v, criterion) {
+export function matchCriterion(v, criterion, locale) {
     const c = text(criterion);
     const m = /^(<=|>=|<>|!=|=|<|>)(.*)$/.exec(c);
     const operand = m ? m[2] : c;
@@ -90,23 +145,30 @@ export function matchCriterion(v, criterion) {
     let bNum = Number(operand);
     let numeric = v !== null && v !== '' && operand !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
     if (!numeric && typeof v === 'number' && operand.trim() && !/[*?~]/.test(operand)) {
-        const candidate = localeNumberSeparators().normalizeDigits(operand.trim()), dateLike = /^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{1,4})?|\d{1,2}\s+[\p{L}.]{2,16}(?:,?\s+\d{2,4})?|[\p{L}.]{2,16}\s+\d{1,2}(?:,?\s+\d{2,4})?)$/u.test(candidate), timeLike = candidate.includes(':');
-        try {
-            const dateTime = splitTrailingDateTimeText(candidate);
-            if (dateTime) {
-                bNum = parseExcelDateValue(dateTime[0]) + parseExcelTimeValue(dateTime[1]);
-                numeric = Number.isFinite(bNum);
-            }
-            else if (dateLike) {
-                bNum = parseExcelDateValue(candidate);
-                numeric = Number.isFinite(bNum);
-            }
-            else if (timeLike) {
-                bNum = parseExcelTimeValue(candidate);
-                numeric = Number.isFinite(bNum);
-            }
+        const separators = locale ?? localeNumberSeparators(), localizedNumber = parseLocaleNumberText(operand.trim(), separators.decimal, separators.group);
+        if (localizedNumber !== null) {
+            bNum = localizedNumber;
+            numeric = true;
         }
-        catch { /* Keep ordinary text criteria on the text comparison path. */ }
+        if (!numeric) {
+            const candidate = separators.normalizeDigits(operand.trim()), dateLike = /^(?:\d{1,4}[-/. ]\d{1,2}(?:[-/. ]\d{1,4})?|\d{1,2}\s+[\p{L}.]{2,16}(?:,?\s+\d{2,4})?|[\p{L}.]{2,16}\s+\d{1,2}(?:,?\s+\d{2,4})?)$/u.test(candidate), timeLike = candidate.includes(':');
+            try {
+                const dateTime = splitTrailingDateTimeText(candidate);
+                if (dateTime) {
+                    bNum = parseExcelDateValue(dateTime[0]) + parseExcelTimeValue(dateTime[1]);
+                    numeric = Number.isFinite(bNum);
+                }
+                else if (dateLike) {
+                    bNum = parseExcelDateValue(candidate);
+                    numeric = Number.isFinite(bNum);
+                }
+                else if (timeLike) {
+                    bNum = parseExcelTimeValue(candidate);
+                    numeric = Number.isFinite(bNum);
+                }
+            }
+            catch { /* Keep ordinary text criteria on the text comparison path. */ }
+        }
     }
     const cmp = numeric ? Math.sign(aNum - bNum) : text(v).toLowerCase().localeCompare(operand.toLowerCase());
     switch (op) {
@@ -138,9 +200,9 @@ export const functions = {
     AVERAGE: D('Arithmetic mean of numeric values.', '=AVERAGE(B1:B8)', a => { const n = nums(a); return n.length ? result(n.reduce((s, x) => s + x, 0) / n.length) : error('#DIV/0!', 'AVERAGE has no numeric values.'); }),
     MIN: D('Smallest numeric value.', '=MIN(A1:A10)', a => { const n = nums(a); return n.length ? Math.min(...n) : 0; }),
     MAX: D('Largest numeric value.', '=MAX(A1:A10)', a => { const n = nums(a); return n.length ? Math.max(...n) : 0; }),
-    COUNT: D('Count numeric cells and numeric text or logical values passed directly; text and errors in ranges are ignored.', '=COUNT(A1:A10)', a => a.reduce((count, argument) => count + (Array.isArray(argument) ? flatten([argument]).filter(value => typeof value === 'number' && Number.isFinite(value)).length : typeof argument === 'number' || typeof argument === 'boolean' || typeof argument === 'string' && parseLocaleNumberText(argument) !== null ? 1 : 0), 0)),
-    COUNTA: D('Count nonempty values, including empty text and errors.', '=COUNTA(A1:A10)', a => flatten(a).filter(x => x !== null).length),
-    COUNTBLANK: D('Count blank cells in a range.', '=COUNTBLANK(A1:A10)', a => flatten(a).filter(x => !nonEmpty(x)).length),
+    COUNT: D('Count numeric cells and numeric text or logical values passed directly; text and errors in ranges are ignored.', '=COUNT(A1:A10)', a => a.reduce((count, argument) => count + (Array.isArray(argument) ? flattenIgnoringErrors([argument]).filter(value => typeof value === 'number' && Number.isFinite(value)).length : typeof argument === 'number' || typeof argument === 'boolean' || typeof argument === 'string' && parseLocaleNumberText(argument) !== null ? 1 : 0), 0)),
+    COUNTA: D('Count nonempty values, including empty text and errors.', '=COUNTA(A1:A10)', a => countIncludingErrors(a, false)),
+    COUNTBLANK: D('Count blank cells in a range.', '=COUNTBLANK(A1:A10)', a => flattenIgnoringErrors(a).filter(x => !nonEmpty(x)).length),
     MEDIAN: D('Median of numeric values.', '=MEDIAN(A1:A10)', a => { const n = sortNums(a); return n.length ? n.length % 2 ? n[(n.length - 1) / 2] : (n[n.length / 2 - 1] + n[n.length / 2]) / 2 : error('#NUM!', 'MEDIAN has no numeric values.'); }),
     PRODUCT: D('Multiply numeric values.', '=PRODUCT(A1:A3)', a => result(nums(a).reduce((p, n) => p * n, 1))),
     ABS: D('Absolute value.', '=ABS(-8)', a => { want(a, 1, 1); return Math.abs(numericArg(a, 0)); }),
@@ -197,8 +259,8 @@ export const functions = {
     } return number(value); }),
     IF: D('Choose one of two branches lazily.', '=IF(A1>10,"high","low")', () => error('#INTERNAL!', 'IF is evaluated lazily by the evaluator.')),
     IFERROR: D('Fallback on a formula evaluation error.', '=IFERROR(A1/B1,0)', () => error('#INTERNAL!', 'IFERROR is evaluated lazily by the evaluator.')),
-    AND: D('True if all conditions are true.', '=AND(A1>0,B1>0)', a => flatten(a).every(bool)),
-    OR: D('True if any condition is true.', '=OR(A1>0,B1>0)', a => flatten(a).some(bool)),
+    AND: D('True if all conditions are true; text and blanks in referenced arrays are ignored.', '=AND(A1>0,B1>0)', a => logicalAggregate(a, true)),
+    OR: D('True if any condition is true; text and blanks in referenced arrays are ignored.', '=OR(A1>0,B1>0)', a => logicalAggregate(a, false)),
     NOT: D('Negate a boolean.', '=NOT(A1>10)', a => { want(a, 1, 1); return !bool(at(a, 0)); }),
     ISNUMBER: D('Check if a value is numeric.', '=ISNUMBER(A1)', a => { want(a, 1, 1); return typeof at(a, 0) === 'number'; }),
     ISTEXT: D('Check if a value contains text.', '=ISTEXT(A1)', a => { want(a, 1, 1); return typeof at(a, 0) === 'string'; }),

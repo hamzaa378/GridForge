@@ -17,11 +17,11 @@ const cases=[
 ];
 // Use the engine DATE implementation as the independent expected serial for relative workday.
 cases[cases.findIndex(c=>c[0]==='WORKDAY.INTL')][2]=run('=DATE(2026,10,26)').value;
-test('v6 adds exactly 90 unique functions in consistent Excel-style categories',()=>{
- assert.equal(v6FunctionNames.length,90);assert.equal(new Set(v6FunctionNames).size,90);
- assert.equal(functionNames.length,516);assert.equal(cases.length,90);
- assert.deepEqual(cases.map(c=>c[0]).sort(),v6FunctionNames);
- assert.equal(Object.values(categorizedFunctions).flat().length,516);
+test('historical v6 formula cases remain registered and categorized after later expansions',()=>{
+ assert.ok(v6FunctionNames.length>=90);assert.equal(new Set(v6FunctionNames).size,v6FunctionNames.length);
+ assert.ok(functionNames.length>=516);assert.equal(cases.length,90);
+ assert.ok(cases.every(([name])=>v6FunctionNames.includes(name)));
+ assert.equal(Object.values(categorizedFunctions).flat().length,functionNames.length);
  for(const name of v6FunctionNames)assert.ok(functionCategory(name));
 });
 for(const [name,formula,expected] of cases)test(`v6 ${name} : ${formula}`,()=>{
@@ -41,7 +41,7 @@ test('v6 IFNA only catches N/A, and reference arguments are not prematurely eval
  assert.equal(run('=IFNA(1/0,7)').error?.code,'#DIV/0!');
  assert.equal(run('=FORMULATEXT(E2)').value,'=SUM(A1:A2)');
 });
-test('v6 formulas reject invalid probability and unsupported array spill',()=>{
+test('v6 formula boundaries remain errors and OFFSET returns a spill-capable reference',()=>{
  assert.equal(run('=NORM.INV(0,0,1)').error?.code,'#NUM!');
- assert.equal(run('=OFFSET(A1,1,1,3,1)').error?.code,'#VALUE!');
+ assert.equal(run('=OFFSET(A1,1,1,3,1)').value,3);
 });

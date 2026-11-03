@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "12.0.126"
+  #define AppVersion "12.0.201"
 #endif
 #define AppName "GridForge"
 #define AppPublisher "GridForge Project"
@@ -54,6 +54,7 @@ Filename: "{app}\{#AppExeName}"; Description: "Launch GridForge"; Flags: nowait 
 [UninstallDelete]
 ; Intentionally does not erase %LOCALAPPDATA%\GridForge\WebView2 workbook drafts.
 ; Users should remove personal workbook data themselves if desired.
+
 
 
 

@@ -53,12 +53,13 @@ def main() -> None:
                 archive.write(path, path.relative_to(PORTABLE).as_posix())
         archive.write(bridge, bridge.relative_to(PORTABLE).as_posix())
 
-    if not INSTALLER.is_file():
-        raise SystemExit(f"Build the Windows installer first; missing {INSTALLER.name}.")
     manifest_path = ROOT / "docs" / "DESKTOP_RELEASE_MANIFEST.json"
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        for key, path in (("installer", INSTALLER), ("portable", PORTABLE_ARCHIVE)):
+        paths = [("portable", PORTABLE_ARCHIVE)]
+        if INSTALLER.is_file():
+            paths.append(("installer", INSTALLER))
+        for key, path in paths:
             manifest.setdefault("artifacts", {})[key] = {
                 "file": path.name,
                 "size_bytes": path.stat().st_size,
@@ -70,20 +71,38 @@ def main() -> None:
         add_repository_files(archive, PREFIX)
     with ZipFile(GITHUB_ARCHIVE, "w", compression=ZIP_DEFLATED, compresslevel=6) as archive:
         add_repository_files(archive, GITHUB_PREFIX)
-        installer_member = f"{GITHUB_PREFIX}/release/{INSTALLER.name}"
-        archive.write(INSTALLER, installer_member)
-        installer_digest = hashlib.sha256(INSTALLER.read_bytes()).hexdigest().upper()
-        archive.writestr(
-            f"{GITHUB_PREFIX}/release/SHA256SUMS.txt",
-            f"{installer_digest}  {INSTALLER.name}\n",
+        # Include the built Windows app and reproducible PyInstaller recipes so
+        # the GitHub snapshot contains both editable source and compiled output.
+        for path in sorted(PORTABLE.rglob("*")):
+            if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
+                archive.write(path, f"{GITHUB_PREFIX}/build/portable/{path.relative_to(PORTABLE).as_posix()}")
+        spec_dir = ROOT / "build" / "pyinstaller-spec"
+        if spec_dir.is_dir():
+            for path in sorted(spec_dir.glob("*.spec")):
+                archive.write(path, f"{GITHUB_PREFIX}/build/pyinstaller-spec/{path.name}")
+        release_members = [PORTABLE_ARCHIVE]
+        if INSTALLER.is_file():
+            release_members.append(INSTALLER)
+        for path in release_members:
+            archive.write(path, f"{GITHUB_PREFIX}/release/{path.name}")
+        release_checksums = "".join(
+            f"{hashlib.sha256(path.read_bytes()).hexdigest().upper()}  {path.name}\n"
+            for path in release_members
         )
+        archive.writestr(f"{GITHUB_PREFIX}/release/SHA256SUMS.txt", release_checksums)
+        # Keep the current build outputs in their normal build/release location
+        # inside the source snapshot as well as providing a convenient release/ folder.
+        for path in release_members:
+            archive.write(path, f"{GITHUB_PREFIX}/build/release/{path.name}")
+        archive.writestr(f"{GITHUB_PREFIX}/build/release/SHA256SUMS.txt", release_checksums)
 
     artifacts = [
-        INSTALLER,
         PORTABLE_ARCHIVE,
         ARCHIVE,
         GITHUB_ARCHIVE,
     ]
+    if INSTALLER.is_file():
+        artifacts.insert(0, INSTALLER)
     missing = [path.name for path in artifacts if not path.is_file()]
     if missing:
         raise SystemExit(f"Required release artifacts are missing: {', '.join(missing)}")

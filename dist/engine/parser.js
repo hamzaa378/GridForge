@@ -1,3 +1,5 @@
+/** A hand-written tokenizer + Pratt parser. No spreadsheet/formula libraries are used. */
+import { localeNumberSeparators } from './locale_number.js';
 export class FormulaSyntaxError extends Error {
     diagnostic;
     constructor(message, position, suggestion, length = 1) {
@@ -131,6 +133,7 @@ export function tokenize(input) {
 }
 /** Normalize decimal commas when the formula uses semicolons as its list separator. */
 export function normalizeFormulaLocale(source) {
+    const separators = localeNumberSeparators(), decimalComma = separators.decimal === ',';
     let quoted = false, hasSemicolon = false;
     for (let i = 0; i < source.length; i++) {
         if (source[i] === '"') {
@@ -146,8 +149,6 @@ export function normalizeFormulaLocale(source) {
             break;
         }
     }
-    if (!hasSemicolon)
-        return source;
     quoted = false;
     let out = '';
     for (let i = 0; i < source.length; i++) {
@@ -162,7 +163,24 @@ export function normalizeFormulaLocale(source) {
             quoted = !quoted;
             continue;
         }
-        out += !quoted && character === ',' && /\d/.test(source[i - 1] ?? '') && /\d/.test(source[i + 1] ?? '') ? '.' : character;
+        if (quoted) {
+            out += character;
+            continue;
+        }
+        if (separators.normalizeDigits(character) !== character) {
+            out += separators.normalizeDigits(character);
+            continue;
+        }
+        // In decimal-comma locales, remove a locale grouping mark only when it forms
+        // a complete three-digit group. This keeps ordinary list separators intact.
+        if (decimalComma && separators.group && source.startsWith(separators.group, i) && /\d/.test(source[i - 1] ?? '')) {
+            const group = separators.group.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), decimal = separators.decimal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (new RegExp(`^${group}(?=\\p{Decimal_Number}{3}(?:${group}\\p{Decimal_Number}{3})*(?:${decimal}|[Ee][+-]?\\p{Decimal_Number}+|\\P{Decimal_Number}|$))`, 'u').test(source.slice(i))) {
+                i += separators.group.length - 1;
+                continue;
+            }
+        }
+        out += character === ',' && (decimalComma || hasSemicolon) && /\d/.test(source[i - 1] ?? '') && /\d/.test(source[i + 1] ?? '') ? '.' : character;
     }
     return out;
 }
@@ -194,6 +212,8 @@ class Parser {
             if (this.consume(')'))
                 break;
             const next = this.peek();
+            if (next.kind === 'eof')
+                throw new FormulaSyntaxError('Missing closing parenthesis.', next.start, "Add ')' after the last function argument.");
             if (next.text !== ',' && next.text !== ';')
                 throw new FormulaSyntaxError("Expected ',' or ';' between function arguments.", next.start, "Separate arguments with one consistent list separator and close with ')'.");
             if (separator && separator !== next.text)

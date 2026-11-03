@@ -1,0 +1,1 @@
+# GridForge v12.0.129 — Stable UNIQUE comparisons`n`nUNIQUE now normalizes text with locale-independent Unicode lowercase conversion before duplicate comparisons. The same workbook therefore produces consistent duplicate groups when run under different host locale settings. No direct Excel collation comparison was performed.

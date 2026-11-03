@@ -2,20 +2,23 @@
  * Matrix-returning functions are exposed to the workbook's dynamic-array spill engine.
  * Lambda-taking functions support explicit safe reducer names instead of executable lambda expressions.
  */
-import { SheetError, number, text, flatten } from './functions.js';
+import { SheetError, isSheetError, number, text, flatten } from './functions.js';
 import { excelDateSerial, excelSerialUtcDate } from './date_serial.js';
 const fail = (c, m) => { throw new SheetError(c, m); };
-const one = (d) => Array.isArray(d) ? fail('#VALUE!', 'Expected one cell rather than a range.') : d ?? null;
+const one = (d) => { if (Array.isArray(d))
+    return fail('#VALUE!', 'Expected one cell rather than a range.'); if (isSheetError(d))
+    throw d; return d ?? null; };
 const n = (a, i) => number(one(a[i]));
 const s = (a, i) => text(one(a[i]));
-const arr = (d) => Array.isArray(d) ? d.map(r => r.map(v => one(v))) : [[one(d)]];
+const arr = (d) => Array.isArray(d) ? d.map(r => r.map(v => isSheetError(v) ? v : one(v))) : [[isSheetError(d) ? d : one(d)]];
 const nums = (d) => flatten([d]).filter((v) => typeof v === 'number' && Number.isFinite(v));
 const sum = (a) => a.reduce((p, v) => p + v, 0);
 const avg = (a) => a.length ? sum(a) / a.length : fail('#DIV/0!', 'No numeric data.');
 const req = (a, lo, hi = lo) => { if (a.length < lo || a.length > hi)
     fail('#ARG!', `Expected ${lo}–${hi} arguments.`); };
 const safe = (x) => Number.isFinite(x) ? x : fail('#NUM!', 'Result is not finite.');
-const bool = (v) => v === true || typeof v === 'number' && v !== 0 || typeof v === 'string' && v !== '' && v.toUpperCase() !== 'FALSE';
+const bool = (v) => { if (isSheetError(v))
+    throw v; return v === true || typeof v === 'number' && v !== 0 || typeof v === 'string' && v !== '' && v.toUpperCase() !== 'FALSE'; };
 const matrix = (a, i) => arr(a[i]);
 const positiveInt = (x, max = 20000) => Number.isSafeInteger(x) && x > 0 && x <= max ? x : fail('#NUM!', 'Expected a positive integer inside the supported size limit.');
 const guard = (r, c) => { if (r * c > 20000)
@@ -453,13 +456,13 @@ export function buildV10Functions(existing) {
         fail('#CALC!', 'DROP removed the entire input array.'); return rowIndexes.map(row => columnIndexes.map(column => source[row]?.[column] ?? null)); });
     add('Lookup & Reference', ['CHOOSECOLS', 'CHOOSEROWS'], 'Select columns or rows by 1-based positions.', (name, a) => { req(a, 2, 50); const m = matrix(a, 0), size = name === 'CHOOSECOLS' ? m[0].length : m.length; const selected = a.slice(1).map((_, i) => { const x = n(a, i + 1); const idx = x > 0 ? x - 1 : size + x; if (!Number.isInteger(idx) || idx < 0 || idx >= size)
         fail('#VALUE!', 'Selected row or column is outside array.'); return idx; }); return name === 'CHOOSECOLS' ? m.map(row => selected.map(j => row[j] ?? null)) : selected.map(i => m[i]); });
-    add('Lookup & Reference', ['HSTACK', 'VSTACK'], 'Join rectangular array ranges.', (name, a) => { req(a, 1, 25); const tables = a.map((_, i) => matrix(a, i)); const widths = tables.map(t => Math.max(...t.map(r => r.length))), heights = tables.map(t => t.length); let r = name === 'VSTACK' ? sum(heights) : Math.max(...heights), c = name === 'HSTACK' ? sum(widths) : Math.max(...widths); guard(r, c); if (name === 'VSTACK')
-        return tables.flatMap(t => t.map(row => Array.from({ length: c }, (_, j) => row[j] ?? null))); return Array.from({ length: r }, (_, i) => tables.flatMap((t, index) => Array.from({ length: widths[index] }, (_, j) => t[i]?.[j] ?? null))); });
-    add('Lookup & Reference', ['TOCOL', 'TOROW'], 'Flatten an array with blank filtering and row- or column-major scan order.', (name, a) => { req(a, 1, 3); const source = matrix(a, 0), ignore = a.length > 1 ? n(a, 1) : 0, byColumn = a.length > 2 ? bool(one(a[2])) : false; if (!Number.isInteger(ignore) || ignore < 0 || ignore > 3)
-        fail('#VALUE!', 'Ignore must be 0, 1, 2, or 3.'); const values = byColumn ? source[0].map((_, column) => source.map(row => row[column] ?? null)).flat() : source.flat(), out = values.filter(value => !(ignore % 2 === 1 && !present(value))); return name === 'TOCOL' ? out.map(value => [value]) : [out]; });
+    add('Lookup & Reference', ['HSTACK', 'VSTACK'], 'Join arrays horizontally or vertically; missing array elements return #N/A.', (name, a) => { req(a, 1, 25); const tables = a.map((_, i) => matrix(a, i)); const widths = tables.map(t => Math.max(...t.map(r => r.length))), heights = tables.map(t => t.length); let r = name === 'VSTACK' ? sum(heights) : Math.max(...heights), c = name === 'HSTACK' ? sum(widths) : Math.max(...widths); guard(r, c); const missing = () => new SheetError('#N/A', `${name} has no value at this array position.`); if (name === 'VSTACK')
+        return tables.flatMap(t => t.map(row => Array.from({ length: c }, (_, j) => j < row.length ? row[j] : missing()))); return Array.from({ length: r }, (_, i) => tables.flatMap((t, index) => Array.from({ length: widths[index] }, (_, j) => i < t.length && j < t[i].length ? t[i][j] : missing()))); });
+    add('Lookup & Reference', ['TOCOL', 'TOROW'], 'Flatten an array with blank filtering, optional error filtering, and row- or column-major scan order.', (name, a) => { req(a, 1, 3); const source = matrix(a, 0), ignore = a.length > 1 ? n(a, 1) : 0, byColumn = a.length > 2 ? bool(one(a[2])) : false; if (!Number.isInteger(ignore) || ignore < 0 || ignore > 3)
+        fail('#VALUE!', 'Ignore must be 0, 1, 2, or 3.'); const values = byColumn ? source[0].map((_, column) => source.map(row => row[column] ?? null)).flat() : source.flat(), out = values.filter(value => !(ignore % 2 === 1 && !present(value)) && !(ignore >= 2 && isSheetError(value))); return name === 'TOCOL' ? out.map(value => [value]) : [out]; });
     add('Lookup & Reference', ['WRAPCOLS', 'WRAPROWS'], 'Wrap one-dimensional array into rows or columns.', (name, a) => { req(a, 2, 3); const values = matrix(a, 0).flat(), width = positiveInt(n(a, 1), 20000), pad = a.length > 2 ? one(a[2]) : null; const count = Math.ceil(values.length / width); guard(width, count); if (name === 'WRAPROWS')
         return Array.from({ length: count }, (_, i) => Array.from({ length: width }, (_, j) => { const index = i * width + j; return index < values.length ? values[index] : pad; })); return Array.from({ length: width }, (_, i) => Array.from({ length: count }, (_, j) => { const index = j * width + i; return index < values.length ? values[index] : pad; })); });
-    add('Lookup & Reference', ['EXPAND'], 'Extend a matrix to new dimensions, applying pad only outside source bounds.', (_, a) => { req(a, 2, 4); const m = matrix(a, 0), sourceRows = m.length, sourceColumns = Math.max(...m.map(row => row.length)), r = positiveInt(n(a, 1)), c = a.length > 2 ? positiveInt(n(a, 2)) : sourceColumns, pad = a.length > 3 ? one(a[3]) : null; if (r < sourceRows || c < sourceColumns)
+    add('Lookup & Reference', ['EXPAND'], 'Extend a matrix to new dimensions; omitted pad values return #N/A.', (_, a) => { req(a, 2, 4); const m = matrix(a, 0), sourceRows = m.length, sourceColumns = Math.max(...m.map(row => row.length)), r = positiveInt(n(a, 1)), c = a.length > 2 ? positiveInt(n(a, 2)) : sourceColumns, pad = a.length > 3 && a[3] !== null ? one(a[3]) : new SheetError('#N/A', 'EXPAND padding is not specified.'); if (r < sourceRows || c < sourceColumns)
         fail('#VALUE!', 'EXPAND cannot shrink input.'); guard(r, c); return Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_, j) => i < sourceRows && j < sourceColumns ? (m[i][j] ?? null) : pad)); });
     add('Lookup & Reference', ['FILTER'], 'Filter rows or columns using a matching Boolean include vector.', (_, a) => { req(a, 2, 3); const rows = matrix(a, 0), includeMatrix = matrix(a, 1), ifEmpty = a.length === 3 ? arr(a[2]) : null, height = rows.length, width = Math.max(...rows.map(row => row.length)); if (includeMatrix.every(row => row.length === 1) && includeMatrix.length === height) {
         const include = includeMatrix.map(row => row[0] ?? null), kept = rows.filter((_, i) => bool(include[i]));
@@ -485,10 +488,15 @@ export function buildV10Functions(existing) {
         const compare = (left, right) => {
             if (left === right)
                 return 0;
+            if (isSheetError(left) || isSheetError(right)) {
+                if (isSheetError(left) && isSheetError(right))
+                    return 0;
+                return isSheetError(left) ? 1 : -1;
+            }
             if (left === null)
-                return -1;
-            if (right === null)
                 return 1;
+            if (right === null)
+                return -1;
             if (typeof left === 'number' && typeof right === 'number')
                 return left - right;
             const rank = (value) => typeof value === 'number' ? 0 : typeof value === 'string' ? 1 : 2;
@@ -496,7 +504,7 @@ export function buildV10Functions(existing) {
                 return rank(left) - rank(right);
             if (typeof left === 'boolean' && typeof right === 'boolean')
                 return Number(left) - Number(right);
-            return scalar(left).toLocaleLowerCase().localeCompare(scalar(right).toLocaleLowerCase(), undefined, { numeric: true, sensitivity: 'base' });
+            return scalar(left).toLocaleLowerCase().localeCompare(scalar(right).toLocaleLowerCase(), undefined, { sensitivity: 'base' });
         };
         const sortKeys = [];
         if (name === 'SORT') {
@@ -520,7 +528,14 @@ export function buildV10Functions(existing) {
         }
         const ordered = items.map((item, index) => ({ item, index })).sort((left, right) => {
             for (const key of sortKeys) {
-                const compared = compare(key.values[left.index], key.values[right.index]) * key.order;
+                const leftKey = key.values[left.index], rightKey = key.values[right.index];
+                if (leftKey === null || rightKey === null) {
+                    const blankOrder = leftKey === null ? (rightKey === null ? 0 : 1) : -1;
+                    if (blankOrder)
+                        return blankOrder;
+                    continue;
+                }
+                const compared = compare(leftKey, rightKey) * key.order;
                 if (compared)
                     return compared;
             }
@@ -528,8 +543,8 @@ export function buildV10Functions(existing) {
         }).map(entry => entry.item);
         return restore(ordered);
     });
-    add('Lookup & Reference', ['UNIQUE'], 'Return distinct rows or columns using Excel case-insensitive text comparisons.', (_, a) => { req(a, 1, 3); let m = matrix(a, 0), byColumn = a.length > 1 ? bool(one(a[1])) : false, once = a.length > 2 ? bool(one(a[2])) : false; if (byColumn)
-        m = m[0].map((_, i) => m.map(row => row[i] ?? null)); const keyOf = (row) => JSON.stringify(row.map(value => typeof value === 'string' ? ['text', value.toLocaleLowerCase()] : value === null ? ['blank'] : typeof value === 'number' ? ['number', value] : ['boolean', value])), counts = new Map(); m.forEach(row => { const key = keyOf(row); counts.set(key, (counts.get(key) ?? 0) + 1); }); const seen = new Set(), unique = m.filter(row => { const key = keyOf(row); if (seen.has(key) || once && counts.get(key) !== 1)
+    add('Lookup & Reference', ['UNIQUE'], 'Return distinct rows or columns using case-insensitive text comparisons.', (_, a) => { req(a, 1, 3); let m = matrix(a, 0), byColumn = a.length > 1 ? bool(one(a[1])) : false, once = a.length > 2 ? bool(one(a[2])) : false; if (byColumn)
+        m = m[0].map((_, i) => m.map(row => row[i] ?? null)); const keyOf = (row) => JSON.stringify(row.map(value => typeof value === 'string' ? ['text', value.toLowerCase()] : value === null ? ['blank'] : typeof value === 'number' ? ['number', value] : ['boolean', value])), counts = new Map(); m.forEach(row => { const key = keyOf(row); counts.set(key, (counts.get(key) ?? 0) + 1); }); const seen = new Set(), unique = m.filter(row => { const key = keyOf(row); if (seen.has(key) || once && counts.get(key) !== 1)
         return false; seen.add(key); return true; }); if (!unique.length)
         fail('#CALC!', 'UNIQUE produced an empty array.'); return byColumn ? unique[0].map((_, j) => unique.map(row => row[j] ?? null)) : unique; });
     add('Lookup & Reference', ['TRIMRANGE'], 'Remove completely empty bounding rows and columns.', (_, a) => { req(a, 1); let m = matrix(a, 0); while (m.length && m[0].every(v => !present(v)))

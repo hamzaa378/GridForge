@@ -2,6 +2,7 @@ import {Workbook,display,type DefinedName,type PivotDataCriterion} from './workb
 import {filterVisibleRows,freshTools,validateTools,type SheetTools} from './sheettools.js';
 import {colToName,parseRef,rewriteSheetReferences,type Value} from './parser.js';
 import {error,text} from './functions.js';
+import {MAX_WORKBOOK_POPULATED_CELLS,MAX_WORKBOOK_SHEETS} from './limits.js';
 import {matchesPivotLabelFilter,pivotDateGroupLabel,pivotDateSerial,pivotNumberGroupLabel,pivotNumberGroupUsesIntegerLabels,pivotSourceFieldHeaders,resolvePivotNumberGroupRange,type PivotMeasure,type PivotSummarySpec} from './pivot.js';
 export interface SheetViewOptions {showGridLines?:boolean;zoomScale?:number;zoomScaleNormal?:number}
 export interface SheetEntry {id:string;name:string;book:Workbook;tools:SheetTools;hidden:boolean;tabColor?:string;viewOptions?:SheetViewOptions}
@@ -25,7 +26,7 @@ export class SpreadsheetDocument {
     return n;
   }
   addSheet(name?:string,book?:Workbook,deferRecalculation=false):SheetEntry {
-    if(this.items.length>=12)throw Error('This version supports a maximum of 12 sheets.');
+    if(this.items.length>=MAX_WORKBOOK_SHEETS)throw Error(`A workbook can contain at most ${MAX_WORKBOOK_SHEETS} sheets.`);
     let title=name;if(!title){let n=1;while(this.items.some(x=>x.name.toLowerCase()===`sheet ${n}`))n++;title=`Sheet ${n}`;}
     title=this.validateName(title);
     const item:SheetEntry={id:`s${this.nextId++}`,name:title,book:book??new Workbook(),tools:freshTools(),hidden:false};this.items.push(item);this.activeId=item.id;this.bindSheetContexts(deferRecalculation);return item;
@@ -197,7 +198,8 @@ export class SpreadsheetDocument {
   static fromJSON(raw:unknown,options:{deferCalculation?:boolean}={}):SpreadsheetDocument {
     if(!raw||typeof raw!=='object')throw Error('Invalid document JSON.');const data=raw as Record<string,unknown>;
     if(!Array.isArray(data.sheets)){return new SpreadsheetDocument(Workbook.fromJSON(raw,options),options.deferCalculation===true);}
-    if(data.format!=='gridforge'||![2,3,4,5].includes(data.version as number)||!data.sheets.length||data.sheets.length>12)throw Error('Invalid GridForge document.');
+    if(data.format!=='gridforge'||![2,3,4,5].includes(data.version as number)||!data.sheets.length||data.sheets.length>MAX_WORKBOOK_SHEETS)throw Error('Invalid GridForge document.');
+    let workbookCells=0,workbookStyles=0;for(const rawSheet of data.sheets){if(!rawSheet||typeof rawSheet!=='object')continue;const rawWorkbook=(rawSheet as Record<string,unknown>).workbook;if(!rawWorkbook||typeof rawWorkbook!=='object')continue;const parts=rawWorkbook as Record<string,unknown>,cells=parts.cells,styles=parts.styles;if(cells&&typeof cells==='object'&&!Array.isArray(cells))workbookCells+=Object.keys(cells).length;if(styles&&typeof styles==='object'&&!Array.isArray(styles))workbookStyles+=Object.keys(styles).length;if(workbookCells>MAX_WORKBOOK_POPULATED_CELLS)throw Error(`Workbook exceeds GridForge's ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()} total populated-cell limit.`);if(workbookStyles>MAX_WORKBOOK_POPULATED_CELLS)throw Error(`Workbook exceeds GridForge's ${MAX_WORKBOOK_POPULATED_CELLS.toLocaleString()} total styled-cell limit.`);}
     const doc=new SpreadsheetDocument();doc.items=[];doc.nextId=1;
     for(const s of data.sheets){if(!s||typeof s!=='object')throw Error('Invalid sheet.');const x=s as Record<string,unknown>;
       if(typeof x.name!=='string'||(x.hidden!==undefined&&typeof x.hidden!=='boolean')||(x.tabColor!==undefined&&typeof x.tabColor!=='string'))throw Error('Invalid sheet name, visibility or tab color.');const name=doc.validateName(x.name);

@@ -3,7 +3,9 @@
 import fs from 'node:fs';
 import {Workbook} from '../dist/engine/workbook.js';
 const cases=JSON.parse(fs.readFileSync(new URL('../tests/excel_parity_cases.json',import.meta.url),'utf8'));
+const packageInfo=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
 function normalize(res){if(res.error)return {type:'error',value:res.error.code}; if(res.value===null)return {type:'blank',value:null};return {type:typeof res.value,value:res.value};}
+function normalizeSpillValue(value){if(value===null)return {type:'blank',value:null};if(value&&typeof value==='object'&&'code' in value)return {type:'error',value:value.code};return {type:typeof value,value};}
 function matches(g,w){
  if(typeof w==='number')return g.type==='number' && Math.abs(g.value-w)<=Math.max(1e-9,1e-9*Math.abs(w));
  if(w===null)return g.type==='blank';
@@ -20,14 +22,14 @@ for(const c of cases.cases){
  edits.push({ref:cases.comparisonCell,raw:c.formula});
  try{
   book.applyEdits(edits,false);
-  const gf=normalize(book.getValue(cases.comparisonCell));
-  results.push({id:c.id,category:c.category,formula:c.formula,kind:c.kind,gridforge:gf,...(c.referenceExpected===undefined?{}:{referenceExpected:c.referenceExpected,staticReferenceMatch:matches(gf,c.referenceExpected)})});
+  const gf=normalize(book.getValue(cases.comparisonCell)),gridforgeSpill=c.kind==='spill'?book.getSpillValues(cases.comparisonCell).map(row=>row.map(normalizeSpillValue)):undefined;
+  results.push({id:c.id,category:c.category,formula:c.formula,kind:c.kind,gridforge:gf,...(gridforgeSpill?{gridforgeSpill}:{}),...(c.referenceExpected===undefined?{}:{referenceExpected:c.referenceExpected,staticReferenceMatch:matches(gf,c.referenceExpected)})});
  }catch(e){results.push({id:c.id,category:c.category,formula:c.formula,kind:c.kind,gridforge:{type:'exception',value:String(e)}});}
 }
-const output={schema:'gridforge-excel-parity-result/1',engine:'GridForge v10 audit',excelExecuted:false,generatedAt:new Date().toISOString(),cases:results};
+const output={schema:'gridforge-excel-parity-result/1',engine:`GridForge ${packageInfo.version}`,excelExecuted:false,generatedAt:new Date().toISOString(),cases:results};
 const target=new URL('../docs/PARITY_GRIDFORGE_RESULTS.json',import.meta.url);
 fs.writeFileSync(target,JSON.stringify(output,null,2)+'\n');
 const scalar=results.filter(x=>x.kind==='scalar');const matchesKnown=scalar.filter(x=>x.staticReferenceMatch===true);const differences=scalar.filter(x=>x.staticReferenceMatch===false);
-console.log(`GRIDFORGE PROBES ${results.length}; static reference agrees ${matchesKnown.length}/${scalar.length}, differences ${differences.length}, known array gaps ${results.length-scalar.length}`);
+console.log(`GRIDFORGE PROBES ${results.length}; static reference agrees ${matchesKnown.length}/${scalar.length}, differences ${differences.length}, non-scalar probes ${results.length-scalar.length}`);
 for(const r of differences)console.log(`DIFFERENCE ${r.id}: ${r.formula} produced ${JSON.stringify(r.gridforge)}; reference ${JSON.stringify(r.referenceExpected)}`);
 console.log(`Wrote ${target.pathname}`);

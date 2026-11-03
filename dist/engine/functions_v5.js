@@ -447,10 +447,11 @@ export const v5Functions = {
             bad('#NUM!', 'Cash-flow and date ranges must have the same nonzero length.');
         if (cash.some(v => typeof v !== 'number' || !Number.isFinite(v)) || dates.some(v => typeof v !== 'number' || !Number.isFinite(v)))
             bad('#VALUE!', 'XNPV cash flows and dates must be numeric.');
-        // The frozen Excel 16.0 parity fixture empirically returns #NUM! at rate 0;
-        // Microsoft's XNPV reference does not document a positive-only rate requirement.
-        if (rate <= 0)
-            bad('#NUM!', 'Excel XNPV requires a positive discount rate.');
+        // Excel 16.0's saved differential fixture returns #NUM! for a zero rate.
+        // The Microsoft reference does not document this boundary, so retain this
+        // observed compatibility behavior while allowing negative rates above -1.
+        if (rate === 0 || rate <= -1)
+            bad('#NUM!', 'XNPV requires a nonzero discount rate greater than -1.');
         const cashValues = cash, dateValues = dates;
         if (!cashValues.some(v => v < 0) || !cashValues.some(v => v > 0))
             bad('#NUM!', 'Cash flows must include at least one negative and one positive value.');
@@ -458,30 +459,44 @@ export const v5Functions = {
         if (wholeDates.some(d => d < 1 || d > excelMaxDate))
             bad('#VALUE!', 'XNPV contains an invalid date serial.');
         const first = wholeDates[0];
-        if (wholeDates.some(d => d < first))
-            bad('#NUM!', 'XNPV requires dates on or after the first date.');
+        if (wholeDates.some((d, index) => index > 0 && d <= first))
+            bad('#NUM!', 'XNPV requires every payment after the first date to have a later date.');
         return safe(sum(cashValues.map((v, i) => v / (1 + rate) ** ((wholeDates[i] - first) / 365))));
     }),
-    XIRR: def('Internal return of irregularly dated cash flows.', '=XIRR(A1:A5,B1:B5)', a => { req(a, 2, 3); const cash = nums([a[0]]), dates = nums([a[1]]), guess = a.length === 3 ? n(a, 2) : .1; if (cash.length !== dates.length || cash.length < 2 || !cash.some(v => v > 0) || !cash.some(v => v < 0) || !Number.isFinite(guess) || guess <= -1)
-        bad('#NUM!', 'XIRR needs matching dates and cash flows of both signs, with a finite guess greater than -1.'); const first = dates[0], scale = cash.reduce((maximum, value) => Math.max(maximum, Math.abs(value)), 0), normalized = cash.map(value => value / scale), years = dates.map(date => (date - first) / 365); let rate = guess; for (let iteration = 0; iteration < 100; iteration++) {
-        if (rate <= -1 || !Number.isFinite(rate))
-            break;
-        const base = 1 + rate;
-        let npv = 0, derivative = 0;
-        for (let index = 0; index < normalized.length; index++) {
-            const yearsFromFirst = years[index], term = normalized[index] / base ** yearsFromFirst;
-            npv += term;
-            derivative -= yearsFromFirst * term / base;
+    XIRR: def('Internal return of irregularly dated cash flows.', '=XIRR(A1:A5,B1:B5)', a => {
+        req(a, 2, 3);
+        const cash = nums([a[0]]), dates = nums([a[1]]), guess = a.length === 3 ? n(a, 2) : .1;
+        if (cash.length !== dates.length || cash.length < 2 || !cash.some(v => v > 0) || !cash.some(v => v < 0) || !Number.isFinite(guess) || guess <= -1)
+            bad('#NUM!', 'XIRR needs matching dates and cash flows of both signs, with a finite guess greater than -1.');
+        const wholeDates = dates.map(Math.trunc), maxDate = 2_958_465;
+        if (wholeDates.some(date => date < 1 || date > maxDate))
+            bad('#VALUE!', 'XIRR contains an invalid date serial.');
+        const first = wholeDates[0];
+        if (wholeDates.some(date => date < first))
+            bad('#NUM!', 'XIRR requires dates on or after the first date.');
+        const scale = cash.reduce((maximum, value) => Math.max(maximum, Math.abs(value)), 0), normalized = cash.map(value => value / scale), years = wholeDates.map(date => (date - first) / 365);
+        let rate = guess;
+        for (let iteration = 0; iteration < 100; iteration++) {
+            if (rate <= -1 || !Number.isFinite(rate))
+                break;
+            const base = 1 + rate;
+            let npv = 0, derivative = 0;
+            for (let index = 0; index < normalized.length; index++) {
+                const yearsFromFirst = years[index], term = normalized[index] / base ** yearsFromFirst;
+                npv += term;
+                derivative -= yearsFromFirst * term / base;
+            }
+            if (!Number.isFinite(npv) || !Number.isFinite(derivative) || derivative === 0)
+                break;
+            const next = rate - npv / derivative;
+            if (!Number.isFinite(next) || next <= -1)
+                break;
+            if (Math.abs(next - rate) <= 1e-8)
+                return safe(next);
+            rate = next;
         }
-        if (!Number.isFinite(npv) || !Number.isFinite(derivative) || derivative === 0)
-            break;
-        const next = rate - npv / derivative;
-        if (!Number.isFinite(next) || next <= -1)
-            break;
-        if (Math.abs(next - rate) <= 1e-8)
-            return safe(next);
-        rate = next;
-    } return bad('#NUM!', 'XIRR did not converge from the supplied guess within 100 iterations.'); }),
+        return bad('#NUM!', 'XIRR did not converge from the supplied guess within 100 iterations.');
+    }),
     FVSCHEDULE: def('Future value after sequence of interest rates.', '=FVSCHEDULE(1000,A1:A4)', a => { req(a, 2); return safe(nums([a[1]]).reduce((v, r) => v * (1 + r), n(a, 0))); }),
     RRI: def('Equivalent annual compound growth rate.', '=RRI(5,100,150)', a => { req(a, 3); const periods = n(a, 0), present = n(a, 1), future = n(a, 2); if (periods <= 0 || present <= 0 || future < 0)
         bad('#NUM!', 'Invalid RRI arguments.'); return safe((future / present) ** (1 / periods) - 1); }),

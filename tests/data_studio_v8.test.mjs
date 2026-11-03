@@ -40,18 +40,24 @@ const aggCases={
  'insert-stdev':['STDEV.S',Math.sqrt(2)],'insert-countblank':['COUNTBLANK',0]
 };
 
-test('v8 has exactly 100 distinct, searchable, categorized spreadsheet actions',()=>{
- assert.equal(DATA_TOOLS.length,100);
- assert.equal(new Set(DATA_TOOLS.map(x=>x.id)).size,100);
- assert.equal(TOOL_CATEGORIES.length,10);
- for(const cat of TOOL_CATEGORIES)assert.equal(DATA_TOOLS.filter(x=>x.category===cat).length,10,cat);
+test('Data Studio retains the original actions and registers supported date tools',()=>{
+ assert.equal(DATA_TOOLS.length,103);
+ assert.equal(new Set(DATA_TOOLS.map(x=>x.id)).size,103);
+ assert.equal(TOOL_CATEGORIES.length,11);
+ for(const cat of TOOL_CATEGORIES)assert.equal(DATA_TOOLS.filter(x=>x.category===cat).length,cat==='Date & time'?3:10,cat);
  assert.equal(Object.keys(textCases).length,30);
  assert.equal(Object.keys(numericCases).length,30);
  assert.equal(Object.keys(fillCases).length,10);
  assert.equal(Object.keys(rangeCases).length,10);
  assert.equal(Object.keys(qualityCases).length,10);
  assert.equal(Object.keys(aggCases).length,10);
- assert.deepEqual(Object.keys({...textCases,...numericCases,...fillCases,...rangeCases,...qualityCases,...aggCases}).sort(),DATA_TOOLS.map(x=>x.id).sort());
+ const testedIds=Object.keys({...textCases,...numericCases,...fillCases,...rangeCases,...qualityCases,...aggCases}),dateIds=['parse-date','parse-time','parse-datetime'];
+ assert.equal(testedIds.length,100);assert.deepEqual([...testedIds,...dateIds].sort(),DATA_TOOLS.map(x=>x.id).sort());
+});
+test('Data Studio date tools parse date, time, and date-time text to numeric serials',()=>{
+ for(const [id,raw] of [['parse-date','2026-11-03'],['parse-time','12:30:00'],['parse-datetime','2026-11-03 12:30:00']]){
+  const book=demo([['A1',raw]]),preview=previewDataTool(book,rect(),id);assert.equal(preview.edits.length,1,id);assert.ok(Number.isFinite(Number(preview.edits[0].raw)),id);assert.equal(book.getRaw('A1'),raw,'Preview must not edit the workbook');
+ }
 });
 for(const [id,[before,after]] of Object.entries(textCases))test(`Data Studio: ${id}`,()=>{
  const book=demo([['A1',before]]),previous=book.getRaw('A1');

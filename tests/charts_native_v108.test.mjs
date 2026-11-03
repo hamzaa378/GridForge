@@ -12,7 +12,7 @@ w.applyEdits(Object.entries({A1:'Quarter',B1:'Revenue',C1:'Expenses',A2:'Q1',B2:
 const base={id:'chart-sample',kind:'column',title:'Revenue & profits',range:'A1:C4',x:120,y:90,width:520,height:330,legend:'right',xAxisTitle:'Quarter',yAxisTitle:'USD',dataLabels:true};
 test('Chart options are validated and saved through document JSON',()=>{
  assert.deepEqual(validateChart(base,200,20),base);
- assert.throws(()=>validateChart({...base,legend:'left'},200,20));
+ assert.equal(validateChart({...base,legend:'left'},200,20).legend,'left');
  assert.deepEqual(validateChart({...base,legend:'top'},200,20),{...base,legend:'top'});
  assert.throws(()=>validateChart({...base,xAxisTitle:'X'.repeat(71)},200,20));
  assert.throws(()=>validateChart({...base,dataLabels:'yes'},200,20));
@@ -22,6 +22,32 @@ test('Top chart legends render above the plot and export as native Excel chart m
  const chartSpec={...base,legend:'top'};const doc=new SpreadsheetDocument(w);doc.active.tools.charts.push(chartSpec);
  const svg=chartSvg(w,chartSpec);assert.match(svg,/y="56" width="10" height="10"/);assert.match(svg,/y="65"[^>]*>Revenue<\/text>/);
  const parts=await zipRead(exportXlsx(doc));assert.match(parts.get('xl/charts/chart1.xml'),/<c:legendPos val="t"\/>/);
+});
+test('Combo charts round-trip per-series type, secondary-axis choice, marker, and trendline',async()=>{
+ const spec={...base,kind:'combo',secondaryYAxisTitle:'Margin %',seriesOptions:[
+  {kind:'column',axis:'primary',color:'#2563eb'},
+  {kind:'line',axis:'secondary',color:'#dc5b73',marker:true,markerStyle:'diamond',trendline:{type:'linear',showEquation:true,showR2:true}},
+ ]};
+ const doc=new SpreadsheetDocument(w);doc.active.tools.charts.push(spec);const bytes=exportXlsx(doc),parts=await zipRead(bytes),xml=parts.get('xl/charts/chart1.xml');
+ assert.match(xml,/<c:barChart>/);assert.match(xml,/<c:lineChart>/);assert.match(xml,/<c:axId val="404"\/>/);
+ const restored=(await importXlsx(bytes)).document.active.tools.charts[0];assert.ok(restored);
+ assert.equal(restored.kind,'combo');assert.equal(restored.secondaryYAxisTitle,'Margin %');
+ assert.deepEqual(restored.seriesOptions,[{kind:'column',color:'#2563eb'},spec.seriesOptions[1]]);
+});
+test('Native XLSX charts preserve up to 24 linked series across larger category ranges',async()=>{
+ const book=new Workbook(400,32),edits=[];
+ for(let col=0;col<=24;col++){const letter=String.fromCharCode(65+col);edits.push({ref:`${letter}1`,raw:col===0?'Category':`Series ${col}`});}
+ for(let row=2;row<=301;row++){edits.push({ref:`A${row}`,raw:`Category ${row-1}`});for(let col=1;col<=24;col++)edits.push({ref:`${String.fromCharCode(65+col)}${row}`,raw:String(row*col)});}
+ book.applyEdits(edits,false);const doc=new SpreadsheetDocument(book),chart={...base,range:'A1:Y301'};doc.active.tools.charts.push(chart);
+ const parts=await zipRead(exportXlsx(doc)),xml=parts.get('xl/charts/chart1.xml');assert.equal((xml.match(/<c:ser>/g)??[]).length,24);
+ const restored=(await importXlsx(exportXlsx(doc))).document.active.tools.charts[0];assert.ok(restored);assert.equal(restored.range,'A1:Y301');
+});
+test('XLSX pie chart preserves more than 250 per-slice colors on import and export',async()=>{
+ const book=new Workbook(400,4),edits=[{ref:'A1',raw:'Category'},{ref:'B1',raw:'Value'}],colors=[];
+ for(let row=2;row<=301;row++){edits.push({ref:`A${row}`,raw:`Slice ${row-1}`},{ref:`B${row}`,raw:String(row)});colors.push(row%2?'#2563eb':'#dc5b73');}
+ book.applyEdits(edits,false);const doc=new SpreadsheetDocument(book);doc.active.tools.charts.push({...base,kind:'pie',range:'A1:B301',dataPointColors:colors});
+ const bytes=exportXlsx(doc),xml=(await zipRead(bytes)).get('xl/charts/chart1.xml');assert.equal((xml.match(/<c:dPt>/g)??[]).length,300);
+ const restored=(await importXlsx(bytes)).document.active.tools.charts[0];assert.equal(restored.dataPointColors.length,300);assert.deepEqual(restored.dataPointColors,colors);
 });
 for(const kind of ['column','bar','line','area','pie','scatter','doughnut','stacked-column','stacked-bar'])test(`Native DrawingML serialization for ${kind}`,async()=>{
  const doc=new SpreadsheetDocument(w);doc.active.tools.charts.push({...base,kind});
@@ -40,8 +66,8 @@ for(const kind of ['column','bar','line','area','pie','scatter','doughnut','stac
  assert.match(parts.get('xl/drawings/drawing1.xml'),/absoluteAnchor/);
  const svg=chartSvg(w,{...base,kind});assert.match(svg,/<svg/);
 });
-test('Histogram chart exports as a valid XLSX column chart fallback',async()=>{
- const doc=new SpreadsheetDocument(w);doc.active.tools.charts.push({...base,kind:'histogram'});const parts=await zipRead(exportXlsx(doc)),xml=parts.get('xl/charts/chart1.xml');assert.match(xml,/<c:barChart>/);assert.match(xml,/<c:barDir val="col"\/>/);
+test('Histogram chart exports as native ChartEx from a single numeric series',async()=>{
+ const book=new Workbook(200,20);book.applyEdits(Object.entries({A1:'Range',B1:'Value',A2:'x',B2:'10',A3:'y',B3:'15',A4:'z',B4:'20'}).map(([ref,raw])=>({ref,raw})));const doc=new SpreadsheetDocument(book);doc.active.tools.charts.push({...base,kind:'histogram',range:'A1:B4'});const bytes=exportXlsx(doc),parts=await zipRead(bytes),xml=parts.get('xl/charts/chart1.xml');assert.match(xml,/<cx:chartSpace/);assert.match(xml,/layoutId="clusteredColumn"/);assert.match(xml,/<cx:binning/);const restored=await importXlsx(bytes);assert.equal(restored.document.active.tools.charts[0]?.kind,'histogram');assert.equal(restored.document.active.tools.charts[0]?.range,'B1:B4');
 });
 for(const [kind,layout] of [['waterfall','waterfall'],['pareto','paretoLine'],['box-whisker','boxWhisker'],['funnel','funnel'],['treemap','treemap'],['sunburst','sunburst']])test(`Specialized ${kind} chart exports as native ChartEx and imports back editable`,async()=>{
  const chart={...base,kind,range:'A1:B4'},doc=new SpreadsheetDocument(w);doc.active.tools.charts.push(chart);const bytes=exportXlsx(doc),parts=await zipRead(bytes),xml=parts.get('xl/charts/chart1.xml');

@@ -18,7 +18,7 @@ Latest source: `src/engine/functions_v9.ts` (100 new functions, bringing total t
 
 ## Current state
 
-- Custom TypeScript spreadsheet engine with 306 registered functions, 20,800-cell virtualized default sheet, 12-sheet maximum, formula dependency caching, XLSX and supported XLSM import/export, and optional Windows Excel bridge (VBA execution remains unverified without Windows Excel).
+- Custom TypeScript spreadsheet engine with sparse addressing up to 1,048,576 × 16,384 cells, separate 2,000,000 populated-cell and styled-cell limits per sheet, with separate 8,000,000-entry workbook budgets, and a 256-sheet ceiling. The blank canvas remains virtualized at 400 × 52. Formula dependency caching, XLSX and supported XLSM import/export, and the optional Windows Excel bridge remain; VBA execution is unverified without Windows Excel.
 - **New v8 Data Studio:** `src/engine/tools_v8.ts` implements 100 unique, categorized pure preview operations; `src/main.ts` renders the searchable modal and applies changes using workbook transactions with Undo/Redo; `public/styles.css` styles the modal.
 - 10 categories of 10 commands, with 100 individual behavior tests, 447 total unit tests, 26 browser checks, 10,000-formula benchmark and 10,000-cell Data Studio stress test. Full pipeline adds one new benchmark stage (7 stages).
 - Data Studio source is in `src/engine/tools_v8.ts`; `tests/data_studio_v8.test.mjs` gives expected outputs for every registered action; `scripts/benchmark_tools_v8.mjs` checks 10K changes; `scripts/build_v8_docs.mjs` regenerates the complete function catalog and `examples/v8_data_studio_demo.json`.
@@ -116,7 +116,7 @@ Optional local Chromium browser regression: set `GRIDFORGE_CHROMIUM=/usr/bin/chr
 - Do not add any library that evaluates formulas: that would violate the challenge rule.
 - Keep v2 JSON deserialization compatible; use **v3** for new serialized document format, preserve worksheet metadata across duplicates.
 - Do not silently discard unsupported spreadsheet imports or promise `.xlsx` lossless interoperability.
-- Imported XLSX is bounded to <=25MB archive, <=12 sheets, <=1000×104 grid per sheet. For larger workbooks, display an error; do not truncate.
+- Imported XLSX is bounded to <=25MB archive, <=256 sheets, <=2,000,000 represented cells per sheet, <=8,000,000 represented cells total, and the 1,048,576 × 16,384 address grid. ODS and GridForge JSON share the workbook-wide cell budget. For larger workbooks, display an error; do not truncate.
 - Never execute VBA or external links; `<f>` content is data until parsed by the local GridForge engine.
 - Filter is a **view**, not a data rewrite; clearing filter restores unchanged worksheet cells.
 - Conditional rules apply to numeric evaluated values; styled background takes priority only when no conditional rule matches.

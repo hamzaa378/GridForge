@@ -1,0 +1,1 @@
+# GridForge v12.0.131 — Localized chart axes`n`nChart axis labels now use the runtime locale for number, percent, and USD currency formatting. Compact k/m labels also localize their numeric portion. Chart layout, stored values, and XLSX number format codes are unchanged.

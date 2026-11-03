@@ -23,6 +23,29 @@ def equivalent(a,b):
         # Excel's analysis functions use approximate solvers; preserve tolerance
         # explicitly rather than rounding both values into forced equality.
         return math.isclose(a['value'],b['value'],rel_tol=1e-7,abs_tol=1e-8)
+    if a['type']=='string' and 'i' in str(a.get('value','')).lower() and 'i' in str(b.get('value','')).lower():
+        # Excel and GridForge may format the same complex result with slightly
+        # different floating-point residues (for example cos(pi/2) in IMPOWER).
+        # Parse only the narrow numeric a+bi form used by Excel's IM* functions.
+        def parse_complex(value):
+            raw=str(value).strip().lower()
+            if not raw or any(char not in '+-.0123456789eij' for char in raw):
+                return None
+            raw=raw.replace('i','j')
+            if raw in ('j','+j'):
+                raw='1j'
+            elif raw=='-j':
+                raw='-1j'
+            else:
+                raw=raw.replace('+j','+1j').replace('-j','-1j')
+            try:
+                result=complex(raw)
+            except ValueError:
+                return None
+            return result if math.isfinite(result.real) and math.isfinite(result.imag) else None
+        left,right=parse_complex(a.get('value')),parse_complex(b.get('value'))
+        if left is not None and right is not None:
+            return math.isclose(left.real,right.real,rel_tol=1e-7,abs_tol=1e-14) and math.isclose(left.imag,right.imag,rel_tol=1e-7,abs_tol=1e-14)
     return a.get('value') == b.get('value')
 
 
@@ -75,18 +98,18 @@ def compare():
              'oneCasePerFunction':True,'counts':counts,
              'comparableFunctions':comparable,
              'agreementPercent':round(100*counts['MATCH']/comparable,2) if comparable else None,
-             'numericTolerance':'absolute 1e-8, relative 1e-7',
+             'numericTolerance':'real values: absolute 1e-8, relative 1e-7; complex components: absolute 1e-14, relative 1e-7',
              'caveat':'One fixture per name; agreement does not imply complete Excel semantic or workbook compatibility.'}
     OUTPUT.write_text(json.dumps({'summary':summary,'functions':rows},indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
     lines=['# GridForge 506-function comparison with desktop Excel','',
        f"Excel {x['excelVersion']} (build {x['excelBuild']}); **{comparable} comparable cases**, **{counts['MATCH']} matches**, **{counts['DIFFERENCE']+counts['KNOWN_SEMANTIC_DIFFERENCE']} differences**.",'',
-       f"Comparable-case agreement: **{summary['agreementPercent']}%**. This is one invocation per registered name, not proof of general Excel compatibility.",'', '## Outcome summary','']
+       f"Comparable-case agreement: **{summary['agreementPercent']}%**. This is one invocation per frozen parity case, not proof of general Excel compatibility.",'', '## Outcome summary','']
     lines.extend(f'- **{key}**: {counts[key]}' for key in ordered)
     lines += ['','## Differences and limitations','']
     for r in rows:
         if r['status']!='MATCH':
             lines.append(f"- **{r['function']}** [{r['status']}]: `{r['formula']}`  GridForge: `{r['gridforge']}`; Excel: `{r['excel']}`")
-    lines+=['','## Methodology and caveats','','Each case invokes the named function in an isolated Excel worksheet state. Some matrix results are read with INDEX rather than testing automatic spill. Time-dependent functions are excluded from exact equality; Excel-version availability is reported separately. Other inputs, locales, error cases, workbooks, external links, macros, and dynamic-array behavior remain unverified by these 506 fixtures.']
+    lines+=['','## Methodology and caveats','','Each case invokes the named function in an isolated Excel worksheet state. Numeric values use absolute tolerance 1e-8 and relative tolerance 1e-7; numeric components in Excel complex strings use absolute tolerance 1e-14 and relative tolerance 1e-7 to account for solver rounding. Some matrix results are read with INDEX rather than testing automatic spill. Time-dependent functions are excluded from exact equality; Excel-version availability is reported separately. Other inputs, locales, error cases, workbooks, external links, macros, and dynamic-array behavior remain unverified by these 506 fixtures.']
     MD.write_text('\n'.join(lines)+'\n',encoding='utf-8')
     return summary
 

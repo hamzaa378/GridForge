@@ -10,12 +10,12 @@ import { excelDateSerial, excelSerialDateIso } from './engine/date_serial.js';
 import { runPivotJobs } from './engine/pivot_job.js';
 import { buildPrintHtml } from './engine/print.js';
 import { buildExternalQueryRefresh, buildQueryRefresh } from './engine/power_query.js';
-import { styledDisplay, isExcelDateNumberFormat } from './engine/format.js';
+import { styledDisplay, isExcelDateNumberFormat, FONT_FAMILIES } from './engine/format.js';
 import { analyzeSelection, findCells, findAcrossSheets, replaceCells, sortRangeTransaction } from './engine/operations.js';
 import { snapshotCells, pasteSnapshot, MAX_CLIPBOARD_CELLS } from './engine/clipboard.js';
 import { exportXlsx, importXlsx, xlsxFileName } from './engine/xlsx.js';
 import { exportEditedXlsm } from './engine/xlsm.js';
-import { filterVisibleRows, ruleColor, validateTools, dataBarFill, dataValidationAt, dataValidationError, dataValidationValues } from './engine/sheettools.js';
+import { filterVisibleRows, ruleColor, validateTools, dataBarFill, conditionalIcon, dataValidationAt, dataValidationError, dataValidationValues, nextConditionalPriority } from './engine/sheettools.js';
 import { DATA_TOOLS, TOOL_CATEGORIES, previewDataTool } from './engine/tools_v8.js';
 import { CHART_DATA_TABLE_KINDS, CHART_HIDDEN_DATA_KINDS, CHART_PALETTES, chartRange, chartSvg, extractChartData, validateChart } from './engine/charts.js';
 import { TABLE_STYLES, validateTable, tableRange, tableAt, tableAppearance } from './engine/tables.js';
@@ -27,6 +27,8 @@ import { solveGoalSeek } from './engine/goal_seek.js';
 import { buildDescriptiveStatistics } from './engine/descriptive_stats.js';
 import { listCloudFiles, downloadCloudFile, uploadCloudFile } from './engine/cloud.js';
 import { MAX_WORKSHEET_COLUMNS, MAX_WORKSHEET_POPULATED_CELLS, MAX_WORKSHEET_ROWS } from './engine/limits.js';
+import { exportOds, importOds } from './engine/ods.js';
+import { mergeContaining, mergedRangeBounds, normalizeMergedRange } from './engine/merged_cells.js';
 const ROW_H = 30, COL_W = 126, HEAD_W = 54, HEAD_H = 34;
 const STORAGE = 'gridforge:document:v2';
 const LEGACY_STORAGE = 'gridforge:greeting:workbook:v1';
@@ -41,6 +43,7 @@ let xlsxExportWorkerSequence = 0;
 let dataExportWorkerSequence = 0;
 let csvImportWorkerSequence = 0;
 let jsonImportWorkerSequence = 0;
+let odsImportWorkerSequence = 0;
 function importXlsxOffThread(bytes, onProgress, preserveInput = false) {
     if (typeof Worker === 'undefined')
         return importXlsx(bytes, { onProgress });
@@ -178,6 +181,45 @@ function importJsonOffThread(bytes, onProgress) {
         }
     });
 }
+function importOdsOffThread(bytes, onProgress) {
+    if (typeof Worker === 'undefined')
+        return importOds(bytes, onProgress);
+    const requestId = `ods-import-${++odsImportWorkerSequence}`;
+    return new Promise((resolve, reject) => {
+        let worker;
+        try {
+            worker = new Worker(new URL('./engine/ods_worker.js', import.meta.url), { type: 'module' });
+        }
+        catch (error) {
+            reject(error instanceof Error ? error : new Error('Unable to start the OpenDocument import worker.'));
+            return;
+        }
+        const finish = (callback) => { worker.terminate(); callback(); };
+        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
+            return; if (response.kind === 'progress') {
+            if (response.message)
+                onProgress?.(response.message);
+            return;
+        } if (response.kind === 'error') {
+            finish(() => reject(new Error(response.message ?? 'ODS import failed.')));
+            return;
+        } try {
+            const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
+            finish(() => resolve({ document, warnings: Array.isArray(response.warnings) ? response.warnings : [] }));
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Imported OpenDocument data could not be restored.')));
+        } };
+        worker.onerror = () => finish(() => reject(new Error('OpenDocument import stopped unexpectedly.')));
+        try {
+            const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice(), buffer = payload.buffer;
+            worker.postMessage({ requestId, bytes: buffer }, [buffer]);
+        }
+        catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error('Unable to send OpenDocument data to the import worker.')));
+        }
+    });
+}
 function exportXlsxOffThread(document) {
     if (typeof Worker === 'undefined')
         return Promise.resolve(exportXlsx(document));
@@ -220,6 +262,8 @@ function exportDataOffThread(document, format) {
     const snapshot = document.toJSON();
     if (typeof Worker === 'undefined') {
         let output;
+        if (format === 'ods')
+            return Promise.resolve(exportOds(SpreadsheetDocument.fromJSON(snapshot)));
         if (format === 'json') {
             output = JSON.stringify(snapshot, null, 2);
             if (output.length > 64 * 1024 * 1024)
@@ -237,19 +281,20 @@ function exportDataOffThread(document, format) {
             }
             const cellCount = (maxRow + 1) * (maxColumn + 1);
             if (!Number.isSafeInteger(cellCount) || cellCount > 2_000_000)
-                throw Error(`This sheet's CSV area is ${cellCount.toLocaleString()} cells, above the 2,000,000-cell export limit. Move or remove distant data, or export a smaller sheet.`);
+                throw Error(`This sheet's export area is ${cellCount.toLocaleString()} cells, above the 2,000,000-cell limit. Move or remove distant data, or export a smaller sheet.`);
             const rows = [];
             let characters = 0;
+            const delimiter = format === 'tsv' ? '\t' : ',';
             for (let row = 0; row <= maxRow; row++) {
                 const values = [];
                 for (let column = 0; column <= maxColumn; column++) {
                     const value = workbook.getValue(asRef(row, column)), shown = display(value), safe = typeof value.value === 'string' && /^[\t\r\n ]*[=+\-@]/.test(shown) ? `'${shown}` : shown;
-                    values.push(/[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe);
+                    values.push((format === 'tsv' ? /["\t\r\n]/ : /[",\r\n]/).test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe);
                 }
-                const line = values.join(',');
+                const line = values.join(delimiter);
                 characters += line.length + (row ? 2 : 0);
                 if (characters > 64 * 1024 * 1024)
-                    throw Error('This CSV is larger than the 64 MB export limit. Export a smaller range or split the sheet.');
+                    throw Error(`This ${format.toUpperCase()} file is larger than the 64 MB export limit. Export a smaller range or split the sheet.`);
                 rows.push(line);
             }
             output = rows.join('\r\n');
@@ -443,17 +488,30 @@ let active = { r: 0, c: 0 }, anchor = { ...active }, end = { ...active };
 const sheetViewState = new Map();
 const colWidth = (c) => doc.active.tools.hiddenColumns.includes(c) ? 0 : doc.active.tools.columnWidths[c] ?? COL_W;
 const rowHeight = (r) => doc.active.tools.rowHeights[r] ?? ROW_H;
-const colOffset = (c) => { let x = 0; for (let i = 0; i < c; i++)
-    x += colWidth(i); return x; };
-const rowOffset = (viewR) => { let y = 0; const rows = visibleRows(); for (let i = 0; i < viewR; i++)
-    y += rowHeight(rows[i] ?? i); return y; };
-const columnAt = (x) => { let left = 0, c = 0; while (c < book.cols - 1 && left + colWidth(c) <= x) {
-    left += colWidth(c++);
-} return c; };
-const viewRowAt = (y) => { const rows = visibleRows(); let top = 0, r = 0; while (r < rows.length - 1 && top + rowHeight(rows[r] ?? r) <= y) {
-    top += rowHeight(rows[r] ?? r);
-    r++;
-} return r; };
+let offsetCacheSheet = '', columnOffsets = [0], rowOffsets = [0];
+function resetOffsetCaches() { offsetCacheSheet = doc.activeId; columnOffsets = [0]; rowOffsets = [0]; }
+function ensureOffsetCaches() { if (offsetCacheSheet !== doc.activeId)
+    resetOffsetCaches(); }
+const colOffset = (c) => { ensureOffsetCaches(); while (columnOffsets.length <= c)
+    columnOffsets.push(columnOffsets.at(-1) + colWidth(columnOffsets.length - 1)); return columnOffsets[c] ?? 0; };
+const rowOffset = (viewR) => { ensureOffsetCaches(); const rows = visibleRows(), target = Math.min(viewR, rows.length); while (rowOffsets.length <= target) {
+    const index = rowOffsets.length - 1;
+    rowOffsets.push(rowOffsets.at(-1) + rowHeight(rows[index] ?? index));
+} return rowOffsets[target] ?? 0; };
+const columnAt = (x) => { let low = 0, high = book.cols - 1; while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (colOffset(middle) + colWidth(middle) <= x)
+        low = middle + 1;
+    else
+        high = middle;
+} return low; };
+const viewRowAt = (y) => { const rows = visibleRows(); let low = 0, high = Math.max(0, rows.length - 1); while (low < high) {
+    const middle = Math.floor((low + high) / 2), row = rows[middle] ?? middle;
+    if (rowOffset(middle) + rowHeight(row) <= y)
+        low = middle + 1;
+    else
+        high = middle;
+} return low; };
 let editing = null, editingRef = '';
 let mode = 'inspector';
 let clipboardCache = null;
@@ -504,7 +562,7 @@ root.innerHTML = `
   <div id="ribbon-content" class="ribbon-content" role="region" aria-label="Selected ribbon commands">
   <nav class="toolbar" aria-label="Workbook toolbar">
     <div class="tool-group" aria-label="Clipboard"><button id="btn-paste" class="tool-btn" title="Paste cells copied in GridForge (Ctrl+V)">▤ <span>Paste</span></button><button id="btn-cut" class="tool-btn" title="Cut selected cells (Ctrl+X)">✂ <span>Cut</span></button><button id="btn-copy" class="tool-btn" title="Copy selected cells (Ctrl+C)">▢ <span>Copy</span></button></div>
-    <div class="tool-group" aria-label="Open and save"><button id="btn-import" class="tool-btn" title="Open Excel XLSX/XLSM, CSV or JSON (Ctrl+O)">↧ <span>Open</span></button><button id="btn-cloud" class="tool-btn" title="Open or save workbooks in OneDrive, Google Drive, Dropbox or Box">☁ <span>Cloud</span></button><button id="btn-sample" class="tool-btn" title="Load example workbook">▧ <span>Example</span></button><button id="btn-save-xlsm" class="tool-btn" title="Save edits into a new macro-enabled XLSM (VBA preserved)" hidden>▣ <span>Save XLSM</span></button><button id="btn-original-xlsm" class="tool-btn" title="Download unchanged original macro-enabled workbook" hidden>⇩ <span>Original XLSM</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
+    <div class="tool-group" aria-label="Open and save"><button id="btn-import" class="tool-btn" title="Open Excel XLSX/XLSM, ODS, CSV or JSON (Ctrl+O)">↧ <span>Open</span></button><button id="btn-cloud" class="tool-btn" title="Open or save workbooks in OneDrive, Google Drive, Dropbox or Box">☁ <span>Cloud</span></button><button id="btn-sample" class="tool-btn" title="Load example workbook">▧ <span>Example</span></button><button id="btn-save-xlsm" class="tool-btn" title="Save edits into a new macro-enabled XLSM (VBA preserved)" hidden>▣ <span>Save XLSM</span></button><button id="btn-original-xlsm" class="tool-btn" title="Download unchanged original macro-enabled workbook" hidden>⇩ <span>Original XLSM</span></button><button id="btn-csv" class="tool-btn" title="Export calculated values as CSV">↥ <span>CSV</span></button><button id="btn-tsv" class="tool-btn" title="Export calculated values as tab-separated text">↥ <span>TSV</span></button><button id="btn-ods" class="tool-btn" title="Export supported formulas, values, and formatting as an OpenDocument spreadsheet">↥ <span>ODS</span></button><button id="btn-html" class="tool-btn" title="Export the active worksheet as a printable HTML file">▤ <span>HTML</span></button><button id="btn-json" class="tool-btn" title="Export formulas as JSON">◧ <span>JSON</span></button></div>
     <span class="separator"></span><div class="tool-group" aria-label="Editing"><button id="btn-sort-asc" class="tool-btn" title="Sort selected rows ascending by first selected column">↑ <span>Sort A–Z</span></button><button id="btn-sort-desc" class="tool-btn" title="Sort selected rows descending by first selected column">↓ <span>Sort Z–A</span></button><button id="btn-sort-custom" class="tool-btn" title="Sort by up to three columns, each with its own order">▤ <span>Custom sort</span></button><button id="btn-find" class="tool-btn" title="Find and replace (Ctrl+F)">⌕ <span>Find</span></button><button id="btn-filter" class="tool-btn" title="Filter selected table rows">⛃ <span>Filter</span></button><button id="btn-clear-filter" class="tool-btn" title="Show all filtered rows">◯ <span>Show all</span></button><button id="btn-data-validation" class="tool-btn" title="Restrict entries or add an in-cell dropdown">✓ <span>Data Validation</span></button><button id="btn-text-to-columns" class="tool-btn" title="Split delimited text into adjacent columns">↔ <span>Text to Columns</span></button><button id="btn-pivot-summary" class="tool-btn" title="Create a GridForge pivot summary from a headered range">▦ <span>Pivot Summary</span></button><button id="btn-query" class="tool-btn" title="Create a saved offline query from selected rows">⟳ <span>New Query</span></button><button id="btn-refresh-queries" class="tool-btn" title="Refresh saved queries and Pivot Summaries">↻ <span>Refresh All</span></button><button id="btn-descriptive-stats" class="tool-btn" title="Create mean, spread and distribution statistics for a range">Σ <span>Descriptive Stats</span></button><button id="btn-goal-seek" class="tool-btn" title="Find an input that makes a formula reach a target">⌖ <span>Goal Seek</span></button><button id="btn-refresh-pivots" class="tool-btn" title="Refresh every saved pivot summary across the workbook">⟳ <span>Refresh Summaries</span></button></div>
     <span class="separator"></span><div class="tool-group" aria-label="Cell size"><button id="btn-column-width" class="tool-btn" title="Set selected column width">↔ <span>Column Width</span></button><button id="btn-row-height" class="tool-btn" title="Set selected row height">↕ <span>Row Height</span></button><button id="btn-hide-rows" class="tool-btn" title="Hide selected rows">◌ <span>Hide Rows</span></button><button id="btn-unhide-rows" class="tool-btn" title="Unhide all rows">◉ <span>Unhide Rows</span></button><button id="btn-hide-columns" class="tool-btn" title="Hide selected columns">◌ <span>Hide Columns</span></button><button id="btn-unhide-columns" class="tool-btn" title="Unhide all columns">◉ <span>Unhide Columns</span></button><button id="btn-sheet-gridlines" class="tool-btn" title="Show or hide worksheet gridlines" aria-pressed="true">▦ <span>Gridlines</span></button></div>
     <div class="tool-group feature-command-group ribbon-hidden" id="missing-data-features" aria-label="Unavailable Excel data features"><button type="button" class="tool-btn missing-feature-button partial-feature-button" data-feature-notice="power-query" title="Power Query M is only partially available in GridForge">⟳ <span>Power Query</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="data-model" title="The Excel Data Model is not available in GridForge">▧ <span>Data Model</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="power-pivot" title="Power Pivot and DAX are not available in GridForge">∑ <span>Power Pivot / DAX</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="olap" title="OLAP connections are not available in GridForge">◇ <span>OLAP</span></button><button type="button" class="tool-btn missing-feature-button" data-feature-notice="timeline" title="Native Excel Timelines are not available in GridForge">◷ <span>Timeline</span></button><button type="button" class="tool-btn missing-feature-button partial-feature-button" data-feature-notice="pivot-chart-fields" title="Full Excel PivotChart field buttons are not implemented">▥ <span>PivotChart fields</span></button></div>
@@ -513,12 +571,12 @@ root.innerHTML = `
     <span class="separator"></span><div class="tool-group" aria-label="Automation"><button id="btn-data-studio" class="tool-btn" title="100 spreadsheet tools for cleanup, transformations and analysis">▦ <span>Data tools</span></button><button id="btn-automate" class="tool-btn" title="Record and replay safe GridForge actions">⚙ <span>Automate</span></button><button id="btn-feature-status" class="tool-btn" title="See which Excel features are supported or unavailable">ⓘ <span>Feature availability</span></button></div><span id="grid-size" class="cell-counter"></span>
   </nav>
   <div class="format-toolbar" aria-label="Cell formatting toolbar">
-    <span class="format-caption">FONT</span><label class="fmt-selector-label font-choice">Font <select id="fmt-font" aria-label="Font family"><option>Aptos</option><option>Calibri</option><option>Arial</option><option>Segoe UI</option><option>Georgia</option><option>Consolas</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option><option>Times New Roman</option><option>Cambria</option><option>Garamond</option></select></label><label class="fmt-selector-label size-choice">Size <select id="fmt-size" aria-label="Font size"><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11" selected>11</option><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="22">22</option><option value="24">24</option><option value="28">28</option><option value="32">32</option><option value="36">36</option></select></label><button id="fmt-bold" class="format-btn" title="Bold (Ctrl+B)"><b>B</b></button><button id="fmt-italic" class="format-btn" title="Italic (Ctrl+I)"><i>I</i></button><button id="fmt-underline" class="format-btn" title="Underline (Ctrl+U)"><u>U</u></button>
+    <span class="format-caption">FONT</span><label class="fmt-selector-label font-choice">Font <input id="fmt-font" list="fmt-font-list" aria-label="Font family" maxlength="128" value="Aptos"/><datalist id="fmt-font-list"></datalist></label><label class="fmt-selector-label size-choice">Size <select id="fmt-size" aria-label="Font size"><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11" selected>11</option><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="22">22</option><option value="24">24</option><option value="28">28</option><option value="32">32</option><option value="36">36</option></select></label><button id="fmt-bold" class="format-btn" title="Bold (Ctrl+B)"><b>B</b></button><button id="fmt-italic" class="format-btn" title="Italic (Ctrl+I)"><i>I</i></button><button id="fmt-underline" class="format-btn" title="Underline (Ctrl+U)"><u>U</u></button>
     <label class="fmt-selector-label">Number <select id="fmt-number" aria-label="Number format"><option value="general">General</option><option value="number">Number (0.00)</option><option value="integer">Integer</option><option value="currency">USD ($)</option><option value="percent">Percent (%)</option></select></label><label class="fmt-selector-label custom-number-format">Format code <input id="fmt-number-code" type="text" maxlength="255" placeholder="0.00;[Red](0.00)" title="Enter an Excel custom number format" aria-label="Custom number format code"/></label>
-    <label class="fmt-selector-label">Align <select id="fmt-align" aria-label="Cell text alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label><label class="fmt-selector-label">Vertical <select id="fmt-vertical-align" aria-label="Cell vertical alignment"><option value="center">Middle</option><option value="top">Top</option></select></label><button type="button" id="fmt-indent-less" class="format-btn" title="Decrease cell indent">⇤ Indent</button><button type="button" id="fmt-indent-more" class="format-btn" title="Increase cell indent">Indent ⇥</button>
+    <label class="fmt-selector-label">Align <select id="fmt-align" aria-label="Cell text alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label><label class="fmt-selector-label">Vertical <select id="fmt-vertical-align" aria-label="Cell vertical alignment"><option value="center">Middle</option><option value="top">Top</option><option value="bottom">Bottom</option></select></label><button type="button" id="fmt-indent-less" class="format-btn" title="Decrease cell indent">⇤ Indent</button><button type="button" id="fmt-indent-more" class="format-btn" title="Increase cell indent">Indent ⇥</button><button type="button" id="btn-merge-center" class="format-btn" title="Merge the selected cells and center the top-left value">Merge &amp; Center</button><button type="button" id="btn-unmerge" class="format-btn" title="Unmerge selected merged cells">Unmerge</button>
     <label class="color-field">Text <input id="fmt-color" type="color" value="#d4dbef" title="Font color" aria-label="Font color"/></label>
     <label class="color-field">Fill <input id="fmt-fill" type="color" value="#131b2d" title="Cell background" aria-label="Background color"/></label><div class="quick-colors" aria-label="Quick font colors"><span>A</span><button type="button" data-color-swatch="#172b4d" data-color-target="font" title="Dark text" style="--swatch:#172b4d"></button><button type="button" data-color-swatch="#c0392b" data-color-target="font" title="Red text" style="--swatch:#c0392b"></button><button type="button" data-color-swatch="#187a58" data-color-target="font" title="Green text" style="--swatch:#187a58"></button><button type="button" data-color-swatch="#2563eb" data-color-target="font" title="Blue text" style="--swatch:#2563eb"></button></div><div class="quick-colors" aria-label="Quick cell highlight colors"><span>▣</span><button type="button" data-color-swatch="#fff2ba" data-color-target="fill" title="Yellow highlight" style="--swatch:#fff2ba"></button><button type="button" data-color-swatch="#d9eafa" data-color-target="fill" title="Blue highlight" style="--swatch:#d9eafa"></button><button type="button" data-color-swatch="#d9f3e7" data-color-target="fill" title="Green highlight" style="--swatch:#d9f3e7"></button><button type="button" data-color-swatch="#f8dce3" data-color-target="fill" title="Red highlight" style="--swatch:#f8dce3"></button></div>
-    <button id="fmt-wrap" class="format-btn" title="Wrap text into the available cell space">↩ Wrap</button><button id="fmt-strike" class="format-btn" title="Strikethrough selection">S̶</button><label class="fmt-selector-label">Borders <select id="fmt-border" aria-label="Cell borders"><option value="none">No border</option><option value="all">All borders</option><option value="bottom">Bottom border</option><option value="top">Top border</option><option value="left">Left border</option><option value="right">Right border</option></select></label><label class="fmt-selector-label">Cell styles <select id="fmt-preset" aria-label="Apply Excel-style cell style"><option value="">Choose style…</option><option value="header">Header</option><option value="title">Title</option><option value="total">Total</option><option value="highlight">Accent</option><option value="warning">Attention</option><option value="success">Success</option><option value="note">Note</option><option value="input">Input</option><option value="neutral">Neutral</option></select></label><button id="btn-format-table" class="format-btn format-table-action" title="Create or style an Excel-compatible table from your selection">▦ Format as Table</button><button id="btn-table-to-chart" class="format-btn" title="Create chart from the active table">▥ Chart from table</button><button id="btn-table-edit" class="format-btn" title="Change table style, name and banding">Table options</button><button id="fmt-clear" class="format-btn reset-format" title="Remove formatting from selected cells">Clear style</button>
+    <button id="fmt-wrap" class="format-btn" title="Wrap text into the available cell space">↩ Wrap</button><button id="fmt-strike" class="format-btn" title="Strikethrough selection">S̶</button><label class="fmt-selector-label">Borders <select id="fmt-border" aria-label="Cell borders"><option value="none">No border</option><option value="all">All borders</option><option value="bottom">Bottom border</option><option value="top">Top border</option><option value="left">Left border</option><option value="right">Right border</option><option value="diagonal-up">Diagonal up</option><option value="diagonal-down">Diagonal down</option><option value="diagonals">Both diagonals</option></select></label><label class="fmt-selector-label">Line <select id="fmt-border-style" aria-label="Border line style"><option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option><option value="double">Double</option></select></label><label class="fmt-selector-label">Weight <select id="fmt-border-weight" aria-label="Border weight"><option value="thin">Thin</option><option value="medium">Medium</option><option value="thick">Thick</option></select></label><label class="fmt-selector-label border-color-choice">Border color <input id="fmt-border-color" type="color" value="#657f75" aria-label="Border color"/></label><label class="fmt-selector-label">Cell styles <select id="fmt-preset" aria-label="Apply Excel-style cell style"><option value="">Choose style…</option><option value="header">Header</option><option value="title">Title</option><option value="total">Total</option><option value="highlight">Accent</option><option value="warning">Attention</option><option value="success">Success</option><option value="note">Note</option><option value="input">Input</option><option value="neutral">Neutral</option></select></label><button id="btn-format-table" class="format-btn format-table-action" title="Create or style an Excel-compatible table from your selection">▦ Format as Table</button><button id="btn-table-to-chart" class="format-btn" title="Create chart from the active table">▥ Chart from table</button><button id="btn-table-edit" class="format-btn" title="Change table style, name and banding">Table options</button><button id="fmt-clear" class="format-btn reset-format" title="Remove formatting from selected cells">Clear style</button>
     <button id="btn-autosum" class="format-btn reset-format" title="Insert a SUM formula for the cells above the selection (Alt+=)">∑ AutoSum</button><button id="btn-freeze-row" class="format-btn reset-format" title="Freeze or unfreeze top row">Freeze row</button><button id="btn-freeze-col" class="format-btn reset-format" title="Freeze or unfreeze first column">Freeze col</button><button id="btn-freeze-panes" class="format-btn reset-format" title="Freeze rows above and columns left of the active cell">Freeze Panes</button><button id="btn-unfreeze-panes" class="format-btn reset-format" title="Unfreeze frozen rows and columns">Unfreeze Panes</button><button id="btn-conditional" class="format-btn reset-format" title="Highlight cells by numeric rule">Conditional</button><button id="btn-paste-values" class="format-btn reset-format" title="Paste values from the most recent copied grid range">Paste values</button>
   </div>
   <div id="insert-gallery" class="insert-gallery ribbon-hidden" aria-label="Insert charts from selected data">
@@ -548,7 +606,8 @@ root.innerHTML = `
   <div id="page-layout-ribbon" class="draw-ribbon ribbon-hidden" role="toolbar" aria-label="Page layout tools">
     <div class="draw-ribbon-group" aria-label="Page setup"><button type="button" id="page-margins-normal" class="draw-tool" title="Set normal print margins">▤<span>Normal Margins</span></button><button type="button" id="page-margins-narrow" class="draw-tool" title="Set narrow print margins">▤<span>Narrow</span></button><button type="button" id="page-margins-wide" class="draw-tool" title="Set wide print margins">▤<span>Wide</span></button><label>Orientation <select id="page-layout-orientation" aria-label="Page orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Paper <select id="page-layout-paper" aria-label="Paper size"><option value="letter">Letter</option><option value="legal">Legal</option><option value="a4">A4</option><option value="a3">A3</option><option value="tabloid">Tabloid</option></select></label></div>
     <div class="draw-ribbon-group" aria-label="Print area"><button type="button" id="page-set-print-area" class="draw-tool" title="Use the selected cells as the print area">▣<span>Set Print Area</span></button><button type="button" id="page-clear-print-area" class="draw-tool" title="Clear the print area">⌫<span>Clear Area</span></button><button type="button" id="btn-page-setup" class="draw-tool" title="Margins, scaling, print titles, and headings">⚙<span>Page Setup</span></button><button type="button" id="btn-print-sheet" class="draw-tool" title="Open a print-ready view of this worksheet">⎙<span>Print</span></button></div>
-    <div class="draw-ribbon-group" aria-label="Page view"><button type="button" id="page-break-preview" class="draw-tool" aria-pressed="false" title="Show page-break boundaries on the worksheet">▧<span>Page Break Preview</span></button></div>
+    <div class="draw-ribbon-group" aria-label="Manual page breaks"><label>Break before<select id="page-break-axis" aria-label="Choose row or column break"><option value="row">Row</option><option value="column">Column</option></select></label><button type="button" id="page-break-insert" class="draw-tool" title="Insert a page break before the active row or column">↧<span>Insert Break</span></button><button type="button" id="page-break-remove" class="draw-tool" title="Remove the page break before the active row or column">⌫<span>Remove Break</span></button><button type="button" id="page-break-clear" class="draw-tool" title="Remove all manual page breaks from this worksheet">✕<span>Clear Breaks</span></button></div>
+    <div class="draw-ribbon-group" aria-label="Page view"><button type="button" id="page-break-preview" class="draw-tool" aria-pressed="false" title="Show automatic and manual page-break boundaries on the worksheet">▧<span>Page Break Preview</span></button></div>
   </div>
   <div class="workspace">
     <section class="sheet-area" aria-label="Spreadsheet">
@@ -563,7 +622,7 @@ root.innerHTML = `
     </aside>
   </div>
   <footer class="statusbar"><span class="status-left">Ready</span><span id="status-text">${escapeHtml(workbookTitle)} · Saved locally</span><span id="selection-aggregate"></span><span class="status-right">${functionNames.length - connectedFunctionNames.length} local functions <span class="dot">•</span> ${connectedFunctionNames.length} connected names</span></footer>
-  <input type="file" id="file-picker" accept=".csv,.json,.xlsx,.xlsm,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden/>
+  <input type="file" id="file-picker" accept=".csv,.json,.ods,.xlsx,.xlsm,text/csv,application/json,application/vnd.oasis.opendocument.spreadsheet,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden/>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="cell-context-menu" class="cell-context-menu" role="menu" aria-label="Cell actions" hidden>
     <div class="context-heading" id="context-heading">CELL ACTIONS</div>
@@ -584,7 +643,7 @@ root.innerHTML = `
     <button role="menuitem" data-context="sort-asc"><span class="menu-glyph">↑</span> Sort A–Z</button>
     <button role="menuitem" data-context="sort-desc"><span class="menu-glyph">↓</span> Sort Z–A</button>
     <button role="menuitem" data-context="autosum"><span class="menu-glyph">∑</span> AutoSum</button><button role="menuitem" data-context="filter"><span class="menu-glyph">⛃</span> Filter selection…</button><button role="menuitem" data-context="conditional"><span class="menu-glyph">◈</span> Conditional formatting…</button>
-    <button role="menuitem" data-context="data-studio"><span class="menu-glyph">▦</span> Data Studio (100 actions)</button>
+    <button role="menuitem" data-context="data-studio"><span class="menu-glyph">▦</span> Data Studio (${DATA_TOOLS.length} actions)</button>
     <button role="menuitem" data-context="sort-custom"><span class="menu-glyph">▤</span> Custom sort…</button>
     <button role="menuitem" data-context="find"><span class="menu-glyph">⌕</span> Find and replace <kbd>Ctrl+F</kbd></button>
     <div class="context-separator"></div>
@@ -598,7 +657,7 @@ root.innerHTML = `
     <label class="field-label" for="chart-title">Chart title</label><input id="chart-title" class="scenario-input" maxlength="100" placeholder="Revenue by product"/><label class="field-label" for="chart-accessibility-description">Accessibility description</label><textarea id="chart-accessibility-description" class="scenario-input" maxlength="500" rows="2" placeholder="Describe the main finding and how to read this chart"></textarea>
     <div class="chart-editor-details"><label class="field-label" for="chart-legend">Legend</label><select id="chart-legend" class="context-select"><option value="bottom">Bottom</option><option value="top">Top</option><option value="right">Right</option><option value="left">Left</option><option value="none">Hidden</option></select>
     <label class="chart-option"><input id="chart-reverse-categories" type="checkbox"/> Reverse category order</label><label class="field-label" for="chart-xaxis">Horizontal axis title</label><input id="chart-xaxis" class="scenario-input" maxlength="70" placeholder="e.g. Month"/>
-    <label class="field-label" for="chart-yaxis">Vertical axis title</label><input id="chart-yaxis" class="scenario-input" maxlength="70" placeholder="e.g. Revenue ($)"/>
+    <label class="field-label" for="chart-yaxis">Vertical axis title</label><input id="chart-yaxis" class="scenario-input" maxlength="70" placeholder="e.g. Revenue ($)"/><label class="field-label" for="chart-yaxis-log-base">Logarithmic vertical axis base (blank = linear)</label><input id="chart-yaxis-log-base" class="scenario-input" type="number" min="2" max="1000" step="1" placeholder="10" aria-label="Logarithmic vertical axis base"/>
     <label class="field-label" for="chart-yaxis-secondary">Right vertical axis title</label><input id="chart-yaxis-secondary" class="scenario-input" maxlength="70" placeholder="e.g. Margin (%)"/>
     <div id="chart-series-options" class="chart-series-options" aria-label="Series options"></div><div id="chart-point-colors" class="chart-series-options" aria-label="Pie and doughnut slice colors"></div>
     <label class="chart-option"><input id="chart-labels" type="checkbox"/> Show values on chart</label><label class="chart-option"><input id="chart-label-category" type="checkbox"/> Show category name</label><label class="chart-option"><input id="chart-label-series" type="checkbox"/> Show series name</label><label class="chart-option"><input id="chart-label-percent" type="checkbox"/> Show percentage (pie/doughnut)</label><label class="field-label" for="chart-blanks">Empty cells</label><select id="chart-blanks" class="context-select"><option value="gap">Show as gaps</option><option value="zero">Plot as zero</option><option value="span">Connect data points</option></select><label class="field-label" for="chart-data-label-position">Data label position</label><select id="chart-data-label-position" class="context-select"><option value="outsideEnd">Outside end</option><option value="insideEnd">Inside end</option><option value="insideBase">Inside base</option><option value="center">Center</option><option value="bestFit">Best fit</option><option value="above">Above</option><option value="below">Below</option><option value="left">Left</option><option value="right">Right</option></select><label class="field-label" for="chart-label-separator">Data label separator (optional)</label><input id="chart-label-separator" class="scenario-input" maxlength="20" placeholder="Default space"/><label class="field-label" for="chart-data-label-format">Data label number format (optional)</label><input id="chart-data-label-format" class="scenario-input" maxlength="100" placeholder="0.00;[Red](0.00)"/><label class="field-label" for="chart-waterfall-total-points">Total item indexes (comma-separated, 1-based)</label><input id="chart-waterfall-total-points" class="scenario-input" type="text" placeholder="e.g. 1, 4, 8" aria-describedby="chart-waterfall-total-hint"/><small id="chart-waterfall-total-hint" class="chart-hint">Select subtotal or total items by their position in the data rows.</small></div>
@@ -627,9 +686,9 @@ root.innerHTML = `
     <p id="sort-preview" class="sort-preview"></p><button id="btn-sort-apply" class="primary-button">Sort selection</button>
   </dialog>
   <dialog id="data-studio-dialog" class="help-dialog studio-dialog" aria-label="Data Studio">
-    <div class="dialog-top"><h2>Data Studio <span class="studio-counter">100 actions</span></h2><button type="button" class="tool-btn" id="close-data-studio" aria-label="Close Data Studio">✕</button></div>
+    <div class="dialog-top"><h2>Data Studio <span class="studio-counter">${DATA_TOOLS.length} actions</span></h2><button type="button" class="tool-btn" id="close-data-studio" aria-label="Close Data Studio">✕</button></div>
     <p>Excel-style, single-step operations on your selection. Preview before applying. Every change is a single undoable transaction. Formula cells are skipped by text/numeric cleanup tools, while fill and arrangement tools translate relative formulas.</p>
-    <div class="studio-search"><label for="studio-category">Category</label><select id="studio-category" class="context-select"></select><label for="studio-search">Search</label><input id="studio-search" class="scenario-input" placeholder="Search 100 spreadsheet actions"/></div>
+    <div class="studio-search"><label for="studio-category">Category</label><select id="studio-category" class="context-select"></select><label for="studio-search">Search</label><input id="studio-search" class="scenario-input" placeholder="Search ${DATA_TOOLS.length} spreadsheet actions"/></div>
     <label for="studio-action">Action</label><select id="studio-action" class="context-select" size="9" aria-label="Available Data Studio actions"></select>
     <div class="studio-description" id="studio-description" aria-live="polite">Choose an action to see its description.</div>
     <div class="studio-description" id="studio-preview" aria-live="polite">Select cells and choose Preview.</div>
@@ -657,14 +716,14 @@ root.innerHTML = `
   <dialog id="import-notes-dialog" class="help-dialog"><div class="dialog-top"><h2>XLSX import report</h2><button class="tool-btn" id="close-import-notes">✕</button></div><p>GridForge imported the supported worksheet content. Review any formula or feature differences before editing or exporting.</p><div id="import-notes-body" class="import-notes-body"></div><button id="confirm-import-notes" class="primary-button">Continue to workbook</button></dialog>
   <dialog id="hidden-sheets-dialog" class="help-dialog"><div class="dialog-top"><h2>Unhide Worksheet</h2><button class="tool-btn" id="close-hidden-sheets" aria-label="Close">✕</button></div><p>Select a hidden worksheet to make its tab visible.</p><div id="hidden-sheets-list" class="hidden-sheets-list"></div></dialog>
   <dialog id="filter-dialog" class="help-dialog"><div class="dialog-top"><h2>Filter table rows</h2><button class="tool-btn" id="close-filter">✕</button></div><p>Select a header and data rectangle, choose a column, and show rows containing a value. The data is never deleted.</p><label class="field-label" for="filter-column">Filter by column</label><select id="filter-column" class="context-select"></select><p class="filter-help">Choose values in each column. Filters on different columns combine with AND and are saved with the workbook.</p><div class="filter-values-toolbar"><button type="button" class="secondary-button" id="filter-select-all">Select all</button><button type="button" class="secondary-button" id="filter-select-none">Select none</button></div><div id="filter-values" class="filter-values" role="group" aria-label="Visible values"></div><label class="field-label" for="filter-query">Optional text contains (use instead of checked values)</label><input id="filter-query" class="scenario-input" placeholder="Search text in this column"/><div id="filter-active-summary" class="filter-help"></div><button id="apply-filter" class="primary-button">Apply column filter</button><button id="filter-remove-column" class="secondary-button">Clear this column</button></dialog>
-  <dialog id="conditional-dialog" class="help-dialog"><div class="dialog-top"><h2>Conditional formatting</h2><button class="tool-btn" id="close-conditional">✕</button></div><p>Rules update from the selected cells' current values.</p><label class="field-label">Condition</label><select class="context-select" id="rule-op"><option value="gt">Greater than</option><option value="gte">Greater than or equal to</option><option value="lt">Less than</option><option value="lte">Less than or equal to</option><option value="eq">Equal to</option><option value="ne">Not equal to</option><option value="between">Between</option><option value="notBetween">Not between</option><option value="scale">Color scale</option><option value="dataBar">Data bars</option></select><label class="field-label">Numeric threshold / lower bound</label><input id="rule-threshold" type="number" step="any" value="100" class="scenario-input"/><label class="field-label">Upper bound (Between rules)</label><input id="rule-threshold2" type="number" step="any" value="200" class="scenario-input"/><label class="field-label">Low value color (for scale)</label><input type="color" id="rule-start-color" value="#e7f3ff"/><label><input type="checkbox" id="rule-use-mid-color"/> Use three-color scale</label><label class="field-label">Midpoint color (50th percentile)</label><input type="color" id="rule-mid-color" value="#fff2ba"/><label class="field-label">Bar color preset</label><select class="context-select" id="rule-preset"><option value="#4472c4">Blue</option><option value="#70ad47">Green</option><option value="#ed7d31">Orange</option><option value="#a5a5a5">Gray</option><option value="#ffc000">Gold</option><option value="#5b9bd5">Light blue</option><option value="#c0504d">Red</option><option value="#8064a2">Purple</option><option value="custom">Custom</option></select><label class="field-label">Bar / high value color</label><input type="color" id="rule-color" value="#4472c4"/><label class="field-label">Negative value bar</label><input type="color" id="rule-negative-color" value="#c0504d"/><label class="field-label">Data bar style</label><select class="context-select" id="rule-bar-style"><option value="solid">Solid fill</option><option value="gradient">Gradient</option></select><label><input type="checkbox" id="rule-show-value" checked/> Show cell values</label><label class="field-label">Fixed minimum (optional)</label><input id="rule-min" type="number" step="any" class="scenario-input"/><label class="field-label">Fixed maximum (optional)</label><input id="rule-max" type="number" step="any" class="scenario-input"/><button class="primary-button" id="apply-conditional">Apply to selection</button><button class="secondary-button" id="clear-conditional">Clear rules on this sheet</button></dialog>
+  <dialog id="conditional-dialog" class="help-dialog"><div class="dialog-top"><h2>Conditional formatting</h2><button class="tool-btn" id="close-conditional">✕</button></div><p>Rules update from the selected cells' current values.</p><label class="field-label">Condition</label><select class="context-select" id="rule-op"><option value="gt">Greater than</option><option value="gte">Greater than or equal to</option><option value="lt">Less than</option><option value="lte">Less than or equal to</option><option value="eq">Equal to</option><option value="ne">Not equal to</option><option value="between">Between</option><option value="notBetween">Not between</option><option value="scale">Color scale</option><option value="dataBar">Data bars</option><option value="formula">Use a formula</option><option value="iconSet">Icon set</option></select><div id="rule-formula-row" hidden><label class="field-label">Formula condition (relative to the first selected cell)</label><input id="rule-formula" type="text" maxlength="8192" placeholder="=B2&gt;100" class="scenario-input"/></div><div id="rule-icon-row" hidden><label class="field-label">Icon style</label><select id="rule-icon-set" class="context-select"><option value="3TrafficLights1">3TrafficLights1</option><option value="3TrafficLights2">3TrafficLights2</option><option value="3Arrows">3Arrows</option><option value="3ArrowsGray">3ArrowsGray</option><option value="3Flags">3Flags</option><option value="3Signs">3Signs</option><option value="3Symbols">3Symbols</option><option value="3Symbols2">3Symbols2</option><option value="3Stars">3Stars</option><option value="3Triangles">3Triangles</option><option value="4TrafficLights">4TrafficLights</option><option value="4Arrows">4Arrows</option><option value="4ArrowsGray">4ArrowsGray</option><option value="4RedToBlack">4RedToBlack</option><option value="4Rating">4Rating</option><option value="5Arrows">5Arrows</option><option value="5ArrowsGray">5ArrowsGray</option><option value="5Rating">5Rating</option><option value="5Quarters">5Quarters</option></select><div id="rule-icon-thresholds"></div><label><input id="rule-icons-only" type="checkbox"/> Show icons only</label><p>Set each icon cutoff as a percent, percentile, number, or formula. Formula cutoffs are relative to the first selected cell.</p></div><label class="field-label">Numeric threshold / lower bound</label><input id="rule-threshold" type="number" step="any" value="100" class="scenario-input"/><label class="field-label">Upper bound (Between rules)</label><input id="rule-threshold2" type="number" step="any" value="200" class="scenario-input"/><div id="rule-scale-thresholds" hidden><p>Choose how the low, middle, and high values are calculated. Formula stops are relative to the first selected cell.</p><label class="field-label">Low color stop</label><select id="rule-scale-low-type" class="context-select"><option value="min">Minimum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-scale-low-value" type="text" value="0" placeholder="Number or formula" class="scenario-input"/><div id="rule-scale-mid-row"><label class="field-label">Middle color stop</label><select id="rule-scale-mid-type" class="context-select"><option value="percentile">Percentile</option><option value="percent">Percent</option><option value="num">Number</option><option value="formula">Formula</option></select><input id="rule-scale-mid-value" type="text" value="50" placeholder="Number or formula" class="scenario-input"/></div><label class="field-label">High color stop</label><select id="rule-scale-high-type" class="context-select"><option value="max">Maximum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-scale-high-value" type="text" value="100" placeholder="Number or formula" class="scenario-input"/></div><label class="field-label">Low value color (for scale)</label><input type="color" id="rule-start-color" value="#e7f3ff"/><label><input type="checkbox" id="rule-use-mid-color"/> Use three-color scale</label><label class="field-label">Midpoint color</label><input type="color" id="rule-mid-color" value="#fff2ba"/><label class="field-label">Bar color preset</label><select class="context-select" id="rule-preset"><option value="#4472c4">Blue</option><option value="#70ad47">Green</option><option value="#ed7d31">Orange</option><option value="#a5a5a5">Gray</option><option value="#ffc000">Gold</option><option value="#5b9bd5">Light blue</option><option value="#c0504d">Red</option><option value="#8064a2">Purple</option><option value="custom">Custom</option></select><label class="field-label">Bar / high value color</label><input type="color" id="rule-color" value="#4472c4"/><label class="field-label">Negative value bar</label><input type="color" id="rule-negative-color" value="#c0504d"/><label class="field-label">Data bar style</label><select class="context-select" id="rule-bar-style"><option value="solid">Solid fill</option><option value="gradient">Gradient</option></select><label><input type="checkbox" id="rule-show-value" checked/> Show cell values</label><label class="field-label">Bar axis position</label><select class="context-select" id="rule-bar-axis"><option value="automatic">Automatic</option><option value="middle">Middle</option><option value="none">None</option></select><label class="field-label">Axis color</label><input type="color" id="rule-axis-color" value="#808080"/><label class="field-label">Minimum bar length (%)</label><input id="rule-bar-min-length" type="number" min="0" max="100" step="1" value="0" class="scenario-input"/><label class="field-label">Maximum bar length (%)</label><input id="rule-bar-max-length" type="number" min="0" max="100" step="1" value="100" class="scenario-input"/><div id="rule-bar-thresholds" hidden><p>Choose automatic, number, percent, percentile, or formula bounds. Formulas are relative to the first selected cell.</p><label class="field-label">Data-bar lower bound</label><select id="rule-bar-low-type" class="context-select"><option value="min">Automatic minimum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-bar-low-value" type="text" value="0" placeholder="Number or formula" class="scenario-input"/><label class="field-label">Data-bar upper bound</label><select id="rule-bar-high-type" class="context-select"><option value="max">Automatic maximum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-bar-high-value" type="text" value="100" placeholder="Number or formula" class="scenario-input"/></div><button class="primary-button" id="apply-conditional">Apply to selection</button><section class="conditional-rule-manager"><h3>Rules on this sheet</h3><div id="conditional-rule-list" aria-live="polite"></div></section><button class="secondary-button" id="clear-conditional">Clear rules on this sheet</button></dialog>
   <dialog id="data-validation-dialog" class="help-dialog"><div class="dialog-top"><h2>Data Validation</h2><button class="tool-btn" id="close-data-validation" aria-label="Close">✕</button></div><p id="validation-range-note"></p><label class="field-label" for="validation-type">Allow</label><select id="validation-type" class="context-select"><option value="list">List (dropdown)</option><option value="whole">Whole number</option><option value="decimal">Decimal</option><option value="date">Date</option><option value="textLength">Text length</option></select><div id="validation-list-fields"><label class="field-label" for="validation-source-type">List source</label><select id="validation-source-type" class="context-select"><option value="inline">Type options</option><option value="range">Worksheet range</option></select><div id="validation-values-fields"><label class="field-label" for="validation-values">Dropdown values</label><input id="validation-values" class="scenario-input" maxlength="255" placeholder="Open, In progress, Done"/><small class="name-scope-note">Separate options with commas (up to 50 values).</small></div><div id="validation-range-fields" class="ribbon-hidden"><label class="field-label" for="validation-source-range">Source range (same worksheet)</label><input id="validation-source-range" class="scenario-input" placeholder="A2:A8"/><small class="name-scope-note">The dropdown updates when the source cells change.</small></div></div><div id="validation-number-fields" class="ribbon-hidden"><label class="field-label" for="validation-operator">Data</label><select id="validation-operator" class="context-select"><option value="between">Between</option><option value="notBetween">Not between</option><option value="equalTo">Equal to</option><option value="notEqualTo">Not equal to</option><option value="greaterThan">Greater than</option><option value="greaterThanOrEqual">Greater than or equal to</option><option value="lessThan">Less than</option><option value="lessThanOrEqual">Less than or equal to</option></select><label id="validation-first-label" class="field-label" for="validation-min">Minimum</label><input id="validation-min" class="scenario-input" type="number" step="any"/><div id="validation-second-field"><label class="field-label" for="validation-max">Maximum</label><input id="validation-max" class="scenario-input" type="number" step="any"/></div></div><label class="name-checkbox"><input id="validation-allow-blank" type="checkbox" checked/> Ignore blank cells</label><details class="validation-advanced"><summary>Input prompt and error alert</summary><label class="field-label" for="validation-prompt-title">Input title (optional)</label><input id="validation-prompt-title" class="scenario-input" maxlength="255"/><label class="field-label" for="validation-prompt-message">Input message (optional)</label><textarea id="validation-prompt-message" class="scenario-input" maxlength="255" rows="2"></textarea><label class="field-label" for="validation-error-style">When an entry is invalid</label><select id="validation-error-style" class="context-select"><option value="stop">Stop and reject</option><option value="warning">Warn and ask</option><option value="information">Show message and allow</option></select><label class="field-label" for="validation-error-title">Error title (optional)</label><input id="validation-error-title" class="scenario-input" maxlength="255"/><label class="field-label" for="validation-error-message">Error message (optional)</label><textarea id="validation-error-message" class="scenario-input" maxlength="255" rows="2"></textarea><label class="name-checkbox"><input id="validation-show-input" type="checkbox" checked/> Show input message</label><label class="name-checkbox"><input id="validation-show-error" type="checkbox" checked/> Show error alert</label></details><p id="validation-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button id="clear-data-validation" class="secondary-button">Clear validation</button><button id="apply-data-validation" class="primary-button">Apply</button></div></dialog>
   <dialog id="text-columns-dialog" class="help-dialog text-columns-dialog"><div class="dialog-top"><h2>Text to Columns</h2><button type="button" class="tool-btn" id="close-text-columns" aria-label="Close">✕</button></div><p>Split values from one selected column into fields across the row.</p><label class="field-label" for="text-columns-source-range">Source range</label><input id="text-columns-source-range" class="scenario-input" placeholder="A1:A20"/><label class="field-label" for="text-columns-delimiter">Delimiter</label><select id="text-columns-delimiter" class="context-select"><option value="comma">Comma</option><option value="semicolon">Semicolon</option><option value="tab">Tab</option><option value="space">Space</option><option value="other">Other character</option></select><label id="text-columns-other-field" class="field-label ribbon-hidden" for="text-columns-other">Custom delimiter</label><input id="text-columns-other" class="scenario-input ribbon-hidden" maxlength="1"/><label class="name-checkbox"><input id="text-columns-merge" type="checkbox"/> Treat consecutive delimiters as one</label><label class="field-label" for="text-columns-destination">Destination</label><input id="text-columns-destination" class="scenario-input" placeholder="A1"/><div id="text-columns-preview" class="text-columns-preview" aria-live="polite"></div><p id="text-columns-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-text-columns">Cancel</button><button type="button" class="primary-button" id="apply-text-columns">Finish</button></div></dialog>
   <dialog id="descriptive-stats-dialog" class="help-dialog"><div class="dialog-top"><h2>Descriptive Statistics</h2><button type="button" class="tool-btn" id="close-descriptive-stats" aria-label="Close">✕</button></div><p>Create an Excel ToolPak-style summary from numeric cells in the selected range. Text, blanks and formula errors are ignored; the source cells are not changed.</p><label class="field-label" for="stats-source-range">Input range</label><input id="stats-source-range" class="scenario-input" placeholder="A1:B20"/><label class="field-label" for="stats-destination">Output starts at</label><input id="stats-destination" class="scenario-input" placeholder="D1"/><p id="stats-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-descriptive-stats">Cancel</button><button type="button" class="primary-button" id="create-descriptive-stats">Create report</button></div></dialog>
   <dialog id="pivot-summary-dialog" class="help-dialog"><div class="dialog-top"><h2>Pivot Summary</h2><button type="button" class="tool-btn" id="close-pivot-summary" aria-label="Close">✕</button></div><p>Rows are optional; arrange multiple fields in Rows and Columns, choose separate value calculations, and filter a report. Field counts are limited by the source and worksheet space. GridForge recalculates the report and exports supported native PivotTable metadata. Date fields can be grouped by year, quarter, month, ISO week, or day; numeric fields can be grouped into custom intervals. Add a GridForge slicer to an ungrouped row or column field to filter the summary from the worksheet. Native Excel slicer cache and view parts now import and export for supported worksheet PivotTables. Timelines and the Data Model are not supported yet.</p><label class="field-label" for="pivot-source-sheet">Source worksheet</label><select id="pivot-source-sheet" class="context-select"></select><label class="field-label" for="pivot-source-table">Source table (optional)</label><select id="pivot-source-table" class="context-select"><option value="">Cell range</option></select><small class="name-scope-note">Choose a formatted table to include rows added to it on refresh.</small><label class="field-label" for="pivot-source-range">Source range (include headers)</label><input id="pivot-source-range" class="scenario-input" placeholder="A1:C100"/><label class="field-label" for="pivot-row-field">Rows (Ctrl-click for multiple)</label><select id="pivot-row-field" class="context-select" multiple size="4"></select><div id="pivot-row-order" class="tool-group" aria-label="Rows field order"></div><label class="field-label" for="pivot-column-field">Columns (Ctrl-click for multiple)</label><select id="pivot-column-field" class="context-select" multiple size="4"></select><div id="pivot-column-order" class="tool-group" aria-label="Columns field order"></div><label class="field-label" for="pivot-item-filter-field">Row/Column item filters</label><select id="pivot-item-filter-field" class="context-select" multiple size="3"></select><div id="pivot-item-filter-options"></div><label class="field-label" for="pivot-date-filter-field">Date range filter · ungrouped row/column field</label><div class="tool-group"><select id="pivot-date-filter-field" class="context-select"><option value="">Off</option></select><input id="pivot-date-filter-start" type="date" class="scenario-input" aria-label="Start date inclusive"/><span>through</span><input id="pivot-date-filter-end" type="date" class="scenario-input" aria-label="End date inclusive"/></div><p class="chart-hint">Filters source dates inclusively. The saved GridForge date control exports as visible PivotTable item selections; native Excel timeline objects are not embedded.</p><label class="field-label" for="pivot-filter-field">Report filters (Ctrl-click for multiple)</label><select id="pivot-filter-field" class="context-select" multiple size="3"></select><div id="pivot-filter-options"></div><label class="field-label" for="pivot-value-field">Values (Ctrl-click for multiple)</label><select id="pivot-value-field" class="context-select" multiple size="5"></select><div id="pivot-value-order" class="tool-group" aria-label="Values calculation order"></div><div id="pivot-measure-options"></div><button id="btn-pivot-add-measure" type="button" class="secondary-button">Add another calculation</button><div id="pivot-extra-measures"></div><label class="field-label">Top or Bottom value filters</label><div id="pivot-value-filter-editors"></div><button type="button" id="btn-pivot-add-value-filter" class="secondary-button">Add value filter</button><p class="chart-hint">Ranks items by the selected Values calculation within each parent group. Add one filter per selected row or column field; filters are applied sequentially.</p><label class="field-label" for="pivot-sort-order">Default sort order · override each selected field below</label><select id="pivot-sort-order" class="context-select"><option value="ascending">Ascending</option><option value="descending">Descending</option><option value="manual">Source order</option></select><label class="field-label" for="pivot-layout">Report layout</label><select id="pivot-layout" class="context-select"><option value="tabular">Tabular (separate columns)</option><option value="compact">Compact (indented labels)</option><option value="outline">Outline (grouped fields)</option></select><label class="field-label" for="pivot-missing-caption">For empty data cells, show</label><input id="pivot-missing-caption" class="scenario-input" maxlength="255" placeholder="Leave blank for empty cells"/><label class="field-label" for="pivot-grand-total-caption">Grand totals caption</label><input id="pivot-grand-total-caption" class="scenario-input" maxlength="255" placeholder="Grand Total"/><label class="field-label" for="pivot-values-caption">Values field caption</label><input id="pivot-values-caption" class="scenario-input" maxlength="255" placeholder="Values"/><label class="field-label" for="pivot-row-header-caption">Row header caption</label><input id="pivot-row-header-caption" class="scenario-input" maxlength="255" placeholder="Use the first field name"/><div class="tool-group"><label><input id="pivot-subtotals" type="checkbox" checked/> Row subtotals</label><label><input id="pivot-subtotals-top" type="checkbox"/> Show subtotals at top of each group</label><label><input id="pivot-blank-rows" type="checkbox"/> Add a blank row after each parent group</label><label><input id="pivot-column-subtotals" type="checkbox"/> Column subtotals</label><label><input id="pivot-row-grand-totals" type="checkbox" checked/> Grand total rows</label><label><input id="pivot-column-grand-totals" type="checkbox" checked/> Grand total columns</label></div><div id="pivot-subtotal-options" class="tool-group" aria-label="Subtotals by row field"></div><div id="pivot-column-subtotal-options" class="tool-group" aria-label="Subtotals by column field"></div><label class="field-label" for="pivot-slicer-field">Add a slicer to this PivotTable</label><div class="tool-group"><select id="pivot-slicer-field" class="context-select" aria-label="Slicer field"></select><button type="button" id="btn-pivot-add-slicer" class="secondary-button">Add slicer</button></div><label class="field-label" for="pivot-slicer-connections">Connect other compatible Pivot Summaries</label><select id="pivot-slicer-connections" class="context-select" multiple size="3" aria-label="Pivot Summaries controlled by this slicer"></select><p class="chart-hint">One GridForge slicer can filter summaries on this worksheet when they use the same source and ungrouped field. XLSX export embeds native Excel slicers for PivotTables sharing a compatible cache; connections that need different cache definitions may be limited to the primary PivotTable.</p><label class="field-label" for="pivot-destination">Place summary at</label><input id="pivot-destination" class="scenario-input" placeholder="E1"/><p id="pivot-summary-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="pivot-chart" hidden>Chart this summary</button><button type="button" class="secondary-button" id="pivot-refresh" hidden>Refresh</button><button type="button" class="secondary-button" id="pivot-collapse-all" hidden>Collapse all</button><button type="button" class="secondary-button" id="pivot-expand-all" hidden>Expand all</button><button type="button" class="secondary-button" id="delete-pivot-summary" hidden>Delete</button><button type="button" class="secondary-button" id="cancel-pivot-summary">Cancel</button><button type="button" class="primary-button" id="create-pivot-summary">Create summary</button></div></dialog>
   <dialog id="pivot-slicer-connections-dialog" class="help-dialog"><div class="dialog-top"><h2>Pivot Slicer Connections</h2><button type="button" class="tool-btn" id="close-pivot-slicer-connections" aria-label="Close">✕</button></div><p>Choose the compatible Pivot Summaries controlled by this slicer. Connected summaries share its current item selection; disconnected summaries regain their saved field filters.</p><label class="field-label" for="pivot-slicer-connection-list">Connected summaries</label><select id="pivot-slicer-connection-list" class="context-select" multiple size="7"></select><p id="pivot-slicer-connection-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-pivot-slicer-connections">Cancel</button><button type="button" class="primary-button" id="save-pivot-slicer-connections">Apply connections</button></div></dialog>
   <dialog id="page-setup-dialog" class="help-dialog"><div class="dialog-top"><h2>Page Setup</h2><button type="button" class="tool-btn" id="close-page-setup" aria-label="Close">✕</button></div><p>Set worksheet print options for the browser print dialog and exported Excel workbooks. Repeated rows appear at the top of each printed page; repeated columns are saved for Excel.</p><label class="field-label" for="page-orientation">Orientation</label><select class="context-select" id="page-orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select><label class="field-label" for="page-paper">Paper size</label><select class="context-select" id="page-paper"><option value="letter">Letter</option><option value="legal">Legal</option><option value="a4">A4</option><option value="a3">A3</option><option value="tabloid">Tabloid</option></select><label class="field-label" for="page-area">Print area (optional)</label><input id="page-area" class="scenario-input" placeholder="A1:H40; blank prints used cells"/><label class="field-label" for="page-repeat-rows">Rows to repeat at top</label><input id="page-repeat-rows" class="scenario-input" placeholder="1:3"/><label class="field-label" for="page-repeat-columns">Columns to repeat at left</label><input id="page-repeat-columns" class="scenario-input" placeholder="A:B"/><label class="field-label" for="page-fit-width">Fit to pages wide (0 = automatic)</label><input id="page-fit-width" class="scenario-input" type="number" min="0" max="4" step="1"/><label class="field-label" for="page-fit-height">Fit to pages tall (0 = automatic)</label><input id="page-fit-height" class="scenario-input" type="number" min="0" max="4" step="1"/><div class="page-setup-checks"><label><input id="page-gridlines" type="checkbox"/> Print gridlines</label><label><input id="page-headings" type="checkbox"/> Print row and column headings</label></div><div class="page-margin-grid"><label class="field-label">Top margin (in)<input id="page-margin-top" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Bottom margin (in)<input id="page-margin-bottom" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Left margin (in)<input id="page-margin-left" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label><label class="field-label">Right margin (in)<input id="page-margin-right" class="scenario-input" type="number" min="0" max="2" step="0.05"/></label></div><h3>Headers and footers</h3><p class="chart-hint">Use &amp;P for page number, &amp;N for total pages, &amp;A for sheet name, and &amp;D for date.</p><div class="page-margin-grid"><label class="field-label">Header left<input id="page-header-left" class="scenario-input" maxlength="255"/></label><label class="field-label">Header center<input id="page-header-center" class="scenario-input" maxlength="255"/></label><label class="field-label">Header right<input id="page-header-right" class="scenario-input" maxlength="255"/></label><label class="field-label">Footer left<input id="page-footer-left" class="scenario-input" maxlength="255"/></label><label class="field-label">Footer center<input id="page-footer-center" class="scenario-input" maxlength="255"/></label><label class="field-label">Footer right<input id="page-footer-right" class="scenario-input" maxlength="255"/></label></div><p id="page-setup-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-page-setup">Cancel</button><button type="button" class="primary-button" id="save-page-setup">Save setup</button></div></dialog>
-  <dialog id="cloud-dialog" class="help-dialog cloud-dialog"><div class="dialog-top"><h2>Cloud workbooks</h2><button type="button" class="tool-btn" id="close-cloud" aria-label="Close">✕</button></div><p>Connect your own cloud account to browse, open, and save workbooks. GridForge uploads data only when you choose a cloud save. Sign-in tokens are protected with your Windows account; account access can be removed here.</p><label class="field-label" for="cloud-provider">Storage provider</label><select id="cloud-provider" class="context-select"><option value="onedrive">OneDrive</option><option value="googledrive">Google Drive</option><option value="dropbox">Dropbox</option><option value="box">Box</option></select><label class="field-label" for="cloud-client-id">OAuth app client ID</label><input id="cloud-client-id" class="scenario-input" autocomplete="off"/><label class="field-label cloud-secret-only" for="cloud-client-secret">Google desktop secret (if required) / Box app client secret (required)</label><input id="cloud-client-secret" type="password" class="scenario-input cloud-secret-only" autocomplete="new-password"/><label class="field-label cloud-dropbox-only" for="cloud-dropbox-redirect">Dropbox registered local redirect URI</label><input id="cloud-dropbox-redirect" class="scenario-input cloud-dropbox-only" value="http://localhost:53682/oauth/callback"/><label class="field-label cloud-box-only" for="cloud-box-redirect">Box registered local redirect URI</label><input id="cloud-box-redirect" class="scenario-input cloud-box-only" value="http://localhost:53683/oauth/callback"/><p class="chart-hint">Provider setup is required: register a public desktop OAuth client, enable the provider's file API, and paste its client ID here. Never enter an app secret for OneDrive or Dropbox. Google Drive access uses the limited drive.file scope. Box uses your registered client secret and protects it with Windows DPAPI.</p><div class="tool-group cloud-actions"><button id="cloud-connect" type="button" class="primary-button">Connect account</button><button id="cloud-refresh" type="button" class="secondary-button">Refresh files</button><button id="cloud-save-copy" type="button" class="secondary-button">Save a new copy</button><button id="cloud-save-current" type="button" class="secondary-button" disabled>Save opened cloud workbook</button><button id="cloud-disconnect" type="button" class="secondary-button">Disconnect</button></div><p id="cloud-status" class="chart-hint" aria-live="polite">Choose a provider and connect.</p><nav id="cloud-breadcrumbs" class="cloud-breadcrumbs" aria-label="Cloud folder path"></nav><div id="cloud-files" class="cloud-files" role="listbox" aria-label="Cloud workbooks"></div><button id="cloud-open-file" type="button" class="primary-button" disabled>Open selected workbook</button></dialog>
+  <dialog id="cloud-dialog" class="help-dialog cloud-dialog"><div class="dialog-top"><h2>Cloud workbooks</h2><button type="button" class="tool-btn" id="close-cloud" aria-label="Close">✕</button></div><p>Connect your cloud account. Choose <b>Connect account</b> to sign in on the provider’s official page in your system browser. Enter your email and password there; the provider handles any MFA or 2-step verification. GridForge never asks for your account password or verification code, and the sign-in returns here automatically without copy/paste. Workbook uploads happen only when you choose a cloud save.</p><p class="chart-hint">Tokens are protected for your Windows account. GridForge uses OAuth state checks and PKCE where supported. Disconnect removes this device’s saved token; revoke GridForge separately in your provider account to end provider-side access.</p><label class="field-label" for="cloud-provider">Storage provider</label><select id="cloud-provider" class="context-select"><option value="onedrive">OneDrive</option><option value="googledrive">Google Drive</option><option value="dropbox">Dropbox</option><option value="box">Box</option></select><label class="field-label" for="cloud-client-id">OAuth app ID (one-time setup)</label><input id="cloud-client-id" class="scenario-input" autocomplete="off"/><label class="field-label cloud-secret-only" for="cloud-client-secret">Google desktop app value (if required) / Box app secret (required)</label><input id="cloud-client-secret" type="password" class="scenario-input cloud-secret-only" autocomplete="new-password"/><label class="field-label cloud-dropbox-only" for="cloud-dropbox-redirect">Dropbox registered local redirect URI</label><input id="cloud-dropbox-redirect" class="scenario-input cloud-dropbox-only" value="http://localhost:53682/oauth/callback"/><label class="field-label cloud-box-only" for="cloud-box-redirect">Box registered local redirect URI</label><input id="cloud-box-redirect" class="scenario-input cloud-box-only" value="http://localhost:53683/oauth/callback"/><p class="chart-hint">The app ID and provider API setup are still required for your own OAuth app. Never enter your cloud account password here. Never enter an app secret for OneDrive or Dropbox. Google Drive uses the limited drive.file scope. Box’s app secret is protected with Windows DPAPI.</p><div class="tool-group cloud-actions"><button id="cloud-connect" type="button" class="primary-button">Connect account</button><button id="cloud-refresh" type="button" class="secondary-button">Refresh files</button><button id="cloud-save-copy" type="button" class="secondary-button">Save a new copy</button><button id="cloud-save-current" type="button" class="secondary-button" disabled>Save opened cloud workbook</button><button id="cloud-disconnect" type="button" class="secondary-button">Disconnect</button></div><p id="cloud-status" class="chart-hint" aria-live="polite">Choose a provider and connect.</p><nav id="cloud-breadcrumbs" class="cloud-breadcrumbs" aria-label="Cloud folder path"></nav><div id="cloud-files" class="cloud-files" role="listbox" aria-label="Cloud workbooks"></div><button id="cloud-open-file" type="button" class="primary-button" disabled>Open selected workbook</button></dialog>
   <dialog id="goal-seek-dialog" class="help-dialog"><div class="dialog-top"><h2>Goal Seek</h2><button type="button" class="tool-btn" id="close-goal-seek" aria-label="Close">✕</button></div><p>Find a numeric input that makes a formula reach a target. Preview runs on a copy of the workbook; apply only the changing-cell value after reviewing the result.</p><label class="field-label" for="goal-seek-target-cell">Set formula cell</label><input id="goal-seek-target-cell" class="scenario-input" placeholder="B10"/><label class="field-label" for="goal-seek-target-value">To value</label><input id="goal-seek-target-value" class="scenario-input" type="number" step="any"/><label class="field-label" for="goal-seek-changing-cell">By changing cell</label><input id="goal-seek-changing-cell" class="scenario-input" placeholder="B2"/><p id="goal-seek-result" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="preview-goal-seek">Find solution</button><button type="button" class="primary-button" id="apply-goal-seek" disabled>Apply value</button></div></dialog>
   <dialog id="welcome-dialog" class="help-dialog welcome-dialog" aria-label="Getting started with GridForge"><div class="dialog-top"><h2>Welcome to GridForge</h2><button type="button" id="close-welcome" class="tool-btn" aria-label="Close getting started">✕</button></div>
     <p>Excel experience? GridForge uses the same cells, worksheet tabs, formula bar, and familiar editing shortcuts.</p>
@@ -674,6 +733,11 @@ root.innerHTML = `
   <dialog id="help-dialog" class="help-dialog"><div class="dialog-top"><h2>Keyboard shortcuts</h2><button id="close-help" class="tool-btn">✕</button></div><p>Spreadsheet editing without taking your hands off the keyboard.</p><div class="shortcut-list"><span>Open workbook</span><kbd>Ctrl + O</kbd><span>Save Excel file</span><kbd>Ctrl + S</kbd><span>Save GridForge backup</span><kbd>Ctrl + Shift + S</kbd><span>Navigate cells / populated blocks</span><kbd>Arrow keys / Ctrl + Arrow</kbd><span>Go to row start / sheet start / used end</span><kbd>Home / Ctrl + Home / Ctrl + End</kbd><span>Edit current cell</span><kbd>Enter / F2 / Type</kbd><span>Commit edit</span><kbd>Enter / Tab</kbd><span>Cancel edit</span><kbd>Esc</kbd><span>Select a range</span><kbd>Shift + Arrow</kbd><span>Select row / column / worksheet</span><kbd>Shift + Space / Ctrl + Space / Ctrl + Shift + Space</kbd><span>Cell context menu</span><kbd>Right-click / Shift+F10</kbd><span>AutoSum</span><kbd>Alt + =</kbd><span>Copy range</span><kbd>Ctrl + C</kbd><span>Paste range</span><kbd>Ctrl + V</kbd><span>Fill downward / rightward</span><kbd>Ctrl + D / Ctrl + R</kbd><span>Insert chart from selection</span><kbd>Alt + F1</kbd><span>Refresh workbook data and Pivot Summaries</span><kbd>Ctrl + Alt + F5</kbd><span>Undo / Redo</span><kbd>Ctrl + Z / Y</kbd><span>Clear selection</span><kbd>Delete</kbd><span>Go to cell / range / defined name</span><kbd>Ctrl + L</kbd><span>Previous / next worksheet</span><kbd>Ctrl + Page Up / Page Down</kbd><span>Insert worksheet</span><kbd>Shift + F11</kbd><span>Toggle row filters</span><kbd>Ctrl + Shift + L</kbd></div></dialog>
   <dialog id="feature-availability-dialog" class="help-dialog feature-availability-dialog" aria-label="Excel feature availability"><div class="dialog-top"><h2 id="feature-dialog-title">Excel feature availability</h2><button type="button" id="close-feature-dialog" class="tool-btn" aria-label="Close">✕</button></div><p id="feature-dialog-summary">GridForge uses its own spreadsheet engine and implements a subset of Excel features. Unavailable features are identified below.</p><div id="feature-availability-list" class="feature-availability-list"></div><p id="feature-dialog-detail" class="feature-dialog-detail" aria-live="polite"></p></dialog>
 `;
+const fontFamilyList = el('fmt-font-list');
+fontFamilyList.replaceChildren(...FONT_FAMILIES.map(family => { const option = document.createElement('option'); option.value = family; return option; }));
+const fontSizeSelect = el('fmt-size');
+fontSizeSelect.replaceChildren(...Array.from({ length: 133 }, (_, index) => { const size = 6 + index / 2, option = document.createElement('option'); option.value = String(size); option.textContent = String(size); return option; }));
+fontSizeSelect.value = '11';
 {
     const dialog = document.createElement('dialog');
     dialog.id = 'query-dialog';
@@ -762,9 +826,9 @@ function groupFormatCommands(label, selectors) {
         group.append(node);
 }
 groupFormatCommands('Font', ['#fmt-font', '#fmt-size', '#fmt-bold', '#fmt-italic', '#fmt-underline', '#fmt-strike', '#fmt-color', '.quick-colors [data-color-target="font"]']);
-groupFormatCommands('Alignment', ['#fmt-align', '#fmt-vertical-align', '#fmt-indent-less', '#fmt-indent-more', '#fmt-wrap']);
+groupFormatCommands('Alignment', ['#fmt-align', '#fmt-vertical-align', '#fmt-indent-less', '#fmt-indent-more', '#fmt-wrap', '#btn-merge-center', '#btn-unmerge']);
 groupFormatCommands('Number', ['#fmt-number', '#fmt-number-code', '#btn-autosum']);
-groupFormatCommands('Styles', ['#fmt-fill', '#fmt-border', '#fmt-preset', '#btn-format-table', '#btn-conditional', '#fmt-clear', '.quick-colors [data-color-target="fill"]']);
+groupFormatCommands('Styles', ['#fmt-fill', '#fmt-border', '#fmt-border-style', '#fmt-border-weight', '#fmt-border-color', '#fmt-preset', '#btn-format-table', '#btn-conditional', '#fmt-clear', '.quick-colors [data-color-target="fill"]']);
 groupFormatCommands('Cells', ['#btn-table-edit', '#btn-table-to-chart', '#btn-freeze-row', '#btn-freeze-col', '#btn-freeze-panes', '#btn-unfreeze-panes', '#btn-paste-values']);
 const grid = el('grid-scroll');
 const surface = el('grid-surface');
@@ -849,6 +913,11 @@ function select(r, c, extend = false, focus = true) {
         if (next >= 0)
             c = next;
     }
+    const merged = mergeContaining(r, c, doc.active.tools.mergedRanges);
+    if (merged) {
+        r = merged.r1;
+        c = merged.c1;
+    }
     if (editing)
         commitEdit();
     active = { r, c };
@@ -860,7 +929,7 @@ function select(r, c, extend = false, focus = true) {
     if (focus)
         grid.focus({ preventScroll: true });
 }
-function refresh() { renderGrid(); nameBox.value = currentRef(); if (document.activeElement !== formulaInput)
+function refresh() { resetOffsetCaches(); renderGrid(); nameBox.value = currentRef(); if (document.activeElement !== formulaInput)
     formulaInput.value = book.getRaw(currentRef()); stats(); renderTabs(); renderFormatControls(); renderSidebar(); const b = sel(), hasTable = !!tableAt(doc.active.tools.tables, active.r, active.c, book.rows, book.cols); for (const tab of Array.from(document.querySelectorAll('.table-context-tab')))
     tab.classList.toggle('ribbon-hidden', !hasTable); if (!hasTable && ribbon === 'Table Design')
     showRibbon('Home'); const selection = analyzeSelection(book, b); el('selection-aggregate').textContent = selection.numbers ? `SUM ${Math.round(selection.sum * 100) / 100} · AVG ${Math.round((selection.average ?? 0) * 100) / 100}` : ''; el('selection-status').textContent = b.r1 === b.r2 && b.c1 === b.c2 ? `${currentRef()} selected` : `${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)} selected`; }
@@ -880,7 +949,10 @@ function renderFormatControls() {
         el(`fmt-${key}`).classList.toggle('format-on', !!style[key]);
     el('fmt-font').value = style.fontFamily ?? 'Aptos';
     el('fmt-size').value = String(style.fontSize ?? 11);
-    el('fmt-border').value = style.border ?? 'none';
+    el('fmt-border').value = style.border ?? (style.borderDiagonal ? (style.borderDiagonal.up && style.borderDiagonal.down ? 'diagonals' : style.borderDiagonal.up ? 'diagonal-up' : 'diagonal-down') : 'none');
+    el('fmt-border-style').value = style.borderStyle ?? 'solid';
+    el('fmt-border-weight').value = style.borderWeight ?? 'thin';
+    el('fmt-border-color').value = style.borderColor ?? '#657f75';
     el('fmt-number').value = style.customNumberFormatCode || style.dateFormatCode ? 'general' : style.numberFormat ?? 'general';
     el('fmt-number-code').value = style.customNumberFormatCode ?? style.dateFormatCode ?? '';
     el('fmt-align').value = style.align ?? 'left';
@@ -892,6 +964,63 @@ function selectionRefs() { const b = sel(), count = (b.r2 - b.r1 + 1) * (b.c2 - 
     throw Error(`Formatting is limited to ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()} cells at a time.`); const refs = []; for (let r = b.r1; r <= b.r2; r++)
     for (let c = b.c1; c <= b.c2; c++)
         refs.push(asRef(r, c)); return refs; }
+const mergeUndoHistory = new Map(), mergeRedoHistory = new Map();
+function pushMergeHistory(sheetId, record) { const stack = mergeUndoHistory.get(sheetId) ?? []; stack.push(record); if (stack.length > 150)
+    stack.shift(); mergeUndoHistory.set(sheetId, stack); mergeRedoHistory.delete(sheetId); }
+function undoWorkbook() { const sheetId = doc.activeId, token = book.undoToken; if (!book.undo())
+    return false; const stack = mergeUndoHistory.get(sheetId) ?? [], record = stack.at(-1); if (record && record.token === token) {
+    stack.pop();
+    mergeUndoHistory.set(sheetId, stack);
+    doc.active.tools.mergedRanges = [...record.before];
+    const redo = mergeRedoHistory.get(sheetId) ?? [];
+    redo.push(record);
+    mergeRedoHistory.set(sheetId, redo);
+} return true; }
+function redoWorkbook() { const sheetId = doc.activeId, token = book.redoToken; if (!book.redo())
+    return false; const stack = mergeRedoHistory.get(sheetId) ?? [], record = stack.at(-1); if (record && record.token === token) {
+    stack.pop();
+    mergeRedoHistory.set(sheetId, stack);
+    doc.active.tools.mergedRanges = [...record.after];
+    const undo = mergeUndoHistory.get(sheetId) ?? [];
+    undo.push(record);
+    mergeUndoHistory.set(sheetId, undo);
+} return true; }
+function mergeSelectedCells() { try {
+    const b = sel();
+    if (b.r1 === b.r2 && b.c1 === b.c2)
+        throw Error('Select at least two cells before merging.');
+    const range = normalizeMergedRange(`${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)}`, book.rows, book.cols), existing = doc.active.tools.mergedRanges;
+    if (existing.some(item => { const x = mergedRangeBounds(item); return b.r1 <= x.r2 && b.r2 >= x.r1 && b.c1 <= x.c2 && b.c2 >= x.c1; }))
+        throw Error('The selection overlaps an existing merged region. Unmerge it first.');
+    const intersects = (x) => b.r1 <= x.r2 && b.r2 >= x.r1 && b.c1 <= x.c2 && b.c2 >= x.c1, overlapsRef = (value) => { if (!value)
+        return false; const [first, last = ''] = value.split(':'), a = parseRef(first ?? ''), z = parseRef(last); return !!a && !!z && intersects({ r1: Math.min(a.row, z.row), r2: Math.max(a.row, z.row), c1: Math.min(a.col, z.col), c2: Math.max(a.col, z.col) }); };
+    if (doc.active.tools.tables.some(item => intersects(tableRange(item.range, book.rows, book.cols))) || doc.active.tools.pivotTables.some(item => overlapsRef(item.lastOutputRange)) || doc.active.tools.queries.some(item => overlapsRef(item.lastOutputRange)))
+        throw Error('Merged regions cannot overlap a table, PivotTable, or query output.');
+    const mergedRanges = validateTools({ ...doc.active.tools, mergedRanges: [...existing, range] }, book.rows, book.cols).mergedRanges, anchorRef = asRef(b.r1, b.c1), discarded = book.allEntries().filter(item => { const point = parseRef(item.ref); return !!point && point.row >= b.r1 && point.row <= b.r2 && point.col >= b.c1 && point.col <= b.c2 && item.ref !== anchorRef && item.raw !== ''; });
+    if (discarded.length && !window.confirm(`Merging these cells will clear ${discarded.length} non-empty cell${discarded.length === 1 ? '' : 's'} other than ${anchorRef}. Continue?`))
+        return;
+    const edits = discarded.map(item => ({ ref: item.ref, raw: '' })), anchorStyle = book.getStyle(anchorRef), styles = [{ ref: anchorRef, style: { ...anchorStyle, align: 'center', verticalAlign: 'center' } }], priorToken = book.undoToken;
+    book.applyTransaction(edits, styles);
+    if (book.undoToken === priorToken)
+        book.recordHistoryCheckpoint();
+    const token = book.undoToken;
+    doc.active.tools.mergedRanges = mergedRanges;
+    pushMergeHistory(doc.activeId, { token, before: [...existing], after: [...mergedRanges] });
+    if (edits.length) {
+        scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: edits.map(edit => edit.ref) }]);
+        flushPendingPivotRefreshes();
+    }
+    save();
+    refresh();
+    toast(`Merged ${range} and centered ${anchorRef}.`);
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'Unable to merge this selection.');
+} }
+function unmergeSelectedCells() { const b = sel(), prior = doc.active.tools.mergedRanges, remaining = prior.filter(item => { const merge = mergedRangeBounds(item); return !merge || b.r1 > merge.r2 || b.r2 < merge.r1 || b.c1 > merge.c2 || b.c2 < merge.c1; }); if (remaining.length === prior.length) {
+    toast('The selection does not include a merged region.');
+    return;
+} book.recordHistoryCheckpoint(); const token = book.undoToken; doc.active.tools.mergedRanges = remaining; pushMergeHistory(doc.activeId, { token, before: [...prior], after: [...remaining] }); save(); refresh(); toast(`Unmerged ${prior.length - remaining.length} region${prior.length - remaining.length === 1 ? '' : 's'}.`); }
 function styledRefsInSelection() { const b = sel(); return book.allStyles().filter(item => { const point = parseRef(item.ref); return !!point && point.row >= b.r1 && point.row <= b.r2 && point.col >= b.c1 && point.col <= b.c2; }).map(item => item.ref); }
 function applyStyle(patch) { try {
     const selected = selectionRefs();
@@ -904,6 +1033,57 @@ function applyStyle(patch) { try {
 catch (e) {
     toast(e instanceof Error ? e.message : 'Invalid format');
 } }
+function applyBorderTarget(target) { try {
+    const selected = selectionRefs(), styleValue = el('fmt-border-style').value, weight = el('fmt-border-weight').value, color = el('fmt-border-color').value, edgesFor = (style) => { if (style.borderEdges)
+        return { ...style.borderEdges }; if (!style.border)
+        return {}; const sides = style.border === 'all' ? ['left', 'right', 'top', 'bottom'] : [style.border]; return Object.fromEntries(sides.map(edge => [edge, { style: style.borderStyle ?? 'solid', weight: style.borderWeight ?? 'thin', ...(style.borderColor ? { color: style.borderColor } : {}) }])); }, styles = selected.map(ref => { const next = { ...book.getStyle(ref) }, edges = edgesFor(next); delete next.border; delete next.borderStyle; delete next.borderWeight; delete next.borderColor; if (target === 'none') {
+        for (const edge of ['left', 'right', 'top', 'bottom'])
+            delete edges[edge];
+        delete next.borderDiagonal;
+    }
+    else if (target.startsWith('diagonal'))
+        next.borderDiagonal = { up: target === 'diagonal-up' || target === 'diagonals', down: target === 'diagonal-down' || target === 'diagonals', style: styleValue, weight, color };
+    else {
+        const sides = target === 'all' ? ['left', 'right', 'top', 'bottom'] : [target];
+        for (const side of sides)
+            edges[side] = { style: styleValue, weight, color };
+    } if (Object.keys(edges).length)
+        next.borderEdges = edges;
+    else
+        delete next.borderEdges; return { ref, style: next }; });
+    book.applyStyles(styles);
+    if (recorder)
+        recorder.steps.push({ kind: 'styles', sheetName: doc.active.name, edits: selected.map(ref => ({ ref, style: book.getStyle(ref) })) });
+    save();
+    refresh();
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'Invalid border settings.');
+} }
+function conditionalIconVisual(icon) {
+    const colors = icon.iconSet.includes('Gray') ? ['#666666', '#777777', '#888888', '#999999', '#aaaaaa'] : icon.iconSet === '4RedToBlack' ? ['#f44336', '#c62828', '#6d2020', '#111111'] : icon.count === 3 ? ['#d84343', '#dfb32e', '#27965a'] : icon.count === 4 ? ['#d84343', '#e77c32', '#dfb32e', '#27965a'] : ['#d84343', '#e77c32', '#dfb32e', '#82b366', '#27965a'], index = Math.max(0, Math.min(icon.count - 1, icon.index));
+    if (icon.iconSet === '4RedToBlack')
+        return { glyph: '●', color: colors[index] };
+    if (icon.iconSet.includes('Arrows'))
+        return { glyph: (icon.count === 3 ? ['▼', '▶', '▲'] : icon.count === 4 ? ['▼', '◀', '▶', '▲'] : ['▼', '◀', '●', '▶', '▲'])[index], color: colors[index] };
+    if (icon.iconSet.includes('TrafficLights'))
+        return { glyph: '●', color: colors[index] };
+    if (icon.iconSet === '3Flags')
+        return { glyph: '⚑', color: colors[index] };
+    if (icon.iconSet === '3Signs')
+        return { glyph: ['✕', '!', '✓'][index], color: colors[index] };
+    if (icon.iconSet === '3Symbols')
+        return { glyph: ['✕', '!', '✓'][index], color: colors[index] };
+    if (icon.iconSet === '3Symbols2')
+        return { glyph: ['●', '◐', '○'][index], color: colors[index] };
+    if (icon.iconSet === '3Triangles')
+        return { glyph: ['▼', '◆', '▲'][index], color: colors[index] };
+    if (icon.iconSet === '3Stars' || icon.iconSet === '5Rating' || icon.iconSet === '4Rating')
+        return { glyph: '★'.repeat(index + 1), color: colors[index] };
+    if (icon.iconSet === '5Quarters')
+        return { glyph: ['□', '◔', '◑', '◕', '■'][index], color: colors[index] };
+    return { glyph: '●', color: colors[index] };
+}
 function renderGrid() {
     const visibleRowsMap = visibleRows(), tools = doc.active.tools;
     surface.classList.toggle('grid-hide-lines', doc.active.viewOptions?.showGridLines === false);
@@ -941,7 +1121,7 @@ function renderGrid() {
         frag.appendChild(div);
         return div;
     };
-    const scaleCache = new Map(), hyperlinkByRef = new Map(tools.hyperlinks.map(link => [link.ref, link]));
+    const scaleCache = new Map(), scaleValuesCache = new Map(), iconCache = new Map(), hyperlinkByRef = new Map(tools.hyperlinks.map(link => [link.ref, link])), mergeBounds = tools.mergedRanges.map(mergedRangeBounds).filter((range) => !!range);
     const selected = sel(), demoTheme = book.getRaw('A1') === 'NORTHSTAR / Q4 SALES';
     for (const viewR of [...rowViews].sort((a, b) => b - a)) {
         const r = visibleRowsMap[viewR];
@@ -955,12 +1135,34 @@ function renderGrid() {
         for (const c of [...colViews].sort((a, b) => b - a)) {
             if (tools.hiddenColumns.includes(c))
                 continue;
+            const merged = mergeBounds.find(range => r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2);
+            if (merged && (r !== merged.r1 || c !== merged.c1))
+                continue;
             const ref = asRef(r, c), res = book.getValue(ref), style = book.getStyle(ref), raw = book.getRaw(ref), savedHyperlink = hyperlinkByRef.get(ref), formulaLink = savedHyperlink ? null : book.getHyperlinkInfo(ref), hyperlink = savedHyperlink ?? (formulaLink ? { ref, ...formulaLink } : undefined), value = showFormulas && raw.startsWith('=') ? raw : hyperlink?.display ?? styledDisplay(res, style);
             const inSelection = r >= selected.r1 && r <= selected.r2 && c >= selected.c1 && c <= selected.c2;
             const primary = r === active.r && c === active.c, fixedCol = c < tools.freezeCols;
             const traced = formulaTrace?.refs.has(ref) ? ` traced-${formulaTrace.kind}` : '', validation = dataValidationAt(ref, tools.dataValidations);
             const classes = `cell${inSelection ? ' selected' : ''}${primary ? ' primary' : ''}${res.error ? ' has-error' : ''}${hyperlink ? ' has-hyperlink' : ''}${raw.startsWith('=') ? ' calculated' : ''}${validation?.type === 'list' && primary ? ' has-list-validation' : ''}${traced}${demoTheme && r === 2 && !tableAt(tools.tables, r, c, book.rows, book.cols) ? ' header-data' : ''}${demoTheme && r === 13 ? ' total-data' : ''}`;
-            const node = add(classes, HEAD_W + colOffset(c) + (fixedCol ? grid.scrollLeft : 0), top, colWidth(c), rh, value, { ref });
+            let cellWidth = colWidth(c), cellHeight = rh;
+            if (merged) {
+                cellWidth = colOffset(merged.c2 + 1) - colOffset(merged.c1);
+                let endView = visibleRowsMap.length, low = viewR, high = visibleRowsMap.length;
+                while (low < high) {
+                    const middle = Math.floor((low + high) / 2);
+                    if ((visibleRowsMap[middle] ?? middle) <= merged.r2)
+                        low = middle + 1;
+                    else
+                        high = middle;
+                }
+                endView = low;
+                cellHeight = Math.max(rh, rowOffset(endView) - rowOffset(viewR));
+            }
+            const node = add(classes, HEAD_W + colOffset(c) + (fixedCol ? grid.scrollLeft : 0), top, cellWidth, cellHeight, value, { ref });
+            if (merged) {
+                node.dataset.mergedRange = `${asRef(merged.r1, merged.c1)}:${asRef(merged.r2, merged.c2)}`;
+                node.setAttribute('aria-colspan', String(merged.c2 - merged.c1 + 1));
+                node.setAttribute('aria-rowspan', String(merged.r2 - merged.r1 + 1));
+            }
             node.setAttribute('role', 'gridcell');
             node.setAttribute('aria-selected', String(inSelection));
             node.title = hyperlink?.tooltip ?? (res.error ? res.error.message : `${ref} ${book.getRaw(ref)}`);
@@ -1041,16 +1243,33 @@ function renderGrid() {
             if (style.fontFamily)
                 node.style.fontFamily = `'${style.fontFamily}', sans-serif`;
             if (style.fontSize)
-                node.style.fontSize = `${style.fontSize}px`;
+                node.style.fontSize = `${style.fontSize * 4 / 3}px`;
             if (style.wrap)
                 node.classList.add('cell-wrap');
-            if (style.border)
+            if (style.border) {
                 node.classList.add(`border-${style.border}`);
+                node.style.setProperty('--cell-border-style', style.borderStyle ?? 'solid');
+                node.style.setProperty('--cell-border-width', style.borderWeight === 'thick' ? '3px' : style.borderWeight === 'medium' ? '2px' : '1px');
+                node.style.setProperty('--cell-border-color', style.borderColor ?? '#657f75');
+            }
+            if (style.borderEdges)
+                for (const [edge, line] of Object.entries(style.borderEdges)) {
+                    node.classList.add(`border-${edge}`);
+                    node.style.setProperty(`--cell-border-${edge}-style`, line.style);
+                    node.style.setProperty(`--cell-border-${edge}-width`, line.weight === 'thick' ? '3px' : line.weight === 'medium' ? '2px' : '1px');
+                    node.style.setProperty(`--cell-border-${edge}-color`, line.color ?? '#000000');
+                }
+            if (style.borderDiagonal) {
+                node.classList.add(style.borderDiagonal.up && style.borderDiagonal.down ? 'border-diagonals' : style.borderDiagonal.up ? 'border-diagonal-up' : 'border-diagonal-down');
+                node.style.setProperty('--cell-border-diagonal-style', style.borderDiagonal.style);
+                node.style.setProperty('--cell-border-diagonal-width', style.borderDiagonal.weight === 'thick' ? '3px' : style.borderDiagonal.weight === 'medium' ? '2px' : '1px');
+                node.style.setProperty('--cell-border-diagonal-color', style.borderDiagonal.color ?? '#000000');
+            }
             if (style.color)
                 node.style.color = style.color;
             if (style.background)
                 node.style.backgroundColor = style.background;
-            const conditional = ruleColor(ref, res.value, tools.conditional, book, scaleCache);
+            const conditional = ruleColor(ref, res.value, tools.conditional, book, scaleCache, scaleValuesCache);
             if (conditional)
                 node.style.backgroundColor = conditional;
             const dataBar = dataBarFill(ref, res.value, tools.conditional, book, scaleCache);
@@ -1058,9 +1277,22 @@ function renderGrid() {
                 node.style.background = dataBar.background;
             if (dataBar?.hideValue)
                 node.style.color = 'transparent';
+            const icon = conditionalIcon(ref, res.value, tools.conditional, book, iconCache);
+            if (icon) {
+                const visual = conditionalIconVisual(icon), badge = document.createElement('span');
+                badge.className = 'conditional-icon';
+                badge.textContent = visual.glyph;
+                badge.style.color = visual.color;
+                badge.setAttribute('role', 'img');
+                badge.setAttribute('aria-label', `${icon.iconSet} icon ${icon.index + 1} of ${icon.count}`);
+                node.prepend(badge);
+                if (icon.iconsOnly)
+                    node.style.color = 'transparent';
+            }
             if (style.align)
                 node.style.justifyContent = style.align === 'right' ? 'flex-end' : style.align === 'center' ? 'center' : 'flex-start';
-            node.style.alignItems = style.verticalAlign === 'top' ? 'flex-start' : 'center';
+            node.style.textAlign = style.align ?? 'left';
+            node.style.alignItems = style.verticalAlign === 'top' ? 'flex-start' : style.verticalAlign === 'bottom' ? 'flex-end' : 'center';
             if (style.indent) {
                 const padding = `${4 + Math.min(15, style.indent) * 12}px`;
                 if (style.align === 'right')
@@ -1299,7 +1531,7 @@ function renderPageBreakPreview() {
     svg.setAttribute('width', String(w));
     svg.setAttribute('height', String(h));
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-    const ns = svg.namespaceURI;
+    const ns = svg.namespaceURI, manualLine = (path) => { const line = document.createElementNS(ns, 'path'); line.setAttribute('d', path); line.setAttribute('data-manual', 'true'); svg.append(line); };
     for (let x = HEAD_W + setup.marginLeft * 96 + stepX; x < w; x += stepX) {
         const line = document.createElementNS(ns, 'path');
         line.setAttribute('d', `M${x} 0V${h}`);
@@ -1309,6 +1541,14 @@ function renderPageBreakPreview() {
         const line = document.createElementNS(ns, 'path');
         line.setAttribute('d', `M0 ${y}H${w}`);
         svg.append(line);
+    }
+    for (const boundary of setup.columnBreaks ?? [])
+        manualLine(`M${HEAD_W + colOffset(boundary)} 0V${h}`);
+    for (const boundary of setup.rowBreaks ?? []) {
+        let y = HEAD_H;
+        for (let row = 0; row < boundary; row++)
+            y += rowHeight(row);
+        manualLine(`M0 ${y}H${w}`);
     }
     surface.append(svg);
 }
@@ -1610,7 +1850,7 @@ function chartPreview() {
         if (kind === 'scatter' && d.series.length < 2)
             throw Error('Scatter charts need at least two numeric columns: one X series and one or more Y series.');
         const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, d.rows) : undefined, pointColors = readPiePointColors(sourceChart, kind, range, orientation);
-        const data = { id: 'chart-preview', kind, theme: el('chart-theme').value, title: el('chart-title').value, accessibilityDescription: el('chart-accessibility-description').value.trim() || undefined, range, x: 0, y: 0, width: 460, height: 280, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, xAxisTitle: el('chart-xaxis').value, xAxisLabelAngle: sourceChart?.xAxisLabelAngle, xAxisLabelInterval: sourceChart?.xAxisLabelInterval, yAxisTitle: el('chart-yaxis').value, secondaryYAxisTitle: el('chart-yaxis-secondary').value, xAxisMin: sourceChart?.xAxisMin, xAxisMax: sourceChart?.xAxisMax, xAxisMajorUnit: sourceChart?.xAxisMajorUnit, xAxisNumberFormat: sourceChart?.xAxisNumberFormat, xAxisFormatCode: sourceChart?.xAxisFormatCode, yAxisMin: sourceChart?.yAxisMin, yAxisMax: sourceChart?.yAxisMax, yAxisMajorUnit: sourceChart?.yAxisMajorUnit, yAxisNumberFormat: sourceChart?.yAxisNumberFormat, yAxisFormatCode: sourceChart?.yAxisFormatCode, dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelPosition: el('chart-data-label-position').value, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, ...readBoxWhiskerOptions(), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), ...(pointColors ? { dataPointColors: pointColors } : {}), switchRowsColumns: orientation, seriesOptions: readSeriesOptions() };
+        const data = { id: 'chart-preview', kind, theme: el('chart-theme').value, title: el('chart-title').value, accessibilityDescription: el('chart-accessibility-description').value.trim() || undefined, range, x: 0, y: 0, width: 460, height: 280, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, xAxisTitle: el('chart-xaxis').value, xAxisLabelAngle: sourceChart?.xAxisLabelAngle, xAxisLabelInterval: sourceChart?.xAxisLabelInterval, yAxisTitle: el('chart-yaxis').value, ...(Number(el('chart-yaxis-log-base').value) >= 2 ? { yAxisLogBase: Number(el('chart-yaxis-log-base').value) } : {}), secondaryYAxisTitle: el('chart-yaxis-secondary').value, xAxisMin: sourceChart?.xAxisMin, xAxisMax: sourceChart?.xAxisMax, xAxisMajorUnit: sourceChart?.xAxisMajorUnit, xAxisNumberFormat: sourceChart?.xAxisNumberFormat, xAxisFormatCode: sourceChart?.xAxisFormatCode, yAxisMin: sourceChart?.yAxisMin, yAxisMax: sourceChart?.yAxisMax, yAxisMajorUnit: sourceChart?.yAxisMajorUnit, yAxisNumberFormat: sourceChart?.yAxisNumberFormat, yAxisFormatCode: sourceChart?.yAxisFormatCode, dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelPosition: el('chart-data-label-position').value, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, ...readBoxWhiskerOptions(), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), ...(pointColors ? { dataPointColors: pointColors } : {}), switchRowsColumns: orientation, seriesOptions: readSeriesOptions() };
         node.innerHTML = chartSvg(book, data);
         notice.textContent = `${d.rows} data rows · ${d.series.length} numeric series · updates with the source cells.`;
         el('chart-submit').disabled = false;
@@ -1658,7 +1898,7 @@ function renderSeriesOptions(chart) {
         return;
     }
     const combo = el('chart-kind').value === 'combo', theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office;
-    host.innerHTML = '<strong>Series settings</strong>' + data.series.map((series, index) => { const opt = chart?.seriesOptions?.[index] ?? {}, defaultKind = combo && index === data.series.length - 1 ? 'line' : 'column', seriesKind = opt.kind ?? defaultKind, defaultColor = palette[index % palette.length]; return `<div class="chart-series-config" data-series-index="${index}"><b>${escapeHtml(series.name)}</b><label>Axis <select data-series-axis aria-label="${escapeHtml(series.name)} axis"><option value="primary" ${opt.axis !== 'secondary' ? 'selected' : ''}>Left</option><option value="secondary" ${opt.axis === 'secondary' ? 'selected' : ''}>Right</option></select></label><label>Type <select data-series-kind aria-label="${escapeHtml(series.name)} chart type"><option value="column" ${seriesKind === 'column' ? 'selected' : ''}>Columns</option><option value="line" ${seriesKind === 'line' ? 'selected' : ''}>Line</option></select></label><label>Color <input data-series-color type="color" value="${opt.color ?? defaultColor}" aria-label="${escapeHtml(series.name)} color"/></label><label>Markers <select data-series-marker aria-label="${escapeHtml(series.name)} markers"><option value="show" ${opt.marker !== false ? 'selected' : ''}>Show</option><option value="hide" ${opt.marker === false ? 'selected' : ''}>Hide</option></select></label><label>Error bars <select data-error-type aria-label="${escapeHtml(series.name)} error bars"><option value="none" ${!opt.errorBars ? 'selected' : ''}>None</option><option value="fixed" ${opt.errorBars?.type === 'fixed' ? 'selected' : ''}>Fixed</option><option value="percentage" ${opt.errorBars?.type === 'percentage' ? 'selected' : ''}>Percent</option><option value="standardDeviation" ${opt.errorBars?.type === 'standardDeviation' ? 'selected' : ''}>Std. dev.</option><option value="standardError" ${opt.errorBars?.type === 'standardError' ? 'selected' : ''}>Std. error</option></select></label><input data-error-value type="number" min="0" step="any" value="${opt.errorBars?.value ?? 5}" title="Error bar amount" aria-label="${escapeHtml(series.name)} error bar amount"/><label data-error-axis-label ${el('chart-kind').value === 'scatter' ? '' : 'hidden'}>Error axis <select data-error-axis aria-label="${escapeHtml(series.name)} error bar axis"><option value="y" ${opt.errorBars?.axis !== 'x' ? 'selected' : ''}>Y</option><option value="x" ${opt.errorBars?.axis === 'x' ? 'selected' : ''}>X</option></select></label><label>Error direction <select data-error-direction aria-label="${escapeHtml(series.name)} error bar direction"><option value="both" ${!opt.errorBars?.direction || opt.errorBars.direction === 'both' ? 'selected' : ''}>Both</option><option value="plus" ${opt.errorBars?.direction === 'plus' ? 'selected' : ''}>Plus</option><option value="minus" ${opt.errorBars?.direction === 'minus' ? 'selected' : ''}>Minus</option></select></label><label><input data-error-cap type="checkbox" ${opt.errorBars?.endCap !== false ? 'checked' : ''}/> End caps</label><label>Trendline <select data-trendline aria-label="${escapeHtml(series.name)} trendline"><option value="none">None</option>${['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].map(type => `<option value="${type}" ${opt.trendline?.type === type ? 'selected' : ''}>${type === 'movingAverage' ? 'Moving average' : type[0].toUpperCase() + type.slice(1)}</option>`).join('')}</select></label><input data-order type="number" min="2" max="6" value="${opt.trendline?.order ?? 2}" title="Polynomial order"/><input data-period type="number" min="2" max="100" value="${opt.trendline?.period ?? 2}" title="Moving average period"/><input data-forward type="number" min="0" max="50" value="${opt.trendline?.forward ?? 0}" title="Forecast forward periods"/><input data-backward type="number" min="0" max="50" value="${opt.trendline?.backward ?? 0}" title="Forecast backward periods"/><label><input data-equation type="checkbox" ${opt.trendline?.showEquation ? 'checked' : ''}/> Equation</label><label><input data-r2 type="checkbox" ${opt.trendline?.showR2 ? 'checked' : ''}/> R²</label></div>`; }).join('');
+    host.innerHTML = '<strong>Series settings</strong>' + data.series.map((series, index) => { const opt = chart?.seriesOptions?.[index] ?? {}, defaultKind = combo && index === data.series.length - 1 ? 'line' : 'column', seriesKind = opt.kind ?? defaultKind, defaultColor = palette[index % palette.length]; return `<div class="chart-series-config" data-series-index="${index}"><b>${escapeHtml(series.name)}</b><label>Axis <select data-series-axis aria-label="${escapeHtml(series.name)} axis"><option value="primary" ${opt.axis !== 'secondary' ? 'selected' : ''}>Left</option><option value="secondary" ${opt.axis === 'secondary' ? 'selected' : ''}>Right</option></select></label><label>Type <select data-series-kind aria-label="${escapeHtml(series.name)} chart type"><option value="column" ${seriesKind === 'column' ? 'selected' : ''}>Columns</option><option value="line" ${seriesKind === 'line' ? 'selected' : ''}>Line</option></select></label><label>Color <input data-series-color type="color" value="${opt.color ?? defaultColor}" aria-label="${escapeHtml(series.name)} color"/></label><label>Markers <select data-series-marker aria-label="${escapeHtml(series.name)} markers"><option value="show" ${opt.marker !== false ? 'selected' : ''}>Show</option><option value="hide" ${opt.marker === false ? 'selected' : ''}>Hide</option></select></label><label>Marker shape <select data-marker-style aria-label="${escapeHtml(series.name)} marker shape">${[['circle', 'Circle'], ['square', 'Square'], ['diamond', 'Diamond'], ['triangle', 'Triangle'], ['plus', 'Plus'], ['x', 'X'], ['star', 'Star']].map(([value, label]) => `<option value="${value}" ${(opt.markerStyle ?? 'circle') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>Error bars <select data-error-type aria-label="${escapeHtml(series.name)} error bars"><option value="none" ${!opt.errorBars ? 'selected' : ''}>None</option><option value="fixed" ${opt.errorBars?.type === 'fixed' ? 'selected' : ''}>Fixed</option><option value="percentage" ${opt.errorBars?.type === 'percentage' ? 'selected' : ''}>Percent</option><option value="standardDeviation" ${opt.errorBars?.type === 'standardDeviation' ? 'selected' : ''}>Std. dev.</option><option value="standardError" ${opt.errorBars?.type === 'standardError' ? 'selected' : ''}>Std. error</option></select></label><input data-error-value type="number" min="0" step="any" value="${opt.errorBars?.value ?? 5}" title="Error bar amount" aria-label="${escapeHtml(series.name)} error bar amount"/><label data-error-axis-label ${el('chart-kind').value === 'scatter' ? '' : 'hidden'}>Error axis <select data-error-axis aria-label="${escapeHtml(series.name)} error bar axis"><option value="y" ${opt.errorBars?.axis !== 'x' ? 'selected' : ''}>Y</option><option value="x" ${opt.errorBars?.axis === 'x' ? 'selected' : ''}>X</option></select></label><label>Error direction <select data-error-direction aria-label="${escapeHtml(series.name)} error bar direction"><option value="both" ${!opt.errorBars?.direction || opt.errorBars.direction === 'both' ? 'selected' : ''}>Both</option><option value="plus" ${opt.errorBars?.direction === 'plus' ? 'selected' : ''}>Plus</option><option value="minus" ${opt.errorBars?.direction === 'minus' ? 'selected' : ''}>Minus</option></select></label><label><input data-error-cap type="checkbox" ${opt.errorBars?.endCap !== false ? 'checked' : ''}/> End caps</label><label>Trendline <select data-trendline aria-label="${escapeHtml(series.name)} trendline"><option value="none">None</option>${['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].map(type => `<option value="${type}" ${opt.trendline?.type === type ? 'selected' : ''}>${type === 'movingAverage' ? 'Moving average' : type[0].toUpperCase() + type.slice(1)}</option>`).join('')}</select></label><input data-order type="number" min="2" max="6" value="${opt.trendline?.order ?? 2}" title="Polynomial order"/><input data-period type="number" min="2" max="100" value="${opt.trendline?.period ?? 2}" title="Moving average period"/><input data-forward type="number" min="0" max="50" value="${opt.trendline?.forward ?? 0}" title="Forecast forward periods"/><input data-backward type="number" min="0" max="50" value="${opt.trendline?.backward ?? 0}" title="Forecast backward periods"/><label><input data-equation type="checkbox" ${opt.trendline?.showEquation ? 'checked' : ''}/> Equation</label><label><input data-r2 type="checkbox" ${opt.trendline?.showR2 ? 'checked' : ''}/> R²</label></div>`; }).join('');
     for (const row of Array.from(host.querySelectorAll('.chart-series-config'))) {
         const type = row.querySelector('[data-error-type]'), amount = row.querySelector('[data-error-value]');
         const sync = () => { amount.disabled = type.value === 'none' || type.value === 'standardError'; if (type.value === 'standardError')
@@ -1688,7 +1928,7 @@ function readPiePointColors(chart, kind, range, switchRowsColumns) {
     }
     return colors.some((color, index) => color.toLowerCase() !== palette[index % palette.length].toLowerCase()) ? colors : undefined;
 }
-function readSeriesOptions() { const theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office; return Array.from(document.querySelectorAll('.chart-series-config')).map((row, index) => { const trend = row.querySelector('[data-trendline]').value, color = row.querySelector('[data-series-color]').value, marker = row.querySelector('[data-series-marker]').value === 'show', errorType = row.querySelector('[data-error-type]').value, errorValue = Number(row.querySelector('[data-error-value]').value), errorDirection = row.querySelector('[data-error-direction]').value, errorAxis = row.querySelector('[data-error-axis]').value, errorEndCap = row.querySelector('[data-error-cap]').checked; return { axis: row.querySelector('[data-series-axis]').value, kind: row.querySelector('[data-series-kind]').value, ...(color !== palette[index % palette.length] ? { color } : {}), marker, ...(errorType === 'none' ? {} : { errorBars: { type: errorType, value: errorType === 'standardError' ? 0 : Number.isFinite(errorValue) ? errorValue : 5, direction: errorDirection, axis: errorAxis, ...(errorEndCap ? {} : { endCap: false }) } }), ...(trend === 'none' ? {} : { trendline: { type: trend, order: Number(row.querySelector('[data-order]').value) || 2, period: Number(row.querySelector('[data-period]').value) || 2, forward: Number(row.querySelector('[data-forward]').value) || 0, backward: Number(row.querySelector('[data-backward]').value) || 0, showEquation: row.querySelector('[data-equation]').checked, showR2: row.querySelector('[data-r2]').checked } }) }; }); }
+function readSeriesOptions() { const theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office; return Array.from(document.querySelectorAll('.chart-series-config')).map((row, index) => { const trend = row.querySelector('[data-trendline]').value, color = row.querySelector('[data-series-color]').value, marker = row.querySelector('[data-series-marker]').value === 'show', markerStyle = row.querySelector('[data-marker-style]').value, errorType = row.querySelector('[data-error-type]').value, errorValue = Number(row.querySelector('[data-error-value]').value), errorDirection = row.querySelector('[data-error-direction]').value, errorAxis = row.querySelector('[data-error-axis]').value, errorEndCap = row.querySelector('[data-error-cap]').checked; return { axis: row.querySelector('[data-series-axis]').value, kind: row.querySelector('[data-series-kind]').value, ...(color !== palette[index % palette.length] ? { color } : {}), marker, markerStyle, ...(errorType === 'none' ? {} : { errorBars: { type: errorType, value: errorType === 'standardError' ? 0 : Number.isFinite(errorValue) ? errorValue : 5, direction: errorDirection, axis: errorAxis, ...(errorEndCap ? {} : { endCap: false }) } }), ...(trend === 'none' ? {} : { trendline: { type: trend, order: Number(row.querySelector('[data-order]').value) || 2, period: Number(row.querySelector('[data-period]').value) || 2, forward: Number(row.querySelector('[data-forward]').value) || 0, backward: Number(row.querySelector('[data-backward]').value) || 0, showEquation: row.querySelector('[data-equation]').checked, showR2: row.querySelector('[data-r2]').checked } }) }; }); }
 function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     editingChartPivotId = pivotId ?? null;
     const c = doc.active.tools.charts.find(x => x.id === id);
@@ -1715,6 +1955,7 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     el('chart-data-label-format').value = c?.dataLabelFormatCode ?? '';
     el('chart-xaxis').value = c?.xAxisTitle ?? '';
     el('chart-yaxis').value = c?.yAxisTitle ?? '';
+    el('chart-yaxis-log-base').value = c?.yAxisLogBase === undefined ? '' : String(c.yAxisLogBase);
     el('chart-yaxis-secondary').value = c?.secondaryYAxisTitle ?? '';
     el('chart-labels').checked = c?.dataLabels ?? false;
     el('chart-label-category').checked = c?.dataLabelCategoryName ?? false;
@@ -1737,7 +1978,7 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
 }
 for (const button of Array.from(document.querySelectorAll('[data-chart-kind]')))
     button.addEventListener('click', () => openChartEditor(button.dataset.chartKind));
-for (const id of ['chart-range', 'chart-title', 'chart-accessibility-description', 'chart-kind', 'chart-theme', 'chart-legend', 'chart-blanks', 'chart-data-label-position', 'chart-data-label-format', 'chart-reverse-categories', 'chart-xaxis', 'chart-yaxis', 'chart-yaxis-secondary', 'chart-labels', 'chart-label-category', 'chart-label-series', 'chart-label-percent', 'chart-label-separator', 'chart-waterfall-total-points', 'chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow', 'chart-box-quartiles', 'chart-box-inner', 'chart-box-outliers', 'chart-box-mean-marker', 'chart-box-mean-line'])
+for (const id of ['chart-range', 'chart-title', 'chart-accessibility-description', 'chart-kind', 'chart-theme', 'chart-legend', 'chart-blanks', 'chart-data-label-position', 'chart-data-label-format', 'chart-reverse-categories', 'chart-xaxis', 'chart-yaxis', 'chart-yaxis-log-base', 'chart-yaxis-secondary', 'chart-labels', 'chart-label-category', 'chart-label-series', 'chart-label-percent', 'chart-label-separator', 'chart-waterfall-total-points', 'chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow', 'chart-box-quartiles', 'chart-box-inner', 'chart-box-outliers', 'chart-box-mean-marker', 'chart-box-mean-line'])
     el(id).addEventListener('input', () => { if (id === 'chart-kind')
         updateChartOptionVisibility(); if (id === 'chart-histogram-bins' && Number(el('chart-histogram-bins').value) > 0)
         el('chart-histogram-bin-width').value = '0'; if (id === 'chart-histogram-bin-width' && Number(el('chart-histogram-bin-width').value) > 0)
@@ -1756,7 +1997,7 @@ el('chart-submit').addEventListener('click', () => {
         if (kind === 'scatter' && extractChartData(book, range, false).series.length < 2)
             throw Error('Scatter charts need at least two numeric columns: one X series and one or more Y series.');
         const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, extractChartData(book, range).rows) : undefined;
-        const chart = { ...(chosen ? { xAxisMin: chosen.xAxisMin, xAxisMax: chosen.xAxisMax, xAxisMajorUnit: chosen.xAxisMajorUnit, xAxisNumberFormat: chosen.xAxisNumberFormat, xAxisFormatCode: chosen.xAxisFormatCode, xAxisLabelAngle: chosen.xAxisLabelAngle, xAxisLabelInterval: chosen.xAxisLabelInterval, yAxisMin: chosen.yAxisMin, yAxisMax: chosen.yAxisMax, yAxisMajorUnit: chosen.yAxisMajorUnit, secondaryYAxisMin: chosen.secondaryYAxisMin, secondaryYAxisMax: chosen.secondaryYAxisMax, secondaryYAxisMajorUnit: chosen.secondaryYAxisMajorUnit, yAxisNumberFormat: chosen.yAxisNumberFormat, secondaryYAxisNumberFormat: chosen.secondaryYAxisNumberFormat, yAxisFormatCode: chosen.yAxisFormatCode, secondaryYAxisFormatCode: chosen.secondaryYAxisFormatCode, doughnutHoleSize: chosen.doughnutHoleSize, firstSliceAngle: chosen.firstSliceAngle, majorGridlines: chosen.majorGridlines, minorGridlines: chosen.minorGridlines } : {}), id: chosen?.id ?? `chart-${Date.now()}-${Math.floor(Math.random() * 1e5)}`, kind, ...readBoxWhiskerOptions(), theme: el('chart-theme').value, title: el('chart-title').value.trim().slice(0, 100), accessibilityDescription: el('chart-accessibility-description').value.trim().slice(0, 500) || undefined, range, pivotId: editingChartPivotId && doc.active.tools.pivotTables.some(pivot => pivot.id === editingChartPivotId && pivotChartRange(pivot) === range) ? editingChartPivotId : undefined, x: chosen?.x ?? Math.min(13000, HEAD_W + Math.max(0, b.c1) * COL_W + 18), y: chosen?.y ?? Math.min(27000, HEAD_H + Math.max(0, b.r1) * ROW_H + 16), width: chosen?.width ?? 510, height: chosen?.height ?? 320, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, dataLabelPosition: el('chart-data-label-position').value, xAxisTitle: el('chart-xaxis').value.trim().slice(0, 70), yAxisTitle: el('chart-yaxis').value.trim().slice(0, 70), secondaryYAxisTitle: el('chart-yaxis-secondary').value.trim().slice(0, 70), dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, showFinalTotal: kind === 'waterfall' && waterfallTotalPoints?.includes(extractChartData(book, range).rows - 1) === true, ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), switchRowsColumns: kind === 'scatter' ? false : chosen?.switchRowsColumns ?? false, seriesOptions: readSeriesOptions() };
+        const chart = { ...(chosen ? { xAxisMin: chosen.xAxisMin, xAxisMax: chosen.xAxisMax, xAxisMajorUnit: chosen.xAxisMajorUnit, xAxisNumberFormat: chosen.xAxisNumberFormat, xAxisFormatCode: chosen.xAxisFormatCode, xAxisLabelAngle: chosen.xAxisLabelAngle, xAxisLabelInterval: chosen.xAxisLabelInterval, yAxisMin: chosen.yAxisMin, yAxisMax: chosen.yAxisMax, yAxisMajorUnit: chosen.yAxisMajorUnit, secondaryYAxisMin: chosen.secondaryYAxisMin, secondaryYAxisMax: chosen.secondaryYAxisMax, secondaryYAxisMajorUnit: chosen.secondaryYAxisMajorUnit, yAxisNumberFormat: chosen.yAxisNumberFormat, secondaryYAxisNumberFormat: chosen.secondaryYAxisNumberFormat, yAxisFormatCode: chosen.yAxisFormatCode, secondaryYAxisFormatCode: chosen.secondaryYAxisFormatCode, doughnutHoleSize: chosen.doughnutHoleSize, firstSliceAngle: chosen.firstSliceAngle, majorGridlines: chosen.majorGridlines, minorGridlines: chosen.minorGridlines } : {}), id: chosen?.id ?? `chart-${Date.now()}-${Math.floor(Math.random() * 1e5)}`, kind, ...readBoxWhiskerOptions(), theme: el('chart-theme').value, title: el('chart-title').value.trim().slice(0, 100), accessibilityDescription: el('chart-accessibility-description').value.trim().slice(0, 500) || undefined, range, pivotId: editingChartPivotId && doc.active.tools.pivotTables.some(pivot => pivot.id === editingChartPivotId && pivotChartRange(pivot) === range) ? editingChartPivotId : undefined, x: chosen?.x ?? Math.min(13000, HEAD_W + Math.max(0, b.c1) * COL_W + 18), y: chosen?.y ?? Math.min(27000, HEAD_H + Math.max(0, b.r1) * ROW_H + 16), width: chosen?.width ?? 510, height: chosen?.height ?? 320, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, dataLabelPosition: el('chart-data-label-position').value, xAxisTitle: el('chart-xaxis').value.trim().slice(0, 70), yAxisTitle: el('chart-yaxis').value.trim().slice(0, 70), ...(Number(el('chart-yaxis-log-base').value) >= 2 ? { yAxisLogBase: Number(el('chart-yaxis-log-base').value) } : {}), secondaryYAxisTitle: el('chart-yaxis-secondary').value.trim().slice(0, 70), dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, showFinalTotal: kind === 'waterfall' && waterfallTotalPoints?.includes(extractChartData(book, range).rows - 1) === true, ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), switchRowsColumns: kind === 'scatter' ? false : chosen?.switchRowsColumns ?? false, seriesOptions: readSeriesOptions() };
         chart.dataPointColors = readPiePointColors(chosen, kind, range, chosen?.switchRowsColumns ?? false);
         if (chosen)
             Object.assign(chosen, chart);
@@ -2158,7 +2399,7 @@ function autoFitDimension(axis, index) { let best = axis === 'column' ? 56 : 24;
     const p = parseRef(item.ref);
     if (!p || (axis === 'column' ? p.col !== index : p.row !== index))
         continue;
-    const style = book.getStyle(item.ref), text = display(book.getValue(item.ref)), size = style.fontSize ?? 11;
+    const style = book.getStyle(item.ref), text = display(book.getValue(item.ref)), size = (style.fontSize ?? 11) * 4 / 3;
     if (axis === 'column') {
         const c = document.createElement('canvas').getContext('2d');
         if (c) {
@@ -3066,9 +3307,9 @@ grid.addEventListener('keydown', ev => {
         pivotValueCache.clear();
         pivotGroupedValueCache.clear();
         if (ev.shiftKey)
-            book.redo();
+            redoWorkbook();
         else
-            book.undo();
+            undoWorkbook();
         reconcileCalculatedColumns(book, doc.active.tools.tables);
         scheduleExternalPivotRefresh();
         save();
@@ -3079,7 +3320,7 @@ grid.addEventListener('keydown', ev => {
         ev.preventDefault();
         pivotValueCache.clear();
         pivotGroupedValueCache.clear();
-        book.redo();
+        redoWorkbook();
         reconcileCalculatedColumns(book, doc.active.tools.tables);
         scheduleExternalPivotRefresh();
         save();
@@ -3628,7 +3869,46 @@ finally {
     button.disabled = false;
     status.textContent = prior;
 } });
-el('btn-undo').addEventListener('click', () => { if (book.undo()) {
+el('btn-tsv').addEventListener('click', async () => { const button = el('btn-tsv'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; try {
+    button.disabled = true;
+    status.textContent = 'Calculating tab-separated values…';
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    const bytes = await exportDataOffThread(doc, 'tsv');
+    download('gridforge-values.tsv', bytes, 'text/tab-separated-values');
+    toast('Exported calculated values as TSV.');
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'TSV export failed.');
+}
+finally {
+    button.disabled = false;
+    status.textContent = prior;
+} });
+el('btn-ods').addEventListener('click', async () => { const button = el('btn-ods'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; if (!window.confirm('ODS export writes supported formulas in OpenFormula syntax. Unsupported formula text is retained for GridForge reopening; other ODF apps receive cached values. Common charts are saved as ODF objects. Specialized charts, conditional rules, drawings, data tables, Pivot summaries, and slicers are retained only in GridForge metadata. Macros, unrelated embedded objects, and complex number formats are not preserved. Supported validations, prompts, and hyperlinks are preserved, up to 100,000 validated rows per sheet. Continue?'))
+    return; try {
+    button.disabled = true;
+    status.textContent = 'Preparing OpenDocument workbook…';
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    const bytes = await exportDataOffThread(doc, 'ods');
+    download('gridforge-values.ods', bytes, 'application/vnd.oasis.opendocument.spreadsheet');
+    toast('Exported OpenDocument workbook with supported formulas.');
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'ODS export failed.');
+}
+finally {
+    button.disabled = false;
+    status.textContent = prior;
+} });
+el('btn-html').addEventListener('click', () => { try {
+    const html = buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name, false);
+    download('gridforge-sheet.html', html, 'text/html;charset=utf-8');
+    toast('Exported the active worksheet as a printable HTML file.');
+}
+catch (error) {
+    toast(error instanceof Error ? error.message : 'HTML export failed.');
+} });
+el('btn-undo').addEventListener('click', () => { if (undoWorkbook()) {
     pivotValueCache.clear();
     pivotGroupedValueCache.clear();
     reconcileCalculatedColumns(book, doc.active.tools.tables);
@@ -3636,7 +3916,7 @@ el('btn-undo').addEventListener('click', () => { if (book.undo()) {
     save();
     refresh();
 } });
-el('btn-redo').addEventListener('click', () => { if (book.redo()) {
+el('btn-redo').addEventListener('click', () => { if (redoWorkbook()) {
     pivotValueCache.clear();
     pivotGroupedValueCache.clear();
     reconcileCalculatedColumns(book, doc.active.tools.tables);
@@ -3671,8 +3951,8 @@ picker.addEventListener('change', async () => {
     const priorSaveState = el('save-state').textContent ?? 'Ready';
     try {
         let importNotice = '';
-        const macroEnabled = /\.xlsm$/i.test(file.name), isOffice = /\.xlsx?$/i.test(file.name) || macroEnabled, isJson = /\.json$/i.test(file.name);
-        const content = isOffice || isJson ? '' : await file.text();
+        const macroEnabled = /\.xlsm$/i.test(file.name), isOffice = /\.xlsx?$/i.test(file.name) || macroEnabled, isJson = /\.json$/i.test(file.name), isOds = /\.ods$/i.test(file.name);
+        const content = isOffice || isJson || isOds ? '' : await file.text();
         if (isOffice) {
             const bytes = new Uint8Array(await file.arrayBuffer());
             const response = await importXlsxOffThread(bytes, message => { el('save-state').textContent = message; }, macroEnabled);
@@ -3689,6 +3969,21 @@ picker.addEventListener('change', async () => {
             if (response.warnings.length) {
                 console.warn('XLSX import notes:', response.warnings);
                 el('import-notes-body').innerHTML = `<strong>${doc.sheets.length} worksheet(s) loaded</strong><ul>${response.warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
+                el('import-notes-dialog').showModal();
+            }
+        }
+        else if (isOds) {
+            const imported = await importOdsOffThread(new Uint8Array(await file.arrayBuffer()), message => { el('save-state').textContent = message; });
+            pivotValueCache.clear();
+            pivotGroupedValueCache.clear();
+            doc = imported.document;
+            book = doc.active.book;
+            pivotExpandControls.clear();
+            originalMacroFile = null;
+            el('btn-original-xlsm').hidden = true;
+            el('btn-save-xlsm').hidden = true;
+            if (imported.warnings.length) {
+                el('import-notes-body').innerHTML = `<strong>${doc.sheets.length} worksheet(s) loaded from OpenDocument</strong><ul>${imported.warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
                 el('import-notes-dialog').showModal();
             }
         }
@@ -3717,7 +4012,7 @@ picker.addEventListener('change', async () => {
         }
         if (doc.sheets.some(sheet => sheet.tools.pivotTables.length))
             scheduleExternalPivotRefresh();
-        workbookTitle = file.name.replace(/\.(csv|json|xlsx|xlsm)$/i, '').slice(0, 45) || 'Imported Workbook';
+        workbookTitle = file.name.replace(/\.(csv|json|ods|xlsx|xlsm)$/i, '').slice(0, 45) || 'Imported Workbook';
         el('book-title').textContent = workbookTitle;
         save();
         select(0, 0);
@@ -4028,7 +4323,7 @@ el('studio-apply').addEventListener('click', () => {
 });
 const ribbonCommands = {
     Home: ['btn-cut', 'btn-copy', 'btn-paste', 'btn-find'],
-    File: ['btn-import', 'btn-cloud', 'btn-sample', 'btn-csv', 'btn-json', 'btn-save-xlsm', 'btn-original-xlsm'],
+    File: ['btn-import', 'btn-cloud', 'btn-sample', 'btn-csv', 'btn-tsv', 'btn-ods', 'btn-html', 'btn-json', 'btn-save-xlsm', 'btn-original-xlsm'],
     Insert: [],
     Formulas: [],
     'Table Design': ['btn-table-edit', 'btn-table-to-chart'],
@@ -4043,7 +4338,7 @@ const ribbonCommands = {
     Draw: []
 };
 const formatRibbonCommands = {
-    Home: ['btn-format-table', 'fmt-bold', 'fmt-italic', 'fmt-underline', 'fmt-strike', 'fmt-wrap', 'fmt-font', 'fmt-size', 'fmt-border', 'fmt-number', 'fmt-number-code', 'fmt-align', 'fmt-color', 'fmt-fill', 'fmt-clear', 'fmt-preset', 'btn-paste-values'],
+    Home: ['btn-format-table', 'fmt-bold', 'fmt-italic', 'fmt-underline', 'fmt-strike', 'fmt-wrap', 'fmt-font', 'fmt-size', 'fmt-border', 'fmt-border-style', 'fmt-border-weight', 'fmt-border-color', 'fmt-number', 'fmt-number-code', 'fmt-align', 'fmt-color', 'fmt-fill', 'fmt-clear', 'fmt-preset', 'btn-merge-center', 'btn-unmerge', 'btn-paste-values'],
     Insert: ['btn-insert-table', 'btn-autosum'],
     'Table Design': ['btn-format-table', 'btn-table-edit', 'btn-table-to-chart'],
     Formulas: ['btn-define-name', 'btn-name-manager', 'btn-create-names', 'btn-use-name', 'btn-insert-function', 'formula-category', 'formula-aggregate', 'btn-formula-aggregate', 'btn-trace-precedents', 'btn-trace-dependents', 'btn-remove-formula-arrows', 'btn-show-formulas', 'btn-evaluate-formula'],
@@ -4331,9 +4626,15 @@ window.addEventListener('resize', () => renderGrid());
 // Excel-style selection formatting, with versioned JSON persistence and undo.
 for (const key of ['bold', 'italic', 'underline', 'wrap', 'strike'])
     el(`fmt-${key}`).addEventListener('click', () => applyStyle({ [key]: !book.getStyle(currentRef())[key] }));
-el('fmt-font').addEventListener('change', ev => applyStyle({ fontFamily: ev.target.value }));
+el('fmt-font').addEventListener('change', ev => applyStyle({ fontFamily: ev.target.value.trim() }));
 el('fmt-size').addEventListener('change', ev => applyStyle({ fontSize: Number(ev.target.value) }));
-el('fmt-border').addEventListener('change', ev => { const border = ev.target.value; applyStyle({ border: border === 'none' ? undefined : border }); });
+el('fmt-border').addEventListener('change', ev => applyBorderTarget(ev.target.value));
+el('fmt-border-style').addEventListener('change', () => { const target = el('fmt-border').value; if (target !== 'none')
+    applyBorderTarget(target); });
+el('fmt-border-weight').addEventListener('change', () => { const target = el('fmt-border').value; if (target !== 'none')
+    applyBorderTarget(target); });
+el('fmt-border-color').addEventListener('input', () => { const target = el('fmt-border').value; if (target !== 'none')
+    applyBorderTarget(target); });
 el('fmt-preset').addEventListener('change', event => {
     const input = event.target;
     const styles = { header: { bold: true, color: '#173d32', background: '#dfefe5', fontSize: 12, border: 'bottom' }, title: { bold: true, color: '#153f32', fontSize: 20 }, total: { bold: true, color: '#0e7544', background: '#e0f3e8', border: 'all' }, highlight: { bold: true, color: '#124b39', background: '#d4efe5' }, warning: { bold: true, color: '#9d361e', background: '#fff0df', border: 'bottom' }, success: { bold: true, color: '#176542', background: '#dff5e9' }, note: { italic: true, color: '#344b66', background: '#eaf1fa' }, input: { color: '#1f4a87', background: '#f2f8ff', border: 'bottom' }, neutral: { color: '#343d4a', background: '#eef0f3' } };
@@ -4369,6 +4670,8 @@ el('fmt-clear').addEventListener('click', () => { try {
 catch (error) {
     toast(error instanceof Error ? error.message : 'Unable to clear formatting.');
 } });
+el('btn-merge-center').addEventListener('click', mergeSelectedCells);
+el('btn-unmerge').addEventListener('click', unmergeSelectedCells);
 el('btn-paste-values').addEventListener('click', () => pasteCached(true));
 el('btn-copy').addEventListener('click', () => copySelection());
 el('btn-cut').addEventListener('click', () => copySelection(true));
@@ -6434,10 +6737,29 @@ for (const [id, margins, label] of [['page-margins-normal', { marginTop: .75, ma
 el('page-set-print-area').addEventListener('click', () => { const b = sel(); updatePageSetup({ printArea: `${colToName(b.c1)}${b.r1 + 1}:${colToName(b.c2)}${b.r2 + 1}` }, `Print area set to ${colToName(b.c1)}${b.r1 + 1}:${colToName(b.c2)}${b.r2 + 1}.`); });
 el('page-clear-print-area').addEventListener('click', () => updatePageSetup({ printArea: undefined }, 'Print area cleared.'));
 el('page-break-preview').addEventListener('click', event => { pageBreakPreview = !pageBreakPreview; const button = event.currentTarget; button.setAttribute('aria-pressed', String(pageBreakPreview)); button.classList.toggle('active', pageBreakPreview); renderPageBreakPreview(); toast(pageBreakPreview ? 'Page break preview shown.' : 'Normal worksheet view restored.'); });
+function changeManualPageBreak(remove = false) { const axis = el('page-break-axis').value === 'column' ? 'column' : 'row', boundary = axis === 'row' ? active.r : active.c; if (boundary < 1) {
+    toast(`Select a ${axis} after the first ${axis}; a break cannot precede the first worksheet ${axis}.`);
+    return;
+} const page = doc.active.tools.pageSetup, existing = axis === 'row' ? [...(page.rowBreaks ?? [])] : [...(page.columnBreaks ?? [])], present = existing.includes(boundary); if (remove && !present) {
+    toast(`There is no manual break before the selected ${axis}.`);
+    return;
+} if (!remove && present) {
+    toast(`A manual break already appears before this ${axis}.`);
+    return;
+} const next = remove ? existing.filter(item => item !== boundary) : [...existing, boundary].sort((a, b) => a - b); if (axis === 'row')
+    updatePageSetup({ rowBreaks: next }, remove ? 'Manual row break removed.' : `Manual page break inserted before row ${boundary + 1}.`);
+else
+    updatePageSetup({ columnBreaks: next }, remove ? 'Manual column break removed.' : `Manual page break inserted before column ${colToName(boundary)}.`); }
+el('page-break-insert').addEventListener('click', () => changeManualPageBreak());
+el('page-break-remove').addEventListener('click', () => changeManualPageBreak(true));
+el('page-break-clear').addEventListener('click', () => { const page = doc.active.tools.pageSetup; if (!(page.rowBreaks?.length || page.columnBreaks?.length)) {
+    toast('This worksheet has no manual page breaks.');
+    return;
+} updatePageSetup({ rowBreaks: [], columnBreaks: [] }, 'All manual page breaks cleared.'); });
 for (const id of ['close-page-setup', 'cancel-page-setup'])
     el(id).addEventListener('click', () => pageSetupDialog.close());
 el('save-page-setup').addEventListener('click', () => { try {
-    const area = el('page-area').value.trim(), repeatRows = el('page-repeat-rows').value.trim(), repeatColumns = el('page-repeat-columns').value.trim(), pageSetup = { orientation: el('page-orientation').value, paper: el('page-paper').value, pageOrder: pageOrderSelect.value, centerHorizontally: centerHorizontallyCheck.checked, centerVertically: centerVerticallyCheck.checked, printArea: area || undefined, repeatRows: repeatRows || undefined, repeatColumns: repeatColumns || undefined, fitWidth: Number(el('page-fit-width').value), fitHeight: Number(el('page-fit-height').value), printGridlines: el('page-gridlines').checked, printHeadings: el('page-headings').checked, marginTop: Number(el('page-margin-top').value), marginBottom: Number(el('page-margin-bottom').value), marginLeft: Number(el('page-margin-left').value), marginRight: Number(el('page-margin-right').value), headerLeft: el('page-header-left').value, headerCenter: el('page-header-center').value, headerRight: el('page-header-right').value, footerLeft: el('page-footer-left').value, footerCenter: el('page-footer-center').value, footerRight: el('page-footer-right').value }, validated = validateTools({ ...doc.active.tools, pageSetup }, book.rows, book.cols);
+    const area = el('page-area').value.trim(), repeatRows = el('page-repeat-rows').value.trim(), repeatColumns = el('page-repeat-columns').value.trim(), pageSetup = { orientation: el('page-orientation').value, paper: el('page-paper').value, pageOrder: pageOrderSelect.value, centerHorizontally: centerHorizontallyCheck.checked, centerVertically: centerVerticallyCheck.checked, printArea: area || undefined, repeatRows: repeatRows || undefined, repeatColumns: repeatColumns || undefined, rowBreaks: doc.active.tools.pageSetup.rowBreaks ?? [], columnBreaks: doc.active.tools.pageSetup.columnBreaks ?? [], fitWidth: Number(el('page-fit-width').value), fitHeight: Number(el('page-fit-height').value), printGridlines: el('page-gridlines').checked, printHeadings: el('page-headings').checked, marginTop: Number(el('page-margin-top').value), marginBottom: Number(el('page-margin-bottom').value), marginLeft: Number(el('page-margin-left').value), marginRight: Number(el('page-margin-right').value), headerLeft: el('page-header-left').value, headerCenter: el('page-header-center').value, headerRight: el('page-header-right').value, footerLeft: el('page-footer-left').value, footerCenter: el('page-footer-center').value, footerRight: el('page-footer-right').value }, validated = validateTools({ ...doc.active.tools, pageSetup }, book.rows, book.cols);
     doc.active.tools.pageSetup = validated.pageSetup;
     syncPageLayoutControls();
     save();
@@ -6507,20 +6829,59 @@ el('apply-goal-seek').addEventListener('click', () => { if (!goalSeekPreview)
 el('rule-preset').addEventListener('change', () => { const preset = el('rule-preset').value; if (preset !== 'custom')
     el('rule-color').value = preset; });
 el('rule-color').addEventListener('input', () => { el('rule-preset').value = 'custom'; });
-el('btn-conditional').addEventListener('click', () => conditionalDialog.showModal());
+const conditionalOperator = el('rule-op'), updateConditionalFormulaVisibility = () => { el('rule-formula-row').hidden = conditionalOperator.value !== 'formula'; el('rule-icon-row').hidden = conditionalOperator.value !== 'iconSet'; el('rule-scale-thresholds').hidden = conditionalOperator.value !== 'scale'; el('rule-bar-thresholds').hidden = conditionalOperator.value !== 'dataBar'; el('rule-scale-mid-row').hidden = !el('rule-use-mid-color').checked; };
+conditionalOperator.addEventListener('change', updateConditionalFormulaVisibility);
+el('rule-use-mid-color').addEventListener('change', updateConditionalFormulaVisibility);
+updateConditionalFormulaVisibility();
+const iconSetSelect = el('rule-icon-set'), updateIconThresholdEditor = () => { const container = el('rule-icon-thresholds'), count = Number(iconSetSelect.value[0]); container.replaceChildren(); for (let index = 1; index < count; index++) {
+    const row = document.createElement('div'), label = document.createElement('label'), select = document.createElement('select'), input = document.createElement('input');
+    row.className = 'conditional-icon-threshold';
+    label.className = 'field-label';
+    label.textContent = `Icon ${index + 1} cutoff`;
+    select.className = 'context-select';
+    for (const [value, title] of [['percent', 'Percent'], ['percentile', 'Percentile'], ['num', 'Number'], ['formula', 'Formula']]) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = title;
+        select.append(option);
+    }
+    select.value = 'percent';
+    input.type = 'text';
+    input.className = 'scenario-input';
+    input.setAttribute('aria-label', `Icon ${index + 1} cutoff value`);
+    input.value = String(Math.round(index * 100 / count));
+    input.placeholder = 'Number or formula';
+    row.append(label, select, input);
+    container.append(row);
+} };
+iconSetSelect.addEventListener('change', updateIconThresholdEditor);
+updateIconThresholdEditor();
+const renderConditionalRuleList = () => { const list = el('conditional-rule-list'); list.replaceChildren(); const rules = doc.active.tools.conditional; if (!rules.length) {
+    const empty = document.createElement('p');
+    empty.className = 'conditional-rules-empty';
+    empty.textContent = 'No conditional formatting rules on this sheet.';
+    list.append(empty);
+    return;
+} const names = { gt: 'Greater than', gte: 'At least', lt: 'Less than', lte: 'At most', eq: 'Equal to', ne: 'Not equal to', between: 'Between', notBetween: 'Outside range', scale: 'Color scale', dataBar: 'Data bar', formula: 'Formula', iconSet: 'Icon set' }; rules.forEach((rule, index) => { const row = document.createElement('div'), description = document.createElement('span'), remove = document.createElement('button'); row.className = 'conditional-rule-row'; description.className = 'conditional-rule-description'; description.textContent = `${rule.start === rule.end ? rule.start : `${rule.start}:${rule.end}`} · ${names[rule.operator]}${rule.iconSet ? ` (${rule.iconSet})` : ''} · Priority ${rule.priority ?? index + 1}`; remove.type = 'button'; remove.className = 'secondary-button'; remove.textContent = 'Remove'; remove.setAttribute('aria-label', `Remove ${names[rule.operator]} rule for ${rule.start}:${rule.end}`); remove.dataset.ruleIndex = String(index); row.append(description, remove); list.append(row); }); };
+el('btn-conditional').addEventListener('click', () => { renderConditionalRuleList(); conditionalDialog.showModal(); });
+el('conditional-rule-list').addEventListener('click', event => { const button = event.target.closest('button[data-rule-index]'); if (!button)
+    return; const index = Number(button.dataset.ruleIndex); if (!Number.isInteger(index) || index < 0 || index >= doc.active.tools.conditional.length)
+    return; doc.active.tools.conditional.splice(index, 1); save(); refresh(); renderConditionalRuleList(); toast('Conditional formatting rule removed'); });
 el('close-conditional').addEventListener('click', () => conditionalDialog.close());
 el('apply-conditional').addEventListener('click', () => {
-    const threshold = Number(el('rule-threshold').value), b = sel();
-    if (!Number.isFinite(threshold)) {
-        toast('Enter a valid numeric threshold');
+    const operator = el('rule-op').value, formula = el('rule-formula').value.trim(), threshold = Number(el('rule-threshold').value), b = sel();
+    if (operator === 'formula' ? !formula.startsWith('=') : operator === 'iconSet' ? false : !Number.isFinite(threshold)) {
+        toast(operator === 'formula' ? 'Enter a formula beginning with =' : 'Enter a valid numeric threshold');
         return;
     }
     if (doc.active.tools.conditional.length >= 30) {
         toast('Maximum 30 rules per sheet');
         return;
     }
-    const operator = el('rule-op').value, minimum = el('rule-min').value, maximum = el('rule-max').value, upper = Number(el('rule-threshold2').value);
-    const rule = { start: asRef(b.r1, b.c1), end: asRef(b.r2, b.c2), operator, threshold, ...(operator === 'between' || operator === 'notBetween' ? { threshold2: upper } : {}), color: el('rule-color').value, ...(operator === 'scale' ? { startColor: el('rule-start-color').value, ...(el('rule-use-mid-color').checked ? { midColor: el('rule-mid-color').value } : {}) } : {}), ...(operator === 'dataBar' ? { barStyle: el('rule-bar-style').value, negativeColor: el('rule-negative-color').value, showValue: el('rule-show-value').checked, ...(minimum === '' ? {} : { minValue: Number(minimum) }), ...(maximum === '' ? {} : { maxValue: Number(maximum) }) } : {}) };
+    const upper = Number(el('rule-threshold2').value), readScaleStop = (typeId, valueId) => { const type = el(typeId).value, raw = el(valueId).value.trim(); if (type === 'min' || type === 'max')
+        return { type }; if (type === 'formula')
+        return { type, value: raw.startsWith('=') ? raw : `=${raw}` }; return { type, value: raw === '' ? Number.NaN : Number(raw) }; }, scaleThresholds = operator === 'scale' ? [readScaleStop('rule-scale-low-type', 'rule-scale-low-value'), ...(el('rule-use-mid-color').checked ? [readScaleStop('rule-scale-mid-type', 'rule-scale-mid-value')] : []), readScaleStop('rule-scale-high-type', 'rule-scale-high-value')] : undefined, barLowerThreshold = operator === 'dataBar' ? readScaleStop('rule-bar-low-type', 'rule-bar-low-value') : undefined, barUpperThreshold = operator === 'dataBar' ? readScaleStop('rule-bar-high-type', 'rule-bar-high-value') : undefined, iconThresholds = operator === 'iconSet' ? [{ type: 'min' }, ...Array.from(el('rule-icon-thresholds').querySelectorAll('.conditional-icon-threshold'), row => { const select = row.querySelector('select'), input = row.querySelector('input'), type = select.value, raw = input.value.trim(); return type === 'formula' ? { type, value: raw.startsWith('=') ? raw : `=${raw}` } : { type, value: raw === '' ? Number.NaN : Number(raw) }; })] : undefined;
+    const rule = { start: asRef(b.r1, b.c1), end: asRef(b.r2, b.c2), operator, threshold: operator === 'formula' || operator === 'iconSet' ? 0 : threshold, priority: nextConditionalPriority(doc.active.tools.conditional), ...(operator === 'formula' ? { formula } : {}), ...(operator === 'iconSet' ? { iconSet: el('rule-icon-set').value, iconThresholds, iconsOnly: el('rule-icons-only').checked } : {}), ...(operator === 'between' || operator === 'notBetween' ? { threshold2: upper } : {}), color: el('rule-color').value, ...(operator === 'scale' ? { startColor: el('rule-start-color').value, scaleThresholds, ...(el('rule-use-mid-color').checked ? { midColor: el('rule-mid-color').value } : {}) } : {}), ...(operator === 'dataBar' ? { barStyle: el('rule-bar-style').value, negativeColor: el('rule-negative-color').value, showValue: el('rule-show-value').checked, barAxis: el('rule-bar-axis').value, barAxisColor: el('rule-axis-color').value, barMinLength: Number(el('rule-bar-min-length').value), barMaxLength: Number(el('rule-bar-max-length').value), barLowerThreshold, barUpperThreshold } : {}) };
     try {
         validateTools({ ...doc.active.tools, conditional: [...doc.active.tools.conditional, rule] }, book.rows, book.cols);
     }
@@ -6531,6 +6892,7 @@ el('apply-conditional').addEventListener('click', () => {
     doc.active.tools.conditional.push(rule);
     save();
     refresh();
+    renderConditionalRuleList();
     conditionalDialog.close();
     toast('Live conditional formatting rule added');
 });
@@ -6538,6 +6900,7 @@ el('clear-conditional').addEventListener('click', () => {
     doc.active.tools.conditional = [];
     save();
     refresh();
+    renderConditionalRuleList();
     conditionalDialog.close();
     toast('Conditional formatting rules cleared');
 });
