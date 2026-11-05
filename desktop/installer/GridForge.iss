@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "12.0.201"
+  #define AppVersion "12.0.210"
 #endif
 #define AppName "GridForge"
 #define AppPublisher "GridForge Project"

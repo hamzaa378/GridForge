@@ -124,6 +124,51 @@ test('workbook-context dynamic array and LAMBDA functions calculate and spill',(
  w.applyEdits(Object.entries(entries).map(([ref,raw])=>({ref,raw})),false);
  assert.deepEqual(['C1','C2','C3','C4','C5','C6','C7','C8','C9'].map(ref=>w.getValue(ref).value),[7,12,4,10,9,9,4,3,true]);
 });
+test('SEQUENCE and RANDARRAY apply defaults to omitted optional dimensions and values',()=>{
+ const w=new Workbook(20,12);w.applyEdits([
+  {ref:'A1',raw:'=SEQUENCE(3,,5,2)'},
+  {ref:'C1',raw:'=RANDARRAY()'},
+  {ref:'D1',raw:'=RANDARRAY(,2,5,9,TRUE)'},
+  {ref:'G1',raw:'=RANDARRAY(2,,5,9,TRUE)'},
+  {ref:'J1',raw:'=RANDARRAY(1,1,5,5,TRUE)'},
+ ],false);
+ assert.deepEqual(['A1','A2','A3'].map(ref=>w.getValue(ref).value),[5,7,9]);
+ const single=w.getValue('C1').value;assert.equal(typeof single,'number');assert.ok(single>=0&&single<1);
+ for(const ref of ['D1','E1','G1','G2']){const value=w.getValue(ref).value;assert.ok(Number.isInteger(value)&&value>=5&&value<=9,`${ref}=${value}`);}
+ assert.equal(w.getValue('J1').error?.code,'#VALUE!');
+});
+test('TEXTSPLIT rejects empty delimiters while preserving omitted column delimiter for row splitting',()=>{
+ const w=new Workbook(20,10);
+ w.applyEdits([
+  {ref:'A1',raw:'=TEXTSPLIT("abc","")'},
+  {ref:'A2',raw:'=TEXTSPLIT("a|b",,"|")'},
+  {ref:'A5',raw:'=TEXTSPLIT("a,b",",","")'},
+  {ref:'A6',raw:'=TEXTSPLIT("a,b;c",",",";")'},
+  {ref:'D6',raw:'=TEXTSPLIT("a,b;c",",",";",FALSE,0,"")'},
+  {ref:'G6',raw:'=TEXTSPLIT("a,b;c",",",";",FALSE,0,)'}
+ ],false);
+ assert.equal(w.getValue('A1').error?.code,'#VALUE!');
+ assert.equal(w.getValue('A5').error?.code,'#VALUE!');
+ assert.equal(w.getValue('A2').value,'a');
+ assert.equal(w.getValue('A3').value,'b');
+ assert.equal(w.getValue('A6').value,'a');
+ assert.equal(w.getValue('B6').value,'b');
+ assert.equal(w.getValue('A7').value,'c');
+ assert.equal(w.getValue('B7').error?.code,'#N/A');
+ assert.equal(w.getValue('D7').value,'c');
+ assert.equal(w.getValue('E7').value,'');
+ assert.equal(w.getValue('G7').value,'c');
+ assert.equal(w.getValue('H7').error?.code,'#N/A');
+});
+test('FILTER treats an omitted if_empty placeholder as omitted, but preserves explicit empty text',()=>{
+ const w=new Workbook(12,8);w.applyEdits([
+  {ref:'A1',raw:'1'},{ref:'A2',raw:'2'},
+  {ref:'C1',raw:'=FILTER(A1:A2,A1:A2>9,)'},
+  {ref:'E1',raw:'=FILTER(A1:A2,A1:A2>9,"")'}
+ ],false);
+ assert.equal(w.getValue('C1').error?.code,'#CALC!');
+ assert.equal(w.getValue('E1').value,'');
+});
 test('HSTACK and VSTACK expose missing array elements as per-cell #N/A errors',()=>{
  const w=new Workbook(20,20);w.applyEdits([
   {ref:'A1',raw:'1'},{ref:'A2',raw:'2'},{ref:'A3',raw:'3'},
@@ -136,10 +181,17 @@ test('HSTACK and VSTACK expose missing array elements as per-cell #N/A errors',(
  assert.equal(w.getValue('H2').value,'x');assert.equal(w.getValue('H3').value,'y');
 });
 test('EXPAND default padding is #N/A and IFERROR/IFNA replace padded spill cells',()=>{
- const w=new Workbook(20,20);w.applyEdits([{ref:'A1',raw:'7'},{ref:'C1',raw:'=EXPAND(A1,2,2)'},{ref:'F1',raw:'=IFERROR(EXPAND(A1,2,2),"pad")'},{ref:'I1',raw:'=IFNA(EXPAND(A1,2,2),"missing")'}],false);
+ const w=new Workbook(20,20);w.applyEdits([{ref:'A1',raw:'7'},{ref:'A2',raw:'8'},{ref:'A3',raw:'9'},
+  {ref:'C1',raw:'=EXPAND(A1,2,2)'},{ref:'F1',raw:'=IFERROR(EXPAND(A1,2,2),"pad")'},{ref:'I1',raw:'=IFNA(EXPAND(A1,2,2),"missing")'},
+  {ref:'K1',raw:'=WRAPROWS(A1:A3,2)'},{ref:'N1',raw:'=WRAPCOLS(A1:A3,2)'},
+  {ref:'A5',raw:'=EXPAND(A1)'},{ref:'C5',raw:'=EXPAND(A1,,2)'},{ref:'F5',raw:'=EXPAND(A1,2,)'}],false);
  assert.equal(w.getValue('C1').value,7);assert.equal(w.getValue('D1').error?.code,'#N/A');assert.equal(w.getValue('C2').error?.code,'#N/A');
  assert.deepEqual(['F1','G1','F2','G2'].map(ref=>w.getValue(ref).value),[7,'pad','pad','pad']);
  assert.deepEqual(['I1','J1','I2','J2'].map(ref=>w.getValue(ref).value),[7,'missing','missing','missing']);
+ assert.equal(w.getValue('A5').value,7);assert.equal(w.getValue('C5').value,7);assert.equal(w.getValue('D5').error?.code,'#N/A');
+ assert.equal(w.getValue('F5').value,7);assert.equal(w.getValue('F6').error?.code,'#N/A');
+ assert.deepEqual(['K1','L1','K2'].map(ref=>w.getValue(ref).value),[7,8,9]);assert.equal(w.getValue('L2').error?.code,'#N/A');
+ assert.deepEqual(['N1','O1','N2'].map(ref=>w.getValue(ref).value),[7,9,8]);assert.equal(w.getValue('O2').error?.code,'#N/A');
 });
 test('TOCOL ignore-errors removes HSTACK padding while no ignore option preserves cell errors',()=>{
  const w=new Workbook(20,16);w.applyEdits([{ref:'A1',raw:'1'},{ref:'A2',raw:'2'},{ref:'B1',raw:'3'},{ref:'D1',raw:'=TOCOL(HSTACK(A1:A2,B1:B1))'},{ref:'F1',raw:'=TOCOL(HSTACK(A1:A2,B1:B1),2)'}],false);
@@ -313,6 +365,21 @@ test('SORT and SORTBY keep blank cells last in either sort direction',()=>{
  assert.deepEqual(functions.SORTBY.run([column,column]),[[1],[2],[3],[null]]);
  assert.deepEqual(functions.SORTBY.run([column,column,-1]),[[3],[2],[1],[null]]);
 });
+test('SORT and SORTBY default omitted optional arguments even when later arguments are present',()=>{
+ const w=new Workbook(20,20);w.applyEdits([
+  {ref:'A1',raw:'1'},{ref:'B1',raw:'b'},{ref:'C1',raw:'3'},
+  {ref:'A2',raw:'4'},{ref:'B2',raw:'a'},{ref:'C2',raw:'2'},
+  {ref:'A3',raw:'2'},{ref:'B3',raw:'c'},{ref:'C3',raw:'1'},
+  {ref:'E1',raw:'=SORT(A1:A3,,-1)'},
+  {ref:'G1',raw:'=SORT(A1:C3,,,TRUE)'},
+  {ref:'G5',raw:'=SORTBY(A1:B3,B1:B3,,A1:A3,-1)'},
+ ],false);
+ assert.deepEqual(['E1','E2','E3'].map(ref=>w.getValue(ref).value),[4,2,1]);
+ assert.deepEqual(['G1','H1','I1'].map(ref=>w.getValue(ref).value),[1,3,'b']);
+ assert.deepEqual(['G2','H2','I2'].map(ref=>w.getValue(ref).value),[4,2,'a']);
+ assert.deepEqual(['G5','G6','G7'].map(ref=>w.getValue(ref).value),[4,1,2]);
+ assert.deepEqual(['H5','H6','H7'].map(ref=>w.getValue(ref).value),['a','b','c']);
+});
 test('SORT orders numeric-looking text lexically and keeps it distinct from numbers',()=>{
  const textValues=[['2'],['10'],['1']],mixed=[[2],['10'],[1],['2']];
  assert.deepEqual(functions.SORT.run([textValues]),[['1'],['10'],['2']]);
@@ -336,10 +403,12 @@ test('SORT preserves error cells, treats different errors as tied, and leaves bl
  assert.deepEqual(['G1','G2','G3','G4','G5'].map(ref=>{const cell=w.getValue(ref);return cell.error?.code??cell.value;}),['x3','x1','x2','x4','x5']);
  assert.deepEqual(['I1','I2','I3','I4','I5'].map(ref=>{const cell=w.getValue(ref);return cell.error?.code??cell.value;}),['x2','x4','x1','x3','x5']);
 });
-test('v10 RANDARRAY accepts Excel five-argument whole-number flag',()=>{
- const result=functions.RANDARRAY.run([4,3,7,7,true]);
+test('v10 RANDARRAY accepts Excel five-argument whole-number flag and rejects equal bounds',()=>{
+ const result=functions.RANDARRAY.run([4,3,7,9,true]);
  assert.ok(Array.isArray(result));
  assert.equal(result.length,4);
- result.forEach(row=>assert.deepEqual(row,[7,7,7]));
+ result.forEach(row=>assert.equal(row.length,3));
+ assert.ok(result.flat().every(value=>Number.isInteger(value)&&value>=7&&value<=9));
+ assert.throws(()=>functions.RANDARRAY.run([1,1,7,7,true]),{code:'#VALUE!'});
 });
 

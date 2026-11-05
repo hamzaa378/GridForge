@@ -1,23 +1,24 @@
 {
-  "release": "GridForge 12.0.201 Windows desktop release",
+  "release": "GridForge 12.0.210 Windows desktop release",
   "base_project": "GridForge v11.11 standalone Excel-style workspace",
   "windows_executable_built_in_this_environment": true,
   "windows_installer_built_in_this_environment": true,
-  "build_method": "desktop/build_windows.ps1 -SkipTests -PortableOnly on Windows x64, followed by Inno Setup 6.7.3 compilation",
+  "build_method": "desktop/build_windows.ps1 -SkipTests on Windows x64; core regression, benchmarks, and desktop unit tests were run separately before packaging.",
   "desktop_wrapper": "pywebview Edge Chromium / Windows WebView2",
   "packaged_desktop_interaction": "Not run; no live UI test performed",
-  "installer_verification": "Inno Setup compilation succeeded; installer launch and Windows runtime checks were not run.",
+  "installer_verification": "Windows x64 portable app and Inno Setup installer compiled successfully from the current v12.0.210 source. No installer launch or Windows runtime checks were run.",
   "excel_interoperability": "No LibreOffice Calc GUI import/export round-trip run",
   "windows_tests_run": false,
-  "focused_tests_run": false,
-  "automated_code_tests": 0,
+  "automated_code_tests": 1123,
   "typescript_check_passed": true,
   "frontend_build_passed": true,
-  "full_source_tests_passed": false,
-  "verification_scope": "TypeScript production build, desktop asset check, PyInstaller portable build, and Inno Setup installer compilation passed. Test phases were skipped; no app launch, live UI, Windows runtime, or LibreOffice Calc GUI checks were performed.",
+  "full_source_tests_passed": true,
+  "verification_scope": "TypeScript check and build, full 1,123-test source suite, 7 desktop code tests, and both 10,000-item benchmarks, PyInstaller portable build, and Inno Setup installer compilation. No app launch, live UI, Windows runtime, Excel, or LibreOffice GUI checks were performed.",
   "features": [
-    "v12.0.201: ODS typed data-bar lower and upper bounds retain their numeric values during import and export.",
-    "v12.0.200: Native ODS color-scale thresholds preserve supported typed and formula-derived bounds.",
+    "v12.0.210: TEXTBEFORE/TEXTAFTER honor omitted arguments, return empty text for empty input, and return #VALUE! when abs(instance_num) exceeds text length. TEXTSPLIT rejects explicit empty delimiters, keeps omitted column-delimiter row splitting, and pads uneven output with #N/A when pad_with is omitted. FILTER returns #CALC! when if_empty is omitted and no rows match, while explicit empty text remains empty. ODS maps text functions through Calc COM.MICROSOFT functions. INTL workday functions default omitted weekends before holiday ranges, distinguish #NUM! invalid numeric codes from #VALUE! invalid WORKDAY.INTL string masks, and preserve NETWORKDAYS.INTL 1111111 => 0. SORT, SORTBY, SEQUENCE, RANDARRAY, EXPAND, WRAPROWS, and WRAPCOLS honor omitted-argument defaults and #N/A padding; RANDARRAY rejects equal bounds. All 1,123 source tests, 7 desktop code tests, both 10,000-item benchmarks, portable build, and installer compilation passed.",
+    "v12.0.209: Scatter charts support 24 independent X/Y column pairs in X1,Y1,X2,Y2\u2026 layout, with paired SVG previews, per-series options, X/Y error bars, and trendlines. The editor exposes pair mode and horizontal plus primary/secondary vertical axis min/max/major-unit controls. Header inference tolerates blank/numeric pair headers and uses recognized ID/label headers to keep numeric point IDs as labels. Hiding either X or Y removes the whole pair from GridForge preview and editor data without shifting neighboring styles. XLSX retains the full native editable series and uses Excel\u2019s plot-visible-cells-only setting; ODS filters hidden pairs while preserving their original style indexes. Code-only regression passed 1,113 tests plus both 10,000-item benchmarks; no live UI or spreadsheet GUI testing.",
+    "v12.0.208: Line, scatter, radar, and combo-line markers support per-point colors; custom marker colors and distinct per-series color arrays round-trip through native XLSX and ODS, with up to 64 point-color controls visible.",
+    "v12.0.207: Chart category colors and lookup compatibility improvements.",
     "v12.0.199: Conditional-formatting rule fidelity improvements for ODS and XLSX.",
     "v12.0.198: No release note was published for this version.",
     "v12.0.197: Formula-based conditional formatting compatibility improvements.",
@@ -192,23 +193,25 @@
     "v12.0.140: Worksheet cell borders support solid, dashed, dotted, or double lines and selected color, with supported uniform all-edge/single-edge mappings for XLSX and ODS import/export."
   ],
   "artifacts": {
-    "source_archive": "GridForge-v12.0.194-source.zip",
-    "github_repository_archive": "GridForge-v12.0.194-GitHub-Repository.zip",
+    "source_archive": "GridForge-v12.0.210-source.zip",
+    "github_repository_archive": "GridForge-v12.0.210-GitHub-Repository.zip",
     "installer": {
-      "file": "GridForge-Setup-12.0.201-win64.exe",
-      "size_bytes": 23638898,
-      "sha256": "E0EF74E0B8AFC91C24EA0FBEDA182FB76B68301DAF5BD77EDCBEB2F29A5978B0"
+      "file": "GridForge-Setup-12.0.210-win64.exe",
+      "size_bytes": 23648777,
+      "sha256": "33E27DA276E8C7E2E699880E36DA2BE9845D2CB727D000AAF605E3B3F6CBA370"
     },
     "portable": {
       "file": "GridForge-Portable-win64.zip",
-      "size_bytes": 24621438,
-      "sha256": "6FD0BB1AD8E72684EC04AC5E79957940F6938CCF21B80F3F4F2BBB7A258615F5"
+      "size_bytes": 24630008,
+      "sha256": "73C6069FA3BD2D442A1C386AD3069B0FD3B25964E1C0A60DB8AEA44538CDE621"
     }
   },
   "provider_configuration_required": true,
   "notes": [
     "Cloud providers require user-owned public OAuth app registrations.",
     "Cloud browsing is supported in the Windows desktop app only; folder navigation, 80 MB cap, Google drive.file scope, and Box's 50 MB simple-upload cap apply.",
-    "No automated tests, live UI, or Windows runtime checks were run."
-  ]
+    "The application was not launched; no live UI, Excel, or LibreOffice Calc GUI test was run."
+  ],
+  "focused_tests_run": true,
+  "desktop_unit_tests": 7
 }

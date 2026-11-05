@@ -31,6 +31,29 @@ for(const [name,formula,expected] of cases)test(`v6 ${name} : ${formula}`,()=>{
  if(typeof expected==='number')assert.ok(typeof value.value==='number'&&close(value.value,expected),`${formula}: expected ${expected}, got ${value.value}`);
  else assert.equal(value.value,expected);
 });
+test('INTL workday formulas default an omitted weekend argument when a holiday argument follows',()=>{
+ const expectedEnd=run('=DATE(2026,10,26)').value;
+ assert.equal(run('=WORKDAY.INTL(DATE(2026,10,19),4,,DATE(2026,10,20))').value,expectedEnd);
+ assert.equal(run('=NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),,DATE(2026,10,20))').value,4);
+ assert.equal(run('=NETWORKDAYSINTL(DATE(2026,10,19),DATE(2026,10,23),,DATE(2026,10,20))').value,4);
+});
+test('INTL workday weekend codes distinguish numeric errors from invalid string masks',()=>{
+ assert.equal(run('=WORKDAY.INTL(DATE(2026,10,19),1,0)').error?.code,'#NUM!');
+ assert.equal(run('=WORKDAY.INTL(DATE(2026,10,19),1,"1111111")').error?.code,'#VALUE!');
+ assert.equal(run('=WORKDAY.INTL(DATE(2026,10,19),1,"000001")').error?.code,'#VALUE!');
+ assert.equal(run('=NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),"1111111")').value,0);
+ assert.equal(run('=NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),0)').error?.code,'#NUM!');
+ assert.equal(run('=NETWORKDAYS.INTL(DATE(2026,10,19),DATE(2026,10,23),"0000012")').error?.code,'#VALUE!');
+});
+test('XMATCH handles approximate, wildcard, reverse, and binary searches',()=>{
+ assert.equal(run('=XMATCH(2.5,A1:A5,-1,1)').value,2);
+ assert.equal(run('=XMATCH(2.5,A1:A5,1,1)').value,3);
+ assert.equal(run('=XMATCH("E*",D1:D5,2,-1)').value,5);
+ assert.equal(run('=XMATCH(4,A1:A5,0,2)').value,4);
+ const descending=new Workbook(40,52);descending.applyEdits([{ref:'A1',raw:'5'},{ref:'A2',raw:'4'},{ref:'A3',raw:'3'},{ref:'A4',raw:'2'},{ref:'A5',raw:'1'},{ref:'Z20',raw:'=XMATCH(3,A1:A5,0,-2)'}],false);assert.equal(descending.getValue('Z20').value,3);
+ const unsorted=new Workbook(40,52);unsorted.applyEdits([{ref:'A1',raw:'4'},{ref:'A2',raw:'1'},{ref:'A3',raw:'3'},{ref:'Z20',raw:'=XMATCH(2.5,A1:A3,-1,1)'}],false);assert.equal(unsorted.getValue('Z20').value,2);
+ const duplicate=new Workbook(40,52);duplicate.applyEdits([{ref:'A1',raw:'2'},{ref:'A2',raw:'2'},{ref:'A3',raw:'3'},{ref:'Z20',raw:'=XMATCH(1,A1:A3,1,-1)'}],false);assert.equal(duplicate.getValue('Z20').value,2);
+});
 test('v6 dynamic INDIRECT dependency invalidates when target changes',()=>{
  const book=new Workbook();book.applyEdits([{ref:'A1',raw:'3'},{ref:'B1',raw:'=INDIRECT("A1")+2'},{ref:'C1',raw:'=B1*2'}]);
  assert.equal(book.getValue('C1').value,10);const stats=book.setCell('A1','8');

@@ -383,6 +383,7 @@ html[data-theme="dark"] .chart-dialog .chart-hint{color:#abbfcb}
 
 /* v10.8 — chart-editor details, compact Excel-style layout */
 .chart-editor-details{display:grid;grid-template-columns:1fr;gap:6px;margin:9px 0;padding:11px 12px;border:1px solid var(--border,#dce4ef);border-radius:10px;background:var(--surface-alt,rgba(108,133,166,.06));}
+.chart-axis-bounds{display:grid;grid-template-columns:1fr;gap:5px;margin:5px 0;padding:9px;border:1px solid var(--border,#dce4ef);border-radius:8px;background:var(--surface-alt,rgba(108,133,166,.04));}
 .chart-editor-details .field-label{margin:3px 0 0;}
 .chart-editor-details .context-select,.chart-editor-details .scenario-input{min-width:0;width:100%;box-sizing:border-box;}
 .chart-option{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:12px;font-weight:600;}
@@ -428,6 +429,7 @@ html:not([data-current-ribbon="Home"]):not([data-current-ribbon="All"]) .quick-c
 .filter-help{color:var(--muted);font-size:12px;line-height:1.5;margin:7px 0}
 .col-heading,.row-heading{cursor:default}.col-heading::after{content:"";position:absolute;right:0;top:0;width:6px;height:100%;cursor:col-resize}.row-heading::after{content:"";position:absolute;right:0;bottom:0;width:100%;height:6px;cursor:row-resize}
 .chart-series-options{display:grid;gap:6px;max-height:190px;overflow:auto;padding:8px;border:1px solid #dce4ee;border-radius:8px;background:#f8fafc}.chart-series-config{display:grid;grid-template-columns:minmax(80px,1.3fr) repeat(3,minmax(74px,1fr)) repeat(4,54px) auto auto;align-items:center;gap:5px}.chart-series-config b{font-size:11px;overflow:hidden;text-overflow:ellipsis}.chart-series-config select,.chart-series-config input[type=number]{min-width:0;width:100%;padding:4px;font-size:10px}.chart-series-config label{font-size:10px;white-space:nowrap}
+.chart-point-series{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:4px;margin:0;padding:7px;border:1px solid #cfd8e4;border-radius:6px}.chart-point-series legend{padding:0 4px;color:#334155;font-size:10px;font-weight:700}.chart-point-color{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;color:#334155;font-size:10px}.chart-point-color input[type=color]{width:30px;height:22px;padding:1px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;flex:0 0 auto}
 
 /* Excel 2019 ribbon grouping and contextual object tabs. */
 .ribbon-content .toolbar{height:67px!important;min-height:67px!important;align-items:stretch}

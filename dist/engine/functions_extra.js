@@ -333,20 +333,24 @@ export const moreFunctions = {
             return fail('#VALUE!', 'NUMBERVALUE could not parse the text using the selected separators.');
         return finite(parsed);
     }),
-    TEXTBEFORE: def('Text before a delimiter with positive/negative instance, case mode, end matching and fallback.', '=TEXTBEFORE("a-b-c","-",-1)', a => { req(a, 2, 6); const str = text(val(a, 0)), sep = text(val(a, 1)), instance = a.length >= 3 ? integer(a, 2) : 1, matchMode = a.length >= 4 ? n(a, 3) : 0, matchEnd = a.length >= 5 ? n(a, 4) : 0; if (str.length > 32767 || sep.length > 32767)
+    TEXTBEFORE: def('Text before a delimiter with positive/negative instance, case mode, end matching and fallback.', '=TEXTBEFORE("a-b-c","-",-1)', a => { req(a, 2, 6); const str = text(val(a, 0)), sep = text(val(a, 1)), instance = a.length >= 3 && val(a, 2) !== null ? integer(a, 2) : 1, matchMode = a.length >= 4 ? n(a, 3) : 0, matchEnd = a.length >= 5 ? n(a, 4) : 0; if (str.length > 32767 || sep.length > 32767)
         fail('#VALUE!', 'TEXTBEFORE text and delimiter are limited to 32,767 characters.'); if (instance === 0)
         fail('#VALUE!', 'Instance must be nonzero.'); if (matchMode !== 0 && matchMode !== 1)
         fail('#VALUE!', 'match_mode must be 0 or 1.'); if (matchEnd !== 0 && matchEnd !== 1)
-        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!sep)
+        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!str)
+        return ''; if (Math.abs(instance) > str.length)
+        fail('#VALUE!', 'instance_num cannot exceed the text length.'); if (!sep)
         return instance > 0 ? '' : str; const positions = textDelimiterPositions(str, sep, matchMode === 1, matchEnd === 1), index = instance > 0 ? instance - 1 : positions.length + instance; if (index < 0 || index >= positions.length)
-        return a.length >= 6 ? val(a, 5) : fail('#N/A', 'TEXTBEFORE delimiter instance not found.'); return str.slice(0, positions[index]); }),
-    TEXTAFTER: def('Text after a delimiter with positive/negative instance, case mode, end matching and fallback.', '=TEXTAFTER("a-b-c","-",-1)', a => { req(a, 2, 6); const str = text(val(a, 0)), sep = text(val(a, 1)), instance = a.length >= 3 ? integer(a, 2) : 1, matchMode = a.length >= 4 ? n(a, 3) : 0, matchEnd = a.length >= 5 ? n(a, 4) : 0; if (str.length > 32767 || sep.length > 32767)
+        return a.length >= 6 && val(a, 5) !== null ? val(a, 5) : fail('#N/A', 'TEXTBEFORE delimiter instance not found.'); return str.slice(0, positions[index]); }),
+    TEXTAFTER: def('Text after a delimiter with positive/negative instance, case mode, end matching and fallback.', '=TEXTAFTER("a-b-c","-",-1)', a => { req(a, 2, 6); const str = text(val(a, 0)), sep = text(val(a, 1)), instance = a.length >= 3 && val(a, 2) !== null ? integer(a, 2) : 1, matchMode = a.length >= 4 ? n(a, 3) : 0, matchEnd = a.length >= 5 ? n(a, 4) : 0; if (str.length > 32767 || sep.length > 32767)
         fail('#VALUE!', 'TEXTAFTER text and delimiter are limited to 32,767 characters.'); if (instance === 0)
         fail('#VALUE!', 'Instance must be nonzero.'); if (matchMode !== 0 && matchMode !== 1)
         fail('#VALUE!', 'match_mode must be 0 or 1.'); if (matchEnd !== 0 && matchEnd !== 1)
-        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!sep)
+        fail('#VALUE!', 'match_end must be 0 or 1.'); if (!str)
+        return ''; if (Math.abs(instance) > str.length)
+        fail('#VALUE!', 'instance_num cannot exceed the text length.'); if (!sep)
         return instance > 0 ? str : ''; const positions = textDelimiterPositions(str, sep, matchMode === 1, matchEnd === 1), index = instance > 0 ? instance - 1 : positions.length + instance; if (index < 0 || index >= positions.length)
-        return a.length >= 6 ? val(a, 5) : fail('#N/A', 'TEXTAFTER delimiter instance not found.'); return str.slice(positions[index] + sep.length); }),
+        return a.length >= 6 && val(a, 5) !== null ? val(a, 5) : fail('#N/A', 'TEXTAFTER delimiter instance not found.'); return str.slice(positions[index] + sep.length); }),
     // 16 Excel 1900 date-system scalar functions (UTC, no locale-dependent parsing)
     DATE: def('Construct an Excel date serial from year, month and day.', '=DATE(2026,10,20)', a => { req(a, 3); let year = integer(a, 0); if (year >= 0 && year < 1900)
         year += 1900; const month = integer(a, 1), day = integer(a, 2); if (year === 1900 && month === 2 && day === 29)
@@ -521,17 +525,12 @@ export const moreFunctions = {
                     break;
                 }
             if (index < 0 && matchMode !== 0 && matchMode !== 2) {
-                let bestOrder = matchMode === 1 ? Infinity : -Infinity;
                 for (const i of order) {
                     const cmp = lookupOrder(lookup[i], key);
-                    if (matchMode === 1 && cmp > 0 && cmp < bestOrder) {
-                        bestOrder = cmp;
+                    if (matchMode === 1 && cmp > 0 && (index < 0 || lookupOrder(lookup[i], lookup[index]) < 0))
                         index = i;
-                    }
-                    else if (matchMode === -1 && cmp < 0 && cmp > bestOrder) {
-                        bestOrder = cmp;
+                    else if (matchMode === -1 && cmp < 0 && (index < 0 || lookupOrder(lookup[i], lookup[index]) > 0))
                         index = i;
-                    }
                 }
             }
         }

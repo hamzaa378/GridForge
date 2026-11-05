@@ -86,6 +86,8 @@ One frozen desktop-Excel parity formula per case. Standard OpenFormula, Microsof
 - **T.TEST**: `=T.TEST(M1:P1,P1:S1,2,2)`
 - **TAKE**: `=INDEX(TAKE(M1:N3,1),1,1)`
 - **TEXTJOIN**: `=TEXTJOIN("|",TRUE,D1:D3)`
+- **TEXTBEFORE**: `=TEXTBEFORE("Socrates"," ",,,1)` (Calc `COM.MICROSOFT` extension)
+- **TEXTAFTER**: `=TEXTAFTER("Socrates"," ",,,1)` (Calc `COM.MICROSOFT` extension)
 - **TEXTSPLIT**: `=INDEX(TEXTSPLIT("a,b,c",","),1,1)`
 - **TOCOL**: `=INDEX(TOCOL(M1:N3),1,1)`
 - **TOROW**: `=INDEX(TOROW(M1:N3),1,1)`

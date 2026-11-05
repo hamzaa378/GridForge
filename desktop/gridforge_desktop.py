@@ -24,7 +24,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 APP_NAME = "GridForge"
-APP_VERSION = "12.0.55"
+APP_VERSION = "12.0.210"
 # Bind an ephemeral loopback port for each instance. This avoids collisions with
 # stale GridForge processes without exposing the local site on the network.
 PORT = 0

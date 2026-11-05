@@ -1,0 +1,9 @@
+# GridForge v12.0.209 — Paired scatter charts and axis controls
+
+Scatter charts can now read up to 24 independent X/Y column pairs from a selected range laid out as `X1, Y1, X2, Y2, …`. A leading label column is accepted when present, including numeric point IDs under a clear ID or label header; mixed blank and numeric pair headers are handled. Every pair is plotted against its own numeric X values, so series no longer need to share one X column. The chart editor offers a scatter-pair option, paired series configuration, point colors, X/Y error bars, and trendlines.
+
+The chart editor also exposes horizontal-axis minimum, maximum, and major-unit controls for scatter charts, plus minimum, maximum, and major-unit controls for the primary and secondary vertical axes. Invalid bounds and non-positive major units are rejected. Hiding a source X or Y column removes its whole pair from GridForge chart preview and editor data, so later series never shift into mismatched coordinates; chart editing and preview use the same include-hidden setting. XLSX keeps every native series and its original source range, using Excel’s plot-visible-cells-only setting for hidden data. ODS filters hidden pairs and maps colors, error bars, and trendlines through original series indexes.
+
+GridForge’s native XLSX and ODS chart export/import preserve the separate X and Y references for each series and the supported scatter axis settings. Tests cover two independent pairs and the maximum of 24 pairs in both formats, plus paired SVG geometry, error bars, trendlines, bounds, and validation errors.
+
+The code-only core regression passed 1,113 tests, including TypeScript checking and the 10,000-formula and 10,000-cell benchmarks; 7 desktop code tests passed. Windows portable and installer builds completed. The application was not opened; no live UI, Excel, or LibreOffice GUI test was run.

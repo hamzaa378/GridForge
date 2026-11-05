@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Workbook, display } from './engine/workbook.js';
 import { parseCSVAsync } from './engine/csv.js';
 import { colToName, parseRef, shiftFormula } from './engine/parser.js';
@@ -17,7 +18,7 @@ import { exportXlsx, importXlsx, xlsxFileName } from './engine/xlsx.js';
 import { exportEditedXlsm } from './engine/xlsm.js';
 import { filterVisibleRows, ruleColor, validateTools, dataBarFill, conditionalIcon, dataValidationAt, dataValidationError, dataValidationValues, nextConditionalPriority } from './engine/sheettools.js';
 import { DATA_TOOLS, TOOL_CATEGORIES, previewDataTool } from './engine/tools_v8.js';
-import { CHART_DATA_TABLE_KINDS, CHART_HIDDEN_DATA_KINDS, CHART_PALETTES, chartRange, chartSvg, extractChartData, validateChart } from './engine/charts.js';
+import { CHART_DATA_TABLE_KINDS, CHART_HIDDEN_DATA_KINDS, CHART_PALETTES, applySeriesPointColorEdits, chartRange, chartSvg, extractChartData, extractScatterPairData, validateChart } from './engine/charts.js';
 import { TABLE_STYLES, validateTable, tableRange, tableAt, tableAppearance } from './engine/tables.js';
 import { expandTablesAfterEdit } from './engine/table_growth.js';
 import { propagateCalculatedColumns, fillCalculatedRows, reconcileCalculatedColumns } from './engine/table_calculations.js';
@@ -33,8 +34,12 @@ const ROW_H = 30, COL_W = 126, HEAD_W = 54, HEAD_H = 34;
 const STORAGE = 'gridforge:document:v2';
 const LEGACY_STORAGE = 'gridforge:greeting:workbook:v1';
 const TITLE_STORAGE = 'gridforge:workbook-title:v1';
-const el = (id) => { const node = document.getElementById(id); if (!node)
-    throw Error(`Missing UI element ${id}`); return node; };
+const el = (id) => {
+    const node = document.getElementById(id);
+    if (!node)
+        throw Error(`Missing UI element ${id}`);
+    return node;
+};
 const escapeHtml = (s) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const asRef = (r, c) => `${colToName(c)}${r + 1}`;
 const bounds = (a, b) => ({ r1: Math.min(a.r, b.r), r2: Math.max(a.r, b.r), c1: Math.min(a.c, b.c), c2: Math.max(a.c, b.c) });
@@ -90,17 +95,26 @@ function importXlsxOffThread(bytes, onProgress, preserveInput = false) {
 }
 function importCsvOffThread(bytes, onProgress) {
     if (typeof Worker === 'undefined')
-        return (async () => { if (bytes.byteLength > 64 * 1024 * 1024)
-            throw Error('CSV files are limited to 64 MB. Split the file into smaller parts and import them separately.'); const rows = await parseCSVAsync(new TextDecoder().decode(bytes), onProgress), longest = rows.reduce((width, row) => Math.max(width, row.length), 0), sourceCells = rows.reduce((total, row) => total + row.length, 0), nonempty = rows.reduce((total, row) => total + row.filter(value => value !== '').length, 0); if (sourceCells > 5_000_000 || nonempty > MAX_WORKSHEET_POPULATED_CELLS)
-            throw Error('This CSV exceeds the import limit of 5,000,000 fields or the configured populated-cell limit. Split it into smaller files before importing.'); const workbook = new Workbook(Math.max(400, Math.min(MAX_WORKSHEET_ROWS, rows.length)), Math.max(52, Math.min(MAX_WORKSHEET_COLUMNS, longest))), edits = []; for (let row = 0; row < Math.min(rows.length, workbook.rows); row++)
-            for (let column = 0; column < Math.min(rows[row].length, workbook.cols); column++) {
-                const raw = rows[row][column];
-                if (raw !== '')
-                    edits.push({ ref: asRef(row, column), raw });
-            } for (let offset = 0; offset < edits.length; offset += 1024)
-            workbook.applyEdits(edits.slice(offset, offset + 1024), false, false); for (const edit of edits)
-            if (edit.raw.startsWith('='))
-                workbook.getValue(edit.ref); return { document: new SpreadsheetDocument(workbook), ...(rows.length > workbook.rows || longest > workbook.cols ? { clipped: { rows: rows.length, columns: longest } } : {}) }; })();
+        return (async () => {
+            if (bytes.byteLength > 64 * 1024 * 1024)
+                throw Error('CSV files are limited to 64 MB. Split the file into smaller parts and import them separately.');
+            const rows = await parseCSVAsync(new TextDecoder().decode(bytes), onProgress), longest = rows.reduce((width, row) => Math.max(width, row.length), 0), sourceCells = rows.reduce((total, row) => total + row.length, 0), nonempty = rows.reduce((total, row) => total + row.filter(value => value !== '').length, 0);
+            if (sourceCells > 5_000_000 || nonempty > MAX_WORKSHEET_POPULATED_CELLS)
+                throw Error('This CSV exceeds the import limit of 5,000,000 fields or the configured populated-cell limit. Split it into smaller files before importing.');
+            const workbook = new Workbook(Math.max(400, Math.min(MAX_WORKSHEET_ROWS, rows.length)), Math.max(52, Math.min(MAX_WORKSHEET_COLUMNS, longest))), edits = [];
+            for (let row = 0; row < Math.min(rows.length, workbook.rows); row++)
+                for (let column = 0; column < Math.min(rows[row].length, workbook.cols); column++) {
+                    const raw = rows[row][column];
+                    if (raw !== '')
+                        edits.push({ ref: asRef(row, column), raw });
+                }
+            for (let offset = 0; offset < edits.length; offset += 1024)
+                workbook.applyEdits(edits.slice(offset, offset + 1024), false, false);
+            for (const edit of edits)
+                if (edit.raw.startsWith('='))
+                    workbook.getValue(edit.ref);
+            return { document: new SpreadsheetDocument(workbook), ...(rows.length > workbook.rows || longest > workbook.cols ? { clipped: { rows: rows.length, columns: longest } } : {}) };
+        })();
     const requestId = `csv-import-${++csvImportWorkerSequence}`;
     return new Promise((resolve, reject) => {
         let worker;
@@ -112,21 +126,27 @@ function importCsvOffThread(bytes, onProgress) {
             return;
         }
         const finish = (callback) => { worker.terminate(); callback(); };
-        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
-            return; if (response.kind === 'progress') {
-            if (response.message)
-                onProgress?.(response.message);
-            return;
-        } if (response.kind === 'error') {
-            finish(() => reject(new Error(response.message ?? 'CSV import failed.')));
-            return;
-        } try {
-            const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
-            finish(() => resolve({ document, ...(response.clipped ? { clipped: response.clipped } : {}) }));
-        }
-        catch (error) {
-            finish(() => reject(error instanceof Error ? error : new Error('Imported CSV data could not be restored.')));
-        } };
+        worker.onmessage = (event) => {
+            const response = event.data;
+            if (response.requestId !== requestId)
+                return;
+            if (response.kind === 'progress') {
+                if (response.message)
+                    onProgress?.(response.message);
+                return;
+            }
+            if (response.kind === 'error') {
+                finish(() => reject(new Error(response.message ?? 'CSV import failed.')));
+                return;
+            }
+            try {
+                const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
+                finish(() => resolve({ document, ...(response.clipped ? { clipped: response.clipped } : {}) }));
+            }
+            catch (error) {
+                finish(() => reject(error instanceof Error ? error : new Error('Imported CSV data could not be restored.')));
+            }
+        };
         worker.onerror = () => finish(() => reject(new Error('CSV import stopped unexpectedly.')));
         try {
             const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice(), buffer = payload.buffer;
@@ -154,21 +174,27 @@ function importJsonOffThread(bytes, onProgress) {
             return;
         }
         const finish = (callback) => { worker.terminate(); callback(); };
-        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
-            return; if (response.kind === 'progress') {
-            if (response.message)
-                onProgress?.(response.message);
-            return;
-        } if (response.kind === 'error') {
-            finish(() => reject(new Error(response.message ?? 'GridForge JSON import failed.')));
-            return;
-        } try {
-            const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
-            finish(() => resolve(document));
-        }
-        catch (error) {
-            finish(() => reject(error instanceof Error ? error : new Error('GridForge JSON data could not be restored.')));
-        } };
+        worker.onmessage = (event) => {
+            const response = event.data;
+            if (response.requestId !== requestId)
+                return;
+            if (response.kind === 'progress') {
+                if (response.message)
+                    onProgress?.(response.message);
+                return;
+            }
+            if (response.kind === 'error') {
+                finish(() => reject(new Error(response.message ?? 'GridForge JSON import failed.')));
+                return;
+            }
+            try {
+                const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
+                finish(() => resolve(document));
+            }
+            catch (error) {
+                finish(() => reject(error instanceof Error ? error : new Error('GridForge JSON data could not be restored.')));
+            }
+        };
         worker.onerror = () => finish(() => reject(new Error('GridForge JSON import stopped unexpectedly.')));
         try {
             if (bytes.byteLength > 64 * 1024 * 1024)
@@ -195,21 +221,27 @@ function importOdsOffThread(bytes, onProgress) {
             return;
         }
         const finish = (callback) => { worker.terminate(); callback(); };
-        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
-            return; if (response.kind === 'progress') {
-            if (response.message)
-                onProgress?.(response.message);
-            return;
-        } if (response.kind === 'error') {
-            finish(() => reject(new Error(response.message ?? 'ODS import failed.')));
-            return;
-        } try {
-            const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
-            finish(() => resolve({ document, warnings: Array.isArray(response.warnings) ? response.warnings : [] }));
-        }
-        catch (error) {
-            finish(() => reject(error instanceof Error ? error : new Error('Imported OpenDocument data could not be restored.')));
-        } };
+        worker.onmessage = (event) => {
+            const response = event.data;
+            if (response.requestId !== requestId)
+                return;
+            if (response.kind === 'progress') {
+                if (response.message)
+                    onProgress?.(response.message);
+                return;
+            }
+            if (response.kind === 'error') {
+                finish(() => reject(new Error(response.message ?? 'ODS import failed.')));
+                return;
+            }
+            try {
+                const document = SpreadsheetDocument.fromJSON(response.document, { deferCalculation: true });
+                finish(() => resolve({ document, warnings: Array.isArray(response.warnings) ? response.warnings : [] }));
+            }
+            catch (error) {
+                finish(() => reject(error instanceof Error ? error : new Error('Imported OpenDocument data could not be restored.')));
+            }
+        };
         worker.onerror = () => finish(() => reject(new Error('OpenDocument import stopped unexpectedly.')));
         try {
             const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice(), buffer = payload.buffer;
@@ -312,14 +344,21 @@ function exportDataOffThread(document, format) {
             return;
         }
         const finish = (callback) => { worker.terminate(); callback(); };
-        worker.onmessage = (event) => { const response = event.data; if (response.requestId !== requestId)
-            return; if (response.kind === 'error') {
-            finish(() => reject(new Error(response.message ?? 'Data export failed.')));
-            return;
-        } const output = response.bytes; if (!(output instanceof ArrayBuffer)) {
-            finish(() => reject(new Error('Data export worker returned invalid data.')));
-            return;
-        } finish(() => resolve(new Uint8Array(output))); };
+        worker.onmessage = (event) => {
+            const response = event.data;
+            if (response.requestId !== requestId)
+                return;
+            if (response.kind === 'error') {
+                finish(() => reject(new Error(response.message ?? 'Data export failed.')));
+                return;
+            }
+            const output = response.bytes;
+            if (!(output instanceof ArrayBuffer)) {
+                finish(() => reject(new Error('Data export worker returned invalid data.')));
+                return;
+            }
+            finish(() => resolve(new Uint8Array(output)));
+        };
         worker.onerror = () => finish(() => reject(new Error('Data export stopped unexpectedly.')));
         try {
             worker.postMessage({ requestId, format, document: snapshot });
@@ -351,8 +390,16 @@ function openWorkspaceDatabase() {
         return Promise.reject(new Error('IndexedDB is unavailable.'));
     if (workspaceDatabase)
         return workspaceDatabase;
-    workspaceDatabase = new Promise((resolve, reject) => { const request = indexedDB.open('GridForgeWorkspace', 1); request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains('workspace'))
-        request.result.createObjectStore('workspace'); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error ?? new Error('Unable to open local workbook storage.')); request.onblocked = () => reject(new Error('Local workbook storage is busy in another app window.')); });
+    workspaceDatabase = new Promise((resolve, reject) => {
+        const request = indexedDB.open('GridForgeWorkspace', 1);
+        request.onupgradeneeded = () => {
+            if (!request.result.objectStoreNames.contains('workspace'))
+                request.result.createObjectStore('workspace');
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('Unable to open local workbook storage.'));
+        request.onblocked = () => reject(new Error('Local workbook storage is busy in another app window.'));
+    });
     return workspaceDatabase;
 }
 async function readStoredWorkspace() { const database = await openWorkspaceDatabase(); return new Promise((resolve, reject) => { const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current'); request.onsuccess = () => resolve(request.result && typeof request.result === 'object' ? request.result : null); request.onerror = () => reject(request.error ?? new Error('Unable to read local workbook storage.')); }); }
@@ -490,28 +537,48 @@ const colWidth = (c) => doc.active.tools.hiddenColumns.includes(c) ? 0 : doc.act
 const rowHeight = (r) => doc.active.tools.rowHeights[r] ?? ROW_H;
 let offsetCacheSheet = '', columnOffsets = [0], rowOffsets = [0];
 function resetOffsetCaches() { offsetCacheSheet = doc.activeId; columnOffsets = [0]; rowOffsets = [0]; }
-function ensureOffsetCaches() { if (offsetCacheSheet !== doc.activeId)
-    resetOffsetCaches(); }
-const colOffset = (c) => { ensureOffsetCaches(); while (columnOffsets.length <= c)
-    columnOffsets.push(columnOffsets.at(-1) + colWidth(columnOffsets.length - 1)); return columnOffsets[c] ?? 0; };
-const rowOffset = (viewR) => { ensureOffsetCaches(); const rows = visibleRows(), target = Math.min(viewR, rows.length); while (rowOffsets.length <= target) {
-    const index = rowOffsets.length - 1;
-    rowOffsets.push(rowOffsets.at(-1) + rowHeight(rows[index] ?? index));
-} return rowOffsets[target] ?? 0; };
-const columnAt = (x) => { let low = 0, high = book.cols - 1; while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if (colOffset(middle) + colWidth(middle) <= x)
-        low = middle + 1;
-    else
-        high = middle;
-} return low; };
-const viewRowAt = (y) => { const rows = visibleRows(); let low = 0, high = Math.max(0, rows.length - 1); while (low < high) {
-    const middle = Math.floor((low + high) / 2), row = rows[middle] ?? middle;
-    if (rowOffset(middle) + rowHeight(row) <= y)
-        low = middle + 1;
-    else
-        high = middle;
-} return low; };
+function ensureOffsetCaches() {
+    if (offsetCacheSheet !== doc.activeId)
+        resetOffsetCaches();
+}
+const colOffset = (c) => {
+    ensureOffsetCaches();
+    while (columnOffsets.length <= c)
+        columnOffsets.push(columnOffsets.at(-1) + colWidth(columnOffsets.length - 1));
+    return columnOffsets[c] ?? 0;
+};
+const rowOffset = (viewR) => {
+    ensureOffsetCaches();
+    const rows = visibleRows(), target = Math.min(viewR, rows.length);
+    while (rowOffsets.length <= target) {
+        const index = rowOffsets.length - 1;
+        rowOffsets.push(rowOffsets.at(-1) + rowHeight(rows[index] ?? index));
+    }
+    return rowOffsets[target] ?? 0;
+};
+const columnAt = (x) => {
+    let low = 0, high = book.cols - 1;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (colOffset(middle) + colWidth(middle) <= x)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    return low;
+};
+const viewRowAt = (y) => {
+    const rows = visibleRows();
+    let low = 0, high = Math.max(0, rows.length - 1);
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2), row = rows[middle] ?? middle;
+        if (rowOffset(middle) + rowHeight(row) <= y)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    return low;
+};
 let editing = null, editingRef = '';
 let mode = 'inspector';
 let clipboardCache = null;
@@ -538,12 +605,14 @@ try {
 catch {
     macros = [];
 }
-const saveMacros = () => { try {
-    localStorage.setItem('gridforge:action-macros:v1', JSON.stringify(macros));
-}
-catch {
-    toast('Macro storage full; export your macro JSON.');
-} };
+const saveMacros = () => {
+    try {
+        localStorage.setItem('gridforge:action-macros:v1', JSON.stringify(macros));
+    }
+    catch {
+        toast('Macro storage full; export your macro JSON.');
+    }
+};
 const root = el('app');
 root.innerHTML = `
   <header class="topbar">
@@ -653,13 +722,14 @@ root.innerHTML = `
   <dialog id="chart-dialog" class="help-dialog chart-dialog" aria-label="Insert or edit spreadsheet chart">
     <div class="dialog-top"><h2 id="chart-dialog-title">Insert chart</h2><button id="close-chart" class="tool-btn" aria-label="Close chart editor">✕</button></div>
     <div class="chart-editor-grid"><div class="chart-editor-form"><label class="field-label" for="chart-kind">Chart type</label><select id="chart-kind" class="context-select"><option value="column">Clustered columns</option><option value="bar">Horizontal bars</option><option value="line">Line</option><option value="area">Area</option><option value="pie">Pie</option><option value="scatter">XY scatter</option><option value="stacked-column">Stacked columns</option><option value="stacked-bar">Stacked bars</option><option value="doughnut">Doughnut</option><option value="percent-column">100% stacked column</option><option value="percent-bar">100% stacked bar</option><option value="combo">Column and line combo</option><option value="radar">Radar</option><option value="histogram">Histogram</option><option value="waterfall">Waterfall</option><option value="pareto">Pareto</option><option value="box-whisker">Box and whisker</option><option value="funnel">Funnel</option><option value="treemap">Treemap</option><option value="stock">Stock (OHLC)</option><option value="sunburst">Sunburst</option></select>
-    <label class="field-label" for="chart-histogram-bins">Histogram bin count (0 = automatic)</label><input id="chart-histogram-bins" class="scenario-input" type="number" min="0" max="50" step="1" value="0"/><label class="field-label" for="chart-histogram-bin-width">Histogram bin width (0 = automatic)</label><input id="chart-histogram-bin-width" class="scenario-input" type="number" min="0" step="any" value="0"/><label class="field-label" for="chart-histogram-underflow">Underflow threshold (blank = off)</label><input id="chart-histogram-underflow" class="scenario-input" type="number" step="any" placeholder="e.g. 5"/><label class="field-label" for="chart-histogram-overflow">Overflow threshold (blank = off)</label><input id="chart-histogram-overflow" class="scenario-input" type="number" step="any" placeholder="e.g. 100"/><fieldset id="chart-box-whisker-options" class="chart-option-group" hidden><legend>Box &amp; Whisker options</legend><label class="field-label" for="chart-box-quartiles">Quartile calculation</label><select id="chart-box-quartiles" class="context-select"><option value="inclusive">Inclusive median</option><option value="exclusive">Exclusive median</option></select><label class="chart-option"><input id="chart-box-inner" type="checkbox"/> Show inner points</label><label class="chart-option"><input id="chart-box-outliers" type="checkbox" checked/> Show outlier points</label><label class="chart-option"><input id="chart-box-mean-marker" type="checkbox"/> Show mean markers</label><label class="chart-option"><input id="chart-box-mean-line" type="checkbox"/> Connect mean values</label></fieldset><label class="field-label" for="chart-theme">Chart color theme</label><select id="chart-theme" class="context-select"><option value="office">Office</option><option value="colorful">Colorful</option><option value="forest">Forest</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="monochrome">Monochrome</option></select><label class="field-label" for="chart-range">Data range</label><input id="chart-range" class="scenario-input" placeholder="A3:D11" aria-label="Source cell range"/>
+    <label class="field-label" for="chart-histogram-bins">Histogram bin count (0 = automatic)</label><input id="chart-histogram-bins" class="scenario-input" type="number" min="0" max="50" step="1" value="0"/><label class="field-label" for="chart-histogram-bin-width">Histogram bin width (0 = automatic)</label><input id="chart-histogram-bin-width" class="scenario-input" type="number" min="0" step="any" value="0"/><label class="field-label" for="chart-histogram-underflow">Underflow threshold (blank = off)</label><input id="chart-histogram-underflow" class="scenario-input" type="number" step="any" placeholder="e.g. 5"/><label class="field-label" for="chart-histogram-overflow">Overflow threshold (blank = off)</label><input id="chart-histogram-overflow" class="scenario-input" type="number" step="any" placeholder="e.g. 100"/><fieldset id="chart-box-whisker-options" class="chart-option-group" hidden><legend>Box &amp; Whisker options</legend><label class="field-label" for="chart-box-quartiles">Quartile calculation</label><select id="chart-box-quartiles" class="context-select"><option value="inclusive">Inclusive median</option><option value="exclusive">Exclusive median</option></select><label class="chart-option"><input id="chart-box-inner" type="checkbox"/> Show inner points</label><label class="chart-option"><input id="chart-box-outliers" type="checkbox" checked/> Show outlier points</label><label class="chart-option"><input id="chart-box-mean-marker" type="checkbox"/> Show mean markers</label><label class="chart-option"><input id="chart-box-mean-line" type="checkbox"/> Connect mean values</label></fieldset><label class="field-label" for="chart-category-gap-width">Column/bar gap width (0–500%)</label><input id="chart-category-gap-width" class="scenario-input" type="number" min="0" max="500" step="1" value="150"/><label class="field-label" for="chart-series-overlap">Series overlap (-100–100%)</label><input id="chart-series-overlap" class="scenario-input" type="number" min="-100" max="100" step="1" value="0"/><label class="field-label" for="chart-theme">Chart color theme</label><select id="chart-theme" class="context-select"><option value="office">Office</option><option value="colorful">Colorful</option><option value="forest">Forest</option><option value="sunset">Sunset</option><option value="ocean">Ocean</option><option value="monochrome">Monochrome</option></select><label class="field-label" for="chart-range">Data range</label><input id="chart-range" class="scenario-input" placeholder="A3:D11" aria-label="Source cell range"/><label id="chart-scatter-pairs-label" class="chart-option" hidden><input id="chart-scatter-pairs" type="checkbox"/> Each scatter series has its own X/Y column pair</label><small id="chart-scatter-pairs-hint" hidden>Use adjacent columns ordered X1, Y1, X2, Y2. At least two pairs are required.</small>
     <label class="field-label" for="chart-title">Chart title</label><input id="chart-title" class="scenario-input" maxlength="100" placeholder="Revenue by product"/><label class="field-label" for="chart-accessibility-description">Accessibility description</label><textarea id="chart-accessibility-description" class="scenario-input" maxlength="500" rows="2" placeholder="Describe the main finding and how to read this chart"></textarea>
     <div class="chart-editor-details"><label class="field-label" for="chart-legend">Legend</label><select id="chart-legend" class="context-select"><option value="bottom">Bottom</option><option value="top">Top</option><option value="right">Right</option><option value="left">Left</option><option value="none">Hidden</option></select>
     <label class="chart-option"><input id="chart-reverse-categories" type="checkbox"/> Reverse category order</label><label class="field-label" for="chart-xaxis">Horizontal axis title</label><input id="chart-xaxis" class="scenario-input" maxlength="70" placeholder="e.g. Month"/>
-    <label class="field-label" for="chart-yaxis">Vertical axis title</label><input id="chart-yaxis" class="scenario-input" maxlength="70" placeholder="e.g. Revenue ($)"/><label class="field-label" for="chart-yaxis-log-base">Logarithmic vertical axis base (blank = linear)</label><input id="chart-yaxis-log-base" class="scenario-input" type="number" min="2" max="1000" step="1" placeholder="10" aria-label="Logarithmic vertical axis base"/>
-    <label class="field-label" for="chart-yaxis-secondary">Right vertical axis title</label><input id="chart-yaxis-secondary" class="scenario-input" maxlength="70" placeholder="e.g. Margin (%)"/>
-    <div id="chart-series-options" class="chart-series-options" aria-label="Series options"></div><div id="chart-point-colors" class="chart-series-options" aria-label="Pie and doughnut slice colors"></div>
+    <div id="chart-xaxis-bounds" class="chart-axis-bounds"><label class="field-label" for="chart-xaxis-min">Horizontal axis minimum</label><input id="chart-xaxis-min" class="scenario-input" type="number" step="any" placeholder="Automatic"/><label class="field-label" for="chart-xaxis-max">Horizontal axis maximum</label><input id="chart-xaxis-max" class="scenario-input" type="number" step="any" placeholder="Automatic"/><label class="field-label" for="chart-xaxis-major">Horizontal major unit</label><input id="chart-xaxis-major" class="scenario-input" type="number" min="0" step="any" placeholder="Automatic"/></div>
+    <label class="field-label" for="chart-yaxis">Vertical axis title</label><input id="chart-yaxis" class="scenario-input" maxlength="70" placeholder="e.g. Revenue ($)"/><label class="field-label" for="chart-yaxis-min">Vertical axis minimum</label><input id="chart-yaxis-min" class="scenario-input" type="number" step="any" placeholder="Automatic"/><label class="field-label" for="chart-yaxis-max">Vertical axis maximum</label><input id="chart-yaxis-max" class="scenario-input" type="number" step="any" placeholder="Automatic"/><label class="field-label" for="chart-yaxis-major">Vertical major unit</label><input id="chart-yaxis-major" class="scenario-input" type="number" min="0" step="any" placeholder="Automatic"/><label class="field-label" for="chart-yaxis-log-base">Logarithmic vertical axis base (blank = linear)</label><input id="chart-yaxis-log-base" class="scenario-input" type="number" min="2" max="1000" step="1" placeholder="10" aria-label="Logarithmic vertical axis base"/>
+    <label class="field-label" for="chart-yaxis-secondary">Right vertical axis title</label><input id="chart-yaxis-secondary" class="scenario-input" maxlength="70" placeholder="e.g. Margin (%)"/><label class="field-label" for="chart-yaxis2-min">Right vertical axis minimum</label><input id="chart-yaxis2-min" class="scenario-input" type="number" step="any" placeholder="Automatic"/><label class="field-label" for="chart-yaxis2-max">Right vertical axis maximum</label><input id="chart-yaxis2-max" class="scenario-input" type="number" step="any" placeholder="Automatic"/><label class="field-label" for="chart-yaxis2-major">Right vertical major unit</label><input id="chart-yaxis2-major" class="scenario-input" type="number" min="0" step="any" placeholder="Automatic"/>
+    <div id="chart-series-options" class="chart-series-options" aria-label="Series options"></div><div id="chart-point-colors" class="chart-series-options" aria-label="Chart point and series colors"></div>
     <label class="chart-option"><input id="chart-labels" type="checkbox"/> Show values on chart</label><label class="chart-option"><input id="chart-label-category" type="checkbox"/> Show category name</label><label class="chart-option"><input id="chart-label-series" type="checkbox"/> Show series name</label><label class="chart-option"><input id="chart-label-percent" type="checkbox"/> Show percentage (pie/doughnut)</label><label class="field-label" for="chart-blanks">Empty cells</label><select id="chart-blanks" class="context-select"><option value="gap">Show as gaps</option><option value="zero">Plot as zero</option><option value="span">Connect data points</option></select><label class="field-label" for="chart-data-label-position">Data label position</label><select id="chart-data-label-position" class="context-select"><option value="outsideEnd">Outside end</option><option value="insideEnd">Inside end</option><option value="insideBase">Inside base</option><option value="center">Center</option><option value="bestFit">Best fit</option><option value="above">Above</option><option value="below">Below</option><option value="left">Left</option><option value="right">Right</option></select><label class="field-label" for="chart-label-separator">Data label separator (optional)</label><input id="chart-label-separator" class="scenario-input" maxlength="20" placeholder="Default space"/><label class="field-label" for="chart-data-label-format">Data label number format (optional)</label><input id="chart-data-label-format" class="scenario-input" maxlength="100" placeholder="0.00;[Red](0.00)"/><label class="field-label" for="chart-waterfall-total-points">Total item indexes (comma-separated, 1-based)</label><input id="chart-waterfall-total-points" class="scenario-input" type="text" placeholder="e.g. 1, 4, 8" aria-describedby="chart-waterfall-total-hint"/><small id="chart-waterfall-total-hint" class="chart-hint">Select subtotal or total items by their position in the data rows.</small></div>
     <p class="chart-hint">For standard charts, the first column supplies labels and adjacent numeric columns supply series. Treemaps and sunbursts use all leading columns as hierarchy labels and the final column as values. Stock charts need Open, High, Low and Close headers, with an optional date column. Use the first row for headers. Charts refresh when formulas change.</p>
     <p id="chart-validation" class="chart-hint" aria-live="polite"></p>
@@ -716,7 +786,7 @@ root.innerHTML = `
   <dialog id="import-notes-dialog" class="help-dialog"><div class="dialog-top"><h2>XLSX import report</h2><button class="tool-btn" id="close-import-notes">✕</button></div><p>GridForge imported the supported worksheet content. Review any formula or feature differences before editing or exporting.</p><div id="import-notes-body" class="import-notes-body"></div><button id="confirm-import-notes" class="primary-button">Continue to workbook</button></dialog>
   <dialog id="hidden-sheets-dialog" class="help-dialog"><div class="dialog-top"><h2>Unhide Worksheet</h2><button class="tool-btn" id="close-hidden-sheets" aria-label="Close">✕</button></div><p>Select a hidden worksheet to make its tab visible.</p><div id="hidden-sheets-list" class="hidden-sheets-list"></div></dialog>
   <dialog id="filter-dialog" class="help-dialog"><div class="dialog-top"><h2>Filter table rows</h2><button class="tool-btn" id="close-filter">✕</button></div><p>Select a header and data rectangle, choose a column, and show rows containing a value. The data is never deleted.</p><label class="field-label" for="filter-column">Filter by column</label><select id="filter-column" class="context-select"></select><p class="filter-help">Choose values in each column. Filters on different columns combine with AND and are saved with the workbook.</p><div class="filter-values-toolbar"><button type="button" class="secondary-button" id="filter-select-all">Select all</button><button type="button" class="secondary-button" id="filter-select-none">Select none</button></div><div id="filter-values" class="filter-values" role="group" aria-label="Visible values"></div><label class="field-label" for="filter-query">Optional text contains (use instead of checked values)</label><input id="filter-query" class="scenario-input" placeholder="Search text in this column"/><div id="filter-active-summary" class="filter-help"></div><button id="apply-filter" class="primary-button">Apply column filter</button><button id="filter-remove-column" class="secondary-button">Clear this column</button></dialog>
-  <dialog id="conditional-dialog" class="help-dialog"><div class="dialog-top"><h2>Conditional formatting</h2><button class="tool-btn" id="close-conditional">✕</button></div><p>Rules update from the selected cells' current values.</p><label class="field-label">Condition</label><select class="context-select" id="rule-op"><option value="gt">Greater than</option><option value="gte">Greater than or equal to</option><option value="lt">Less than</option><option value="lte">Less than or equal to</option><option value="eq">Equal to</option><option value="ne">Not equal to</option><option value="between">Between</option><option value="notBetween">Not between</option><option value="scale">Color scale</option><option value="dataBar">Data bars</option><option value="formula">Use a formula</option><option value="iconSet">Icon set</option></select><div id="rule-formula-row" hidden><label class="field-label">Formula condition (relative to the first selected cell)</label><input id="rule-formula" type="text" maxlength="8192" placeholder="=B2&gt;100" class="scenario-input"/></div><div id="rule-icon-row" hidden><label class="field-label">Icon style</label><select id="rule-icon-set" class="context-select"><option value="3TrafficLights1">3TrafficLights1</option><option value="3TrafficLights2">3TrafficLights2</option><option value="3Arrows">3Arrows</option><option value="3ArrowsGray">3ArrowsGray</option><option value="3Flags">3Flags</option><option value="3Signs">3Signs</option><option value="3Symbols">3Symbols</option><option value="3Symbols2">3Symbols2</option><option value="3Stars">3Stars</option><option value="3Triangles">3Triangles</option><option value="4TrafficLights">4TrafficLights</option><option value="4Arrows">4Arrows</option><option value="4ArrowsGray">4ArrowsGray</option><option value="4RedToBlack">4RedToBlack</option><option value="4Rating">4Rating</option><option value="5Arrows">5Arrows</option><option value="5ArrowsGray">5ArrowsGray</option><option value="5Rating">5Rating</option><option value="5Quarters">5Quarters</option></select><div id="rule-icon-thresholds"></div><label><input id="rule-icons-only" type="checkbox"/> Show icons only</label><p>Set each icon cutoff as a percent, percentile, number, or formula. Formula cutoffs are relative to the first selected cell.</p></div><label class="field-label">Numeric threshold / lower bound</label><input id="rule-threshold" type="number" step="any" value="100" class="scenario-input"/><label class="field-label">Upper bound (Between rules)</label><input id="rule-threshold2" type="number" step="any" value="200" class="scenario-input"/><div id="rule-scale-thresholds" hidden><p>Choose how the low, middle, and high values are calculated. Formula stops are relative to the first selected cell.</p><label class="field-label">Low color stop</label><select id="rule-scale-low-type" class="context-select"><option value="min">Minimum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-scale-low-value" type="text" value="0" placeholder="Number or formula" class="scenario-input"/><div id="rule-scale-mid-row"><label class="field-label">Middle color stop</label><select id="rule-scale-mid-type" class="context-select"><option value="percentile">Percentile</option><option value="percent">Percent</option><option value="num">Number</option><option value="formula">Formula</option></select><input id="rule-scale-mid-value" type="text" value="50" placeholder="Number or formula" class="scenario-input"/></div><label class="field-label">High color stop</label><select id="rule-scale-high-type" class="context-select"><option value="max">Maximum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-scale-high-value" type="text" value="100" placeholder="Number or formula" class="scenario-input"/></div><label class="field-label">Low value color (for scale)</label><input type="color" id="rule-start-color" value="#e7f3ff"/><label><input type="checkbox" id="rule-use-mid-color"/> Use three-color scale</label><label class="field-label">Midpoint color</label><input type="color" id="rule-mid-color" value="#fff2ba"/><label class="field-label">Bar color preset</label><select class="context-select" id="rule-preset"><option value="#4472c4">Blue</option><option value="#70ad47">Green</option><option value="#ed7d31">Orange</option><option value="#a5a5a5">Gray</option><option value="#ffc000">Gold</option><option value="#5b9bd5">Light blue</option><option value="#c0504d">Red</option><option value="#8064a2">Purple</option><option value="custom">Custom</option></select><label class="field-label">Bar / high value color</label><input type="color" id="rule-color" value="#4472c4"/><label class="field-label">Negative value bar</label><input type="color" id="rule-negative-color" value="#c0504d"/><label class="field-label">Data bar style</label><select class="context-select" id="rule-bar-style"><option value="solid">Solid fill</option><option value="gradient">Gradient</option></select><label><input type="checkbox" id="rule-show-value" checked/> Show cell values</label><label class="field-label">Bar axis position</label><select class="context-select" id="rule-bar-axis"><option value="automatic">Automatic</option><option value="middle">Middle</option><option value="none">None</option></select><label class="field-label">Axis color</label><input type="color" id="rule-axis-color" value="#808080"/><label class="field-label">Minimum bar length (%)</label><input id="rule-bar-min-length" type="number" min="0" max="100" step="1" value="0" class="scenario-input"/><label class="field-label">Maximum bar length (%)</label><input id="rule-bar-max-length" type="number" min="0" max="100" step="1" value="100" class="scenario-input"/><div id="rule-bar-thresholds" hidden><p>Choose automatic, number, percent, percentile, or formula bounds. Formulas are relative to the first selected cell.</p><label class="field-label">Data-bar lower bound</label><select id="rule-bar-low-type" class="context-select"><option value="min">Automatic minimum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-bar-low-value" type="text" value="0" placeholder="Number or formula" class="scenario-input"/><label class="field-label">Data-bar upper bound</label><select id="rule-bar-high-type" class="context-select"><option value="max">Automatic maximum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-bar-high-value" type="text" value="100" placeholder="Number or formula" class="scenario-input"/></div><button class="primary-button" id="apply-conditional">Apply to selection</button><section class="conditional-rule-manager"><h3>Rules on this sheet</h3><div id="conditional-rule-list" aria-live="polite"></div></section><button class="secondary-button" id="clear-conditional">Clear rules on this sheet</button></dialog>
+  <dialog id="conditional-dialog" class="help-dialog"><div class="dialog-top"><h2>Conditional formatting</h2><button class="tool-btn" id="close-conditional">✕</button></div><p>Rules update from the selected cells' current values.</p><label class="field-label">Condition</label><select class="context-select" id="rule-op"><option value="gt">Greater than</option><option value="gte">Greater than or equal to</option><option value="lt">Less than</option><option value="lte">Less than or equal to</option><option value="eq">Equal to</option><option value="ne">Not equal to</option><option value="between">Between</option><option value="notBetween">Not between</option><option value="scale">Color scale</option><option value="dataBar">Data bars</option><option value="formula">Use a formula</option><option value="iconSet">Icon set</option></select><div id="rule-formula-row" hidden><label class="field-label">Formula condition (relative to the first selected cell)</label><input id="rule-formula" type="text" maxlength="8192" placeholder="=B2&gt;100" class="scenario-input"/></div><div id="rule-icon-row" hidden><label class="field-label">Icon style</label><select id="rule-icon-set" class="context-select"><option value="3TrafficLights1">3TrafficLights1</option><option value="3TrafficLights2">3TrafficLights2</option><option value="3Arrows">3Arrows</option><option value="3ArrowsGray">3ArrowsGray</option><option value="3Flags">3Flags</option><option value="3Signs">3Signs</option><option value="3Symbols">3Symbols</option><option value="3Symbols2">3Symbols2</option><option value="3Stars">3Stars</option><option value="3Triangles">3Triangles</option><option value="4TrafficLights">4TrafficLights</option><option value="4Arrows">4Arrows</option><option value="4ArrowsGray">4ArrowsGray</option><option value="4RedToBlack">4RedToBlack</option><option value="4Rating">4Rating</option><option value="5Arrows">5Arrows</option><option value="5ArrowsGray">5ArrowsGray</option><option value="5Rating">5Rating</option><option value="5Quarters">5Quarters</option></select><div id="rule-icon-thresholds"></div><label><input id="rule-icons-only" type="checkbox"/> Show icons only</label><label><input id="rule-reverse-icons" type="checkbox"/> Reverse icon order</label><p>Set each icon cutoff as a percent, percentile, number, or formula. Formula cutoffs are relative to the first selected cell.</p></div><label class="field-label">Numeric threshold / lower bound</label><input id="rule-threshold" type="number" step="any" value="100" class="scenario-input"/><label class="field-label">Upper bound (Between rules)</label><input id="rule-threshold2" type="number" step="any" value="200" class="scenario-input"/><div id="rule-scale-thresholds" hidden><p>Choose how the low, middle, and high values are calculated. Formula stops are relative to the first selected cell.</p><label class="field-label">Low color stop</label><select id="rule-scale-low-type" class="context-select"><option value="min">Minimum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-scale-low-value" type="text" value="0" placeholder="Number or formula" class="scenario-input"/><div id="rule-scale-mid-row"><label class="field-label">Middle color stop</label><select id="rule-scale-mid-type" class="context-select"><option value="percentile">Percentile</option><option value="percent">Percent</option><option value="num">Number</option><option value="formula">Formula</option></select><input id="rule-scale-mid-value" type="text" value="50" placeholder="Number or formula" class="scenario-input"/></div><label class="field-label">High color stop</label><select id="rule-scale-high-type" class="context-select"><option value="max">Maximum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-scale-high-value" type="text" value="100" placeholder="Number or formula" class="scenario-input"/></div><label class="field-label">Low value color (for scale)</label><input type="color" id="rule-start-color" value="#e7f3ff"/><label><input type="checkbox" id="rule-use-mid-color"/> Use three-color scale</label><label class="field-label">Midpoint color</label><input type="color" id="rule-mid-color" value="#fff2ba"/><label class="field-label">Bar color preset</label><select class="context-select" id="rule-preset"><option value="#4472c4">Blue</option><option value="#70ad47">Green</option><option value="#ed7d31">Orange</option><option value="#a5a5a5">Gray</option><option value="#ffc000">Gold</option><option value="#5b9bd5">Light blue</option><option value="#c0504d">Red</option><option value="#8064a2">Purple</option><option value="custom">Custom</option></select><label class="field-label">Bar / high value color</label><input type="color" id="rule-color" value="#4472c4"/><label class="field-label">Negative value bar</label><input type="color" id="rule-negative-color" value="#c0504d"/><label class="field-label">Data bar style</label><select class="context-select" id="rule-bar-style"><option value="solid">Solid fill</option><option value="gradient">Gradient</option></select><label><input type="checkbox" id="rule-show-value" checked/> Show cell values</label><label class="field-label">Bar axis position</label><select class="context-select" id="rule-bar-axis"><option value="automatic">Automatic</option><option value="middle">Middle</option><option value="none">None</option></select><label class="field-label">Axis color</label><input type="color" id="rule-axis-color" value="#808080"/><label class="field-label">Minimum bar length (%)</label><input id="rule-bar-min-length" type="number" min="0" max="100" step="1" value="0" class="scenario-input"/><label class="field-label">Maximum bar length (%)</label><input id="rule-bar-max-length" type="number" min="0" max="100" step="1" value="100" class="scenario-input"/><div id="rule-bar-thresholds" hidden><p>Choose automatic, number, percent, percentile, or formula bounds. Formulas are relative to the first selected cell.</p><label class="field-label">Data-bar lower bound</label><select id="rule-bar-low-type" class="context-select"><option value="min">Automatic minimum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-bar-low-value" type="text" value="0" placeholder="Number or formula" class="scenario-input"/><label class="field-label">Data-bar upper bound</label><select id="rule-bar-high-type" class="context-select"><option value="max">Automatic maximum</option><option value="num">Number</option><option value="percent">Percent</option><option value="percentile">Percentile</option><option value="formula">Formula</option></select><input id="rule-bar-high-value" type="text" value="100" placeholder="Number or formula" class="scenario-input"/></div><button class="primary-button" id="apply-conditional">Apply to selection</button><section class="conditional-rule-manager"><h3>Rules on this sheet</h3><div id="conditional-rule-list" aria-live="polite"></div></section><button class="secondary-button" id="clear-conditional">Clear rules on this sheet</button></dialog>
   <dialog id="data-validation-dialog" class="help-dialog"><div class="dialog-top"><h2>Data Validation</h2><button class="tool-btn" id="close-data-validation" aria-label="Close">✕</button></div><p id="validation-range-note"></p><label class="field-label" for="validation-type">Allow</label><select id="validation-type" class="context-select"><option value="list">List (dropdown)</option><option value="whole">Whole number</option><option value="decimal">Decimal</option><option value="date">Date</option><option value="textLength">Text length</option></select><div id="validation-list-fields"><label class="field-label" for="validation-source-type">List source</label><select id="validation-source-type" class="context-select"><option value="inline">Type options</option><option value="range">Worksheet range</option></select><div id="validation-values-fields"><label class="field-label" for="validation-values">Dropdown values</label><input id="validation-values" class="scenario-input" maxlength="255" placeholder="Open, In progress, Done"/><small class="name-scope-note">Separate options with commas (up to 50 values).</small></div><div id="validation-range-fields" class="ribbon-hidden"><label class="field-label" for="validation-source-range">Source range (same worksheet)</label><input id="validation-source-range" class="scenario-input" placeholder="A2:A8"/><small class="name-scope-note">The dropdown updates when the source cells change.</small></div></div><div id="validation-number-fields" class="ribbon-hidden"><label class="field-label" for="validation-operator">Data</label><select id="validation-operator" class="context-select"><option value="between">Between</option><option value="notBetween">Not between</option><option value="equalTo">Equal to</option><option value="notEqualTo">Not equal to</option><option value="greaterThan">Greater than</option><option value="greaterThanOrEqual">Greater than or equal to</option><option value="lessThan">Less than</option><option value="lessThanOrEqual">Less than or equal to</option></select><label id="validation-first-label" class="field-label" for="validation-min">Minimum</label><input id="validation-min" class="scenario-input" type="number" step="any"/><div id="validation-second-field"><label class="field-label" for="validation-max">Maximum</label><input id="validation-max" class="scenario-input" type="number" step="any"/></div></div><label class="name-checkbox"><input id="validation-allow-blank" type="checkbox" checked/> Ignore blank cells</label><details class="validation-advanced"><summary>Input prompt and error alert</summary><label class="field-label" for="validation-prompt-title">Input title (optional)</label><input id="validation-prompt-title" class="scenario-input" maxlength="255"/><label class="field-label" for="validation-prompt-message">Input message (optional)</label><textarea id="validation-prompt-message" class="scenario-input" maxlength="255" rows="2"></textarea><label class="field-label" for="validation-error-style">When an entry is invalid</label><select id="validation-error-style" class="context-select"><option value="stop">Stop and reject</option><option value="warning">Warn and ask</option><option value="information">Show message and allow</option></select><label class="field-label" for="validation-error-title">Error title (optional)</label><input id="validation-error-title" class="scenario-input" maxlength="255"/><label class="field-label" for="validation-error-message">Error message (optional)</label><textarea id="validation-error-message" class="scenario-input" maxlength="255" rows="2"></textarea><label class="name-checkbox"><input id="validation-show-input" type="checkbox" checked/> Show input message</label><label class="name-checkbox"><input id="validation-show-error" type="checkbox" checked/> Show error alert</label></details><p id="validation-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button id="clear-data-validation" class="secondary-button">Clear validation</button><button id="apply-data-validation" class="primary-button">Apply</button></div></dialog>
   <dialog id="text-columns-dialog" class="help-dialog text-columns-dialog"><div class="dialog-top"><h2>Text to Columns</h2><button type="button" class="tool-btn" id="close-text-columns" aria-label="Close">✕</button></div><p>Split values from one selected column into fields across the row.</p><label class="field-label" for="text-columns-source-range">Source range</label><input id="text-columns-source-range" class="scenario-input" placeholder="A1:A20"/><label class="field-label" for="text-columns-delimiter">Delimiter</label><select id="text-columns-delimiter" class="context-select"><option value="comma">Comma</option><option value="semicolon">Semicolon</option><option value="tab">Tab</option><option value="space">Space</option><option value="other">Other character</option></select><label id="text-columns-other-field" class="field-label ribbon-hidden" for="text-columns-other">Custom delimiter</label><input id="text-columns-other" class="scenario-input ribbon-hidden" maxlength="1"/><label class="name-checkbox"><input id="text-columns-merge" type="checkbox"/> Treat consecutive delimiters as one</label><label class="field-label" for="text-columns-destination">Destination</label><input id="text-columns-destination" class="scenario-input" placeholder="A1"/><div id="text-columns-preview" class="text-columns-preview" aria-live="polite"></div><p id="text-columns-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-text-columns">Cancel</button><button type="button" class="primary-button" id="apply-text-columns">Finish</button></div></dialog>
   <dialog id="descriptive-stats-dialog" class="help-dialog"><div class="dialog-top"><h2>Descriptive Statistics</h2><button type="button" class="tool-btn" id="close-descriptive-stats" aria-label="Close">✕</button></div><p>Create an Excel ToolPak-style summary from numeric cells in the selected range. Text, blanks and formula errors are ignored; the source cells are not changed.</p><label class="field-label" for="stats-source-range">Input range</label><input id="stats-source-range" class="scenario-input" placeholder="A1:B20"/><label class="field-label" for="stats-destination">Output starts at</label><input id="stats-destination" class="scenario-input" placeholder="D1"/><p id="stats-error" class="chart-hint" aria-live="polite"></p><div class="find-actions"><button type="button" class="secondary-button" id="cancel-descriptive-stats">Cancel</button><button type="button" class="primary-button" id="create-descriptive-stats">Create report</button></div></dialog>
@@ -840,25 +910,36 @@ const currentRef = () => asRef(active.r, active.c);
 const sel = () => bounds(anchor, end);
 const inBounds = (r, c) => r >= 0 && r < book.rows && c >= 0 && c < book.cols;
 function toast(msg) { const n = el('toast'); n.textContent = msg; n.classList.add('visible'); setTimeout(() => n.classList.remove('visible'), 2800); }
-function save() { el('save-state').textContent = 'Saving…'; clearTimeout(storeTimeout); storeTimeout = window.setTimeout(() => { const revision = ++saveRevision; try {
-    const value = { document: doc.toJSON(), title: workbookTitle };
-    void writeStoredWorkspace(value).then(() => { if (revision === saveRevision)
-        el('save-state').textContent = 'Saved locally'; }).catch(() => { try {
-        localStorage.setItem(STORAGE, JSON.stringify(value.document));
-        localStorage.setItem(TITLE_STORAGE, workbookTitle);
-        if (revision === saveRevision)
-            el('save-state').textContent = 'Saved locally';
-    }
-    catch {
-        if (revision === saveRevision)
+function save() {
+    el('save-state').textContent = 'Saving…';
+    clearTimeout(storeTimeout);
+    storeTimeout = window.setTimeout(() => {
+        const revision = ++saveRevision;
+        try {
+            const value = { document: doc.toJSON(), title: workbookTitle };
+            void writeStoredWorkspace(value).then(() => {
+                if (revision === saveRevision)
+                    el('save-state').textContent = 'Saved locally';
+            }).catch(() => {
+                try {
+                    localStorage.setItem(STORAGE, JSON.stringify(value.document));
+                    localStorage.setItem(TITLE_STORAGE, workbookTitle);
+                    if (revision === saveRevision)
+                        el('save-state').textContent = 'Saved locally';
+                }
+                catch {
+                    if (revision === saveRevision)
+                        el('save-state').textContent = 'Storage full — export JSON';
+                    toast('Automatic local storage is unavailable. Export your workbook to JSON.');
+                }
+            });
+        }
+        catch {
             el('save-state').textContent = 'Storage full — export JSON';
-        toast('Automatic local storage is unavailable. Export your workbook to JSON.');
-    } });
+            toast('Unable to create a workbook snapshot. Export your workbook to JSON.');
+        }
+    }, 250);
 }
-catch {
-    el('save-state').textContent = 'Storage full — export JSON';
-    toast('Unable to create a workbook snapshot. Export your workbook to JSON.');
-} }, 250); }
 if (migrateLocalStorage)
     window.setTimeout(() => save(), 0);
 function stats() { const s = book.lastStats; el('metric-count').textContent = String(s.recalculated); el('metric-time').textContent = `${s.durationMs.toFixed(3)} ms`; el('metric-populated').textContent = s.totalPopulated.toLocaleString(); el('grid-size').textContent = `${(book.rows * book.cols).toLocaleString()}-cell canvas`; el('btn-undo').toggleAttribute('disabled', !book.canUndo); el('btn-redo').toggleAttribute('disabled', !book.canRedo); }
@@ -875,15 +956,22 @@ function visibleRows() {
     visibleRowsCache = rows;
     return rows;
 }
-function recalculateVisibilityAggregates() { for (const sheet of doc.sheets)
-    sheet.book.recalculateAggregatesForRowVisibilityChange(); }
-function ensureVisible() { const displayed = visibleRows(); const idx = displayed.indexOf(active.r), view = idx < 0 ? active.r : idx, y = HEAD_H + rowOffset(view), x = HEAD_W + colOffset(active.c), rh = rowHeight(active.r), cw = colWidth(active.c); if (y < grid.scrollTop + HEAD_H)
-    grid.scrollTop = Math.max(0, y - HEAD_H);
-else if (y + rh > grid.scrollTop + grid.clientHeight)
-    grid.scrollTop = y + rh - grid.clientHeight; if (x < grid.scrollLeft + HEAD_W)
-    grid.scrollLeft = Math.max(0, x - HEAD_W);
-else if (x + cw > grid.scrollLeft + grid.clientWidth)
-    grid.scrollLeft = x + cw - grid.clientWidth; }
+function recalculateVisibilityAggregates() {
+    for (const sheet of doc.sheets)
+        sheet.book.recalculateAggregatesForRowVisibilityChange();
+}
+function ensureVisible() {
+    const displayed = visibleRows();
+    const idx = displayed.indexOf(active.r), view = idx < 0 ? active.r : idx, y = HEAD_H + rowOffset(view), x = HEAD_W + colOffset(active.c), rh = rowHeight(active.r), cw = colWidth(active.c);
+    if (y < grid.scrollTop + HEAD_H)
+        grid.scrollTop = Math.max(0, y - HEAD_H);
+    else if (y + rh > grid.scrollTop + grid.clientHeight)
+        grid.scrollTop = y + rh - grid.clientHeight;
+    if (x < grid.scrollLeft + HEAD_W)
+        grid.scrollLeft = Math.max(0, x - HEAD_W);
+    else if (x + cw > grid.scrollLeft + grid.clientWidth)
+        grid.scrollLeft = x + cw - grid.clientWidth;
+}
 function select(r, c, extend = false, focus = true) {
     if (!inBounds(r, c))
         return;
@@ -929,10 +1017,25 @@ function select(r, c, extend = false, focus = true) {
     if (focus)
         grid.focus({ preventScroll: true });
 }
-function refresh() { resetOffsetCaches(); renderGrid(); nameBox.value = currentRef(); if (document.activeElement !== formulaInput)
-    formulaInput.value = book.getRaw(currentRef()); stats(); renderTabs(); renderFormatControls(); renderSidebar(); const b = sel(), hasTable = !!tableAt(doc.active.tools.tables, active.r, active.c, book.rows, book.cols); for (const tab of Array.from(document.querySelectorAll('.table-context-tab')))
-    tab.classList.toggle('ribbon-hidden', !hasTable); if (!hasTable && ribbon === 'Table Design')
-    showRibbon('Home'); const selection = analyzeSelection(book, b); el('selection-aggregate').textContent = selection.numbers ? `SUM ${Math.round(selection.sum * 100) / 100} · AVG ${Math.round((selection.average ?? 0) * 100) / 100}` : ''; el('selection-status').textContent = b.r1 === b.r2 && b.c1 === b.c2 ? `${currentRef()} selected` : `${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)} selected`; }
+function refresh() {
+    resetOffsetCaches();
+    renderGrid();
+    nameBox.value = currentRef();
+    if (document.activeElement !== formulaInput)
+        formulaInput.value = book.getRaw(currentRef());
+    stats();
+    renderTabs();
+    renderFormatControls();
+    renderSidebar();
+    const b = sel(), hasTable = !!tableAt(doc.active.tools.tables, active.r, active.c, book.rows, book.cols);
+    for (const tab of Array.from(document.querySelectorAll('.table-context-tab')))
+        tab.classList.toggle('ribbon-hidden', !hasTable);
+    if (!hasTable && ribbon === 'Table Design')
+        showRibbon('Home');
+    const selection = analyzeSelection(book, b);
+    el('selection-aggregate').textContent = selection.numbers ? `SUM ${Math.round(selection.sum * 100) / 100} · AVG ${Math.round((selection.average ?? 0) * 100) / 100}` : '';
+    el('selection-status').textContent = b.r1 === b.r2 && b.c1 === b.c2 ? `${currentRef()} selected` : `${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)} selected`;
+}
 function renderTabs() {
     el('sheet-tab-list').innerHTML = doc.sheets.filter(x => !x.hidden).map(x => `<button type="button" class="sheet-tab ${doc.activeId === x.id ? 'active-tab' : ''}" data-sheet-id="${x.id}" ${x.tabColor ? `style="--sheet-tab-color:${x.tabColor}"` : ''} title="Switch to ${escapeHtml(x.name)}">▦ <span>${escapeHtml(x.name)}</span></button>`).join('');
     syncPageLayoutControls();
@@ -960,106 +1063,164 @@ function renderFormatControls() {
     el('fmt-color').value = style.color ?? (document.documentElement.dataset.theme === 'light' ? '#273d36' : '#d4dbef');
     el('fmt-fill').value = style.background ?? (document.documentElement.dataset.theme === 'light' ? '#ffffff' : '#131b2d');
 }
-function selectionRefs() { const b = sel(), count = (b.r2 - b.r1 + 1) * (b.c2 - b.c1 + 1); if (!Number.isSafeInteger(count) || count > MAX_WORKSHEET_POPULATED_CELLS)
-    throw Error(`Formatting is limited to ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()} cells at a time.`); const refs = []; for (let r = b.r1; r <= b.r2; r++)
-    for (let c = b.c1; c <= b.c2; c++)
-        refs.push(asRef(r, c)); return refs; }
+function selectionRefs() {
+    const b = sel(), count = (b.r2 - b.r1 + 1) * (b.c2 - b.c1 + 1);
+    if (!Number.isSafeInteger(count) || count > MAX_WORKSHEET_POPULATED_CELLS)
+        throw Error(`Formatting is limited to ${MAX_WORKSHEET_POPULATED_CELLS.toLocaleString()} cells at a time.`);
+    const refs = [];
+    for (let r = b.r1; r <= b.r2; r++)
+        for (let c = b.c1; c <= b.c2; c++)
+            refs.push(asRef(r, c));
+    return refs;
+}
 const mergeUndoHistory = new Map(), mergeRedoHistory = new Map();
-function pushMergeHistory(sheetId, record) { const stack = mergeUndoHistory.get(sheetId) ?? []; stack.push(record); if (stack.length > 150)
-    stack.shift(); mergeUndoHistory.set(sheetId, stack); mergeRedoHistory.delete(sheetId); }
-function undoWorkbook() { const sheetId = doc.activeId, token = book.undoToken; if (!book.undo())
-    return false; const stack = mergeUndoHistory.get(sheetId) ?? [], record = stack.at(-1); if (record && record.token === token) {
-    stack.pop();
+function pushMergeHistory(sheetId, record) {
+    const stack = mergeUndoHistory.get(sheetId) ?? [];
+    stack.push(record);
+    if (stack.length > 150)
+        stack.shift();
     mergeUndoHistory.set(sheetId, stack);
-    doc.active.tools.mergedRanges = [...record.before];
-    const redo = mergeRedoHistory.get(sheetId) ?? [];
-    redo.push(record);
-    mergeRedoHistory.set(sheetId, redo);
-} return true; }
-function redoWorkbook() { const sheetId = doc.activeId, token = book.redoToken; if (!book.redo())
-    return false; const stack = mergeRedoHistory.get(sheetId) ?? [], record = stack.at(-1); if (record && record.token === token) {
-    stack.pop();
-    mergeRedoHistory.set(sheetId, stack);
-    doc.active.tools.mergedRanges = [...record.after];
-    const undo = mergeUndoHistory.get(sheetId) ?? [];
-    undo.push(record);
-    mergeUndoHistory.set(sheetId, undo);
-} return true; }
-function mergeSelectedCells() { try {
-    const b = sel();
-    if (b.r1 === b.r2 && b.c1 === b.c2)
-        throw Error('Select at least two cells before merging.');
-    const range = normalizeMergedRange(`${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)}`, book.rows, book.cols), existing = doc.active.tools.mergedRanges;
-    if (existing.some(item => { const x = mergedRangeBounds(item); return b.r1 <= x.r2 && b.r2 >= x.r1 && b.c1 <= x.c2 && b.c2 >= x.c1; }))
-        throw Error('The selection overlaps an existing merged region. Unmerge it first.');
-    const intersects = (x) => b.r1 <= x.r2 && b.r2 >= x.r1 && b.c1 <= x.c2 && b.c2 >= x.c1, overlapsRef = (value) => { if (!value)
-        return false; const [first, last = ''] = value.split(':'), a = parseRef(first ?? ''), z = parseRef(last); return !!a && !!z && intersects({ r1: Math.min(a.row, z.row), r2: Math.max(a.row, z.row), c1: Math.min(a.col, z.col), c2: Math.max(a.col, z.col) }); };
-    if (doc.active.tools.tables.some(item => intersects(tableRange(item.range, book.rows, book.cols))) || doc.active.tools.pivotTables.some(item => overlapsRef(item.lastOutputRange)) || doc.active.tools.queries.some(item => overlapsRef(item.lastOutputRange)))
-        throw Error('Merged regions cannot overlap a table, PivotTable, or query output.');
-    const mergedRanges = validateTools({ ...doc.active.tools, mergedRanges: [...existing, range] }, book.rows, book.cols).mergedRanges, anchorRef = asRef(b.r1, b.c1), discarded = book.allEntries().filter(item => { const point = parseRef(item.ref); return !!point && point.row >= b.r1 && point.row <= b.r2 && point.col >= b.c1 && point.col <= b.c2 && item.ref !== anchorRef && item.raw !== ''; });
-    if (discarded.length && !window.confirm(`Merging these cells will clear ${discarded.length} non-empty cell${discarded.length === 1 ? '' : 's'} other than ${anchorRef}. Continue?`))
+    mergeRedoHistory.delete(sheetId);
+}
+function undoWorkbook() {
+    const sheetId = doc.activeId, token = book.undoToken;
+    if (!book.undo())
+        return false;
+    const stack = mergeUndoHistory.get(sheetId) ?? [], record = stack.at(-1);
+    if (record && record.token === token) {
+        stack.pop();
+        mergeUndoHistory.set(sheetId, stack);
+        doc.active.tools.mergedRanges = [...record.before];
+        const redo = mergeRedoHistory.get(sheetId) ?? [];
+        redo.push(record);
+        mergeRedoHistory.set(sheetId, redo);
+    }
+    return true;
+}
+function redoWorkbook() {
+    const sheetId = doc.activeId, token = book.redoToken;
+    if (!book.redo())
+        return false;
+    const stack = mergeRedoHistory.get(sheetId) ?? [], record = stack.at(-1);
+    if (record && record.token === token) {
+        stack.pop();
+        mergeRedoHistory.set(sheetId, stack);
+        doc.active.tools.mergedRanges = [...record.after];
+        const undo = mergeUndoHistory.get(sheetId) ?? [];
+        undo.push(record);
+        mergeUndoHistory.set(sheetId, undo);
+    }
+    return true;
+}
+function mergeSelectedCells() {
+    try {
+        const b = sel();
+        if (b.r1 === b.r2 && b.c1 === b.c2)
+            throw Error('Select at least two cells before merging.');
+        const range = normalizeMergedRange(`${asRef(b.r1, b.c1)}:${asRef(b.r2, b.c2)}`, book.rows, book.cols), existing = doc.active.tools.mergedRanges;
+        if (existing.some(item => { const x = mergedRangeBounds(item); return b.r1 <= x.r2 && b.r2 >= x.r1 && b.c1 <= x.c2 && b.c2 >= x.c1; }))
+            throw Error('The selection overlaps an existing merged region. Unmerge it first.');
+        const intersects = (x) => b.r1 <= x.r2 && b.r2 >= x.r1 && b.c1 <= x.c2 && b.c2 >= x.c1, overlapsRef = (value) => {
+            if (!value)
+                return false;
+            const [first, last = ''] = value.split(':'), a = parseRef(first ?? ''), z = parseRef(last);
+            return !!a && !!z && intersects({ r1: Math.min(a.row, z.row), r2: Math.max(a.row, z.row), c1: Math.min(a.col, z.col), c2: Math.max(a.col, z.col) });
+        };
+        if (doc.active.tools.tables.some(item => intersects(tableRange(item.range, book.rows, book.cols))) || doc.active.tools.pivotTables.some(item => overlapsRef(item.lastOutputRange)) || doc.active.tools.queries.some(item => overlapsRef(item.lastOutputRange)))
+            throw Error('Merged regions cannot overlap a table, PivotTable, or query output.');
+        const mergedRanges = validateTools({ ...doc.active.tools, mergedRanges: [...existing, range] }, book.rows, book.cols).mergedRanges, anchorRef = asRef(b.r1, b.c1), discarded = book.allEntries().filter(item => { const point = parseRef(item.ref); return !!point && point.row >= b.r1 && point.row <= b.r2 && point.col >= b.c1 && point.col <= b.c2 && item.ref !== anchorRef && item.raw !== ''; });
+        if (discarded.length && !window.confirm(`Merging these cells will clear ${discarded.length} non-empty cell${discarded.length === 1 ? '' : 's'} other than ${anchorRef}. Continue?`))
+            return;
+        const edits = discarded.map(item => ({ ref: item.ref, raw: '' })), anchorStyle = book.getStyle(anchorRef), styles = [{ ref: anchorRef, style: { ...anchorStyle, align: 'center', verticalAlign: 'center' } }], priorToken = book.undoToken;
+        book.applyTransaction(edits, styles);
+        if (book.undoToken === priorToken)
+            book.recordHistoryCheckpoint();
+        const token = book.undoToken;
+        doc.active.tools.mergedRanges = mergedRanges;
+        pushMergeHistory(doc.activeId, { token, before: [...existing], after: [...mergedRanges] });
+        if (edits.length) {
+            scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: edits.map(edit => edit.ref) }]);
+            flushPendingPivotRefreshes();
+        }
+        save();
+        refresh();
+        toast(`Merged ${range} and centered ${anchorRef}.`);
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Unable to merge this selection.');
+    }
+}
+function unmergeSelectedCells() {
+    const b = sel(), prior = doc.active.tools.mergedRanges, remaining = prior.filter(item => { const merge = mergedRangeBounds(item); return !merge || b.r1 > merge.r2 || b.r2 < merge.r1 || b.c1 > merge.c2 || b.c2 < merge.c1; });
+    if (remaining.length === prior.length) {
+        toast('The selection does not include a merged region.');
         return;
-    const edits = discarded.map(item => ({ ref: item.ref, raw: '' })), anchorStyle = book.getStyle(anchorRef), styles = [{ ref: anchorRef, style: { ...anchorStyle, align: 'center', verticalAlign: 'center' } }], priorToken = book.undoToken;
-    book.applyTransaction(edits, styles);
-    if (book.undoToken === priorToken)
-        book.recordHistoryCheckpoint();
+    }
+    book.recordHistoryCheckpoint();
     const token = book.undoToken;
-    doc.active.tools.mergedRanges = mergedRanges;
-    pushMergeHistory(doc.activeId, { token, before: [...existing], after: [...mergedRanges] });
-    if (edits.length) {
-        scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: edits.map(edit => edit.ref) }]);
-        flushPendingPivotRefreshes();
-    }
+    doc.active.tools.mergedRanges = remaining;
+    pushMergeHistory(doc.activeId, { token, before: [...prior], after: [...remaining] });
     save();
     refresh();
-    toast(`Merged ${range} and centered ${anchorRef}.`);
+    toast(`Unmerged ${prior.length - remaining.length} region${prior.length - remaining.length === 1 ? '' : 's'}.`);
 }
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Unable to merge this selection.');
-} }
-function unmergeSelectedCells() { const b = sel(), prior = doc.active.tools.mergedRanges, remaining = prior.filter(item => { const merge = mergedRangeBounds(item); return !merge || b.r1 > merge.r2 || b.r2 < merge.r1 || b.c1 > merge.c2 || b.c2 < merge.c1; }); if (remaining.length === prior.length) {
-    toast('The selection does not include a merged region.');
-    return;
-} book.recordHistoryCheckpoint(); const token = book.undoToken; doc.active.tools.mergedRanges = remaining; pushMergeHistory(doc.activeId, { token, before: [...prior], after: [...remaining] }); save(); refresh(); toast(`Unmerged ${prior.length - remaining.length} region${prior.length - remaining.length === 1 ? '' : 's'}.`); }
 function styledRefsInSelection() { const b = sel(); return book.allStyles().filter(item => { const point = parseRef(item.ref); return !!point && point.row >= b.r1 && point.row <= b.r2 && point.col >= b.c1 && point.col <= b.c2; }).map(item => item.ref); }
-function applyStyle(patch) { try {
-    const selected = selectionRefs();
-    book.patchStyles(selected, patch);
-    if (recorder)
-        recorder.steps.push({ kind: 'styles', sheetName: doc.active.name, edits: selected.map(ref => ({ ref, style: book.getStyle(ref) })) });
-    save();
-    refresh();
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Invalid format');
-} }
-function applyBorderTarget(target) { try {
-    const selected = selectionRefs(), styleValue = el('fmt-border-style').value, weight = el('fmt-border-weight').value, color = el('fmt-border-color').value, edgesFor = (style) => { if (style.borderEdges)
-        return { ...style.borderEdges }; if (!style.border)
-        return {}; const sides = style.border === 'all' ? ['left', 'right', 'top', 'bottom'] : [style.border]; return Object.fromEntries(sides.map(edge => [edge, { style: style.borderStyle ?? 'solid', weight: style.borderWeight ?? 'thin', ...(style.borderColor ? { color: style.borderColor } : {}) }])); }, styles = selected.map(ref => { const next = { ...book.getStyle(ref) }, edges = edgesFor(next); delete next.border; delete next.borderStyle; delete next.borderWeight; delete next.borderColor; if (target === 'none') {
-        for (const edge of ['left', 'right', 'top', 'bottom'])
-            delete edges[edge];
-        delete next.borderDiagonal;
+function applyStyle(patch) {
+    try {
+        const selected = selectionRefs();
+        book.patchStyles(selected, patch);
+        if (recorder)
+            recorder.steps.push({ kind: 'styles', sheetName: doc.active.name, edits: selected.map(ref => ({ ref, style: book.getStyle(ref) })) });
+        save();
+        refresh();
     }
-    else if (target.startsWith('diagonal'))
-        next.borderDiagonal = { up: target === 'diagonal-up' || target === 'diagonals', down: target === 'diagonal-down' || target === 'diagonals', style: styleValue, weight, color };
-    else {
-        const sides = target === 'all' ? ['left', 'right', 'top', 'bottom'] : [target];
-        for (const side of sides)
-            edges[side] = { style: styleValue, weight, color };
-    } if (Object.keys(edges).length)
-        next.borderEdges = edges;
-    else
-        delete next.borderEdges; return { ref, style: next }; });
-    book.applyStyles(styles);
-    if (recorder)
-        recorder.steps.push({ kind: 'styles', sheetName: doc.active.name, edits: selected.map(ref => ({ ref, style: book.getStyle(ref) })) });
-    save();
-    refresh();
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Invalid format');
+    }
 }
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid border settings.');
-} }
+function applyBorderTarget(target) {
+    try {
+        const selected = selectionRefs(), styleValue = el('fmt-border-style').value, weight = el('fmt-border-weight').value, color = el('fmt-border-color').value, edgesFor = (style) => {
+            if (style.borderEdges)
+                return { ...style.borderEdges };
+            if (!style.border)
+                return {};
+            const sides = style.border === 'all' ? ['left', 'right', 'top', 'bottom'] : [style.border];
+            return Object.fromEntries(sides.map(edge => [edge, { style: style.borderStyle ?? 'solid', weight: style.borderWeight ?? 'thin', ...(style.borderColor ? { color: style.borderColor } : {}) }]));
+        }, styles = selected.map(ref => {
+            const next = { ...book.getStyle(ref) }, edges = edgesFor(next);
+            delete next.border;
+            delete next.borderStyle;
+            delete next.borderWeight;
+            delete next.borderColor;
+            if (target === 'none') {
+                for (const edge of ['left', 'right', 'top', 'bottom'])
+                    delete edges[edge];
+                delete next.borderDiagonal;
+            }
+            else if (target.startsWith('diagonal'))
+                next.borderDiagonal = { up: target === 'diagonal-up' || target === 'diagonals', down: target === 'diagonal-down' || target === 'diagonals', style: styleValue, weight, color };
+            else {
+                const sides = target === 'all' ? ['left', 'right', 'top', 'bottom'] : [target];
+                for (const side of sides)
+                    edges[side] = { style: styleValue, weight, color };
+            }
+            if (Object.keys(edges).length)
+                next.borderEdges = edges;
+            else
+                delete next.borderEdges;
+            return { ref, style: next };
+        });
+        book.applyStyles(styles);
+        if (recorder)
+            recorder.steps.push({ kind: 'styles', sheetName: doc.active.name, edits: selected.map(ref => ({ ref, style: book.getStyle(ref) })) });
+        save();
+        refresh();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid border settings.');
+    }
+}
 function conditionalIconVisual(icon) {
     const colors = icon.iconSet.includes('Gray') ? ['#666666', '#777777', '#888888', '#999999', '#aaaaaa'] : icon.iconSet === '4RedToBlack' ? ['#f44336', '#c62828', '#6d2020', '#111111'] : icon.count === 3 ? ['#d84343', '#dfb32e', '#27965a'] : icon.count === 4 ? ['#d84343', '#e77c32', '#dfb32e', '#27965a'] : ['#d84343', '#e77c32', '#dfb32e', '#82b366', '#27965a'], index = Math.max(0, Math.min(icon.count - 1, icon.index));
     if (icon.iconSet === '4RedToBlack')
@@ -1181,13 +1342,19 @@ function renderGrid() {
                     button.setAttribute('aria-label', `${control.collapsed ? 'Expand' : 'Collapse'} PivotTable ${axisName} group ${caption}`);
                     button.setAttribute('aria-expanded', String(!control.collapsed));
                     button.addEventListener('pointerdown', event => { event.preventDefault(); event.stopPropagation(); });
-                    button.addEventListener('click', async (event) => { event.preventDefault(); event.stopPropagation(); if (busyPivotGroupIds.has(control.pivotId))
-                        return; button.disabled = true; try {
-                        await togglePivotRowGroup(control);
-                    }
-                    finally {
-                        button.disabled = false;
-                    } });
+                    button.addEventListener('click', async (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (busyPivotGroupIds.has(control.pivotId))
+                            return;
+                        button.disabled = true;
+                        try {
+                            await togglePivotRowGroup(control);
+                        }
+                        finally {
+                            button.disabled = false;
+                        }
+                    });
                     groupControls.append(button);
                 }
                 node.append(groupControls);
@@ -1383,33 +1550,44 @@ function renderCharts() {
     if (pending.length)
         window.setTimeout(paintNext, 0);
 }
-function drawingPath(stroke) { const points = stroke.points; if (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') {
-    const a = points[0], b = points.at(-1);
-    if (stroke.tool === 'rectangle') {
-        const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), h = Math.abs(a[1] - b[1]);
-        return `M${x} ${y}H${x + w}V${y + h}H${x}Z`;
+function drawingPath(stroke) {
+    const points = stroke.points;
+    if (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') {
+        const a = points[0], b = points.at(-1);
+        if (stroke.tool === 'rectangle') {
+            const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), h = Math.abs(a[1] - b[1]);
+            return `M${x} ${y}H${x + w}V${y + h}H${x}Z`;
+        }
+        const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(a[0] - b[0]) / 2, ry = Math.abs(a[1] - b[1]) / 2;
+        return `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${rx * 2} 0a${rx} ${ry} 0 1 0 ${-rx * 2} 0`;
     }
-    const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(a[0] - b[0]) / 2, ry = Math.abs(a[1] - b[1]) / 2;
-    return `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${rx * 2} 0a${rx} ${ry} 0 1 0 ${-rx * 2} 0`;
-} return points.map((point, index) => `${index ? 'L' : 'M'}${point[0]} ${point[1]}`).join(' '); }
-function updateDrawingSelection(svg) { if (svg)
-    for (const item of Array.from(svg.querySelectorAll('[data-ink-id]'))) {
-        const selected = selectedDrawingIds.has(item.dataset.inkId ?? '');
-        item.dataset.selected = String(selected);
-        item.setAttribute('aria-pressed', String(selected));
-    } el('draw-delete-selected').disabled = selectedDrawingIds.size === 0; el('draw-duplicate-selected').disabled = selectedDrawingIds.size === 0; }
-function changeDrawingSelection(id, additive, svg) { if (id) {
-    if (additive) {
-        if (selectedDrawingIds.has(id))
-            selectedDrawingIds.delete(id);
-        else
-            selectedDrawingIds.add(id);
-    }
-    else if (!selectedDrawingIds.has(id))
-        selectedDrawingIds = new Set([id]);
+    return points.map((point, index) => `${index ? 'L' : 'M'}${point[0]} ${point[1]}`).join(' ');
 }
-else if (!additive)
-    selectedDrawingIds.clear(); updateDrawingSelection(svg); }
+function updateDrawingSelection(svg) {
+    if (svg)
+        for (const item of Array.from(svg.querySelectorAll('[data-ink-id]'))) {
+            const selected = selectedDrawingIds.has(item.dataset.inkId ?? '');
+            item.dataset.selected = String(selected);
+            item.setAttribute('aria-pressed', String(selected));
+        }
+    el('draw-delete-selected').disabled = selectedDrawingIds.size === 0;
+    el('draw-duplicate-selected').disabled = selectedDrawingIds.size === 0;
+}
+function changeDrawingSelection(id, additive, svg) {
+    if (id) {
+        if (additive) {
+            if (selectedDrawingIds.has(id))
+                selectedDrawingIds.delete(id);
+            else
+                selectedDrawingIds.add(id);
+        }
+        else if (!selectedDrawingIds.has(id))
+            selectedDrawingIds = new Set([id]);
+    }
+    else if (!additive)
+        selectedDrawingIds.clear();
+    updateDrawingSelection(svg);
+}
 function renderDrawings() {
     const saved = doc.active.tools.drawings, strokes = activeDrawStroke ? [...saved, activeDrawStroke] : saved;
     for (const id of selectedDrawingIds)
@@ -1481,41 +1659,74 @@ function renderDrawings() {
             path.setAttribute('marker-end', 'url(#gridforge-ink-arrow)');
         svg.append(path);
     }
-    svg.addEventListener('pointerdown', event => { if (!drawingSelectionMode)
-        return; event.preventDefault(); event.stopPropagation(); const target = event.target, object = target instanceof Element ? target.closest('[data-ink-id]') : null, id = object?.dataset.inkId, stroke = doc.active.tools.drawings.find(item => item.id === id), additive = event.shiftKey || event.ctrlKey || event.metaKey; changeDrawingSelection(stroke?.id ?? null, additive, svg); if (object)
-        try {
-            object.focus({ preventScroll: true });
+    svg.addEventListener('pointerdown', event => {
+        if (!drawingSelectionMode)
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        const target = event.target, object = target instanceof Element ? target.closest('[data-ink-id]') : null, id = object?.dataset.inkId, stroke = doc.active.tools.drawings.find(item => item.id === id), additive = event.shiftKey || event.ctrlKey || event.metaKey;
+        changeDrawingSelection(stroke?.id ?? null, additive, svg);
+        if (object)
+            try {
+                object.focus({ preventScroll: true });
+            }
+            catch {
+                object.focus();
+            }
+        if (!stroke || !selectedDrawingIds.has(stroke.id))
+            return;
+        draggingDrawing = { ids: [...selectedDrawingIds], start: drawPoint(event), points: new Map([...selectedDrawingIds].map(selectedId => { const selected = doc.active.tools.drawings.find(item => item.id === selectedId); return [selectedId, selected.points.map(point => [point[0], point[1]])]; })) };
+        svg.setPointerCapture(event.pointerId);
+    });
+    svg.addEventListener('keydown', event => {
+        if (!drawingSelectionMode || event.key !== 'Enter' && event.key !== ' ')
+            return;
+        const object = event.target instanceof Element ? event.target.closest('[data-ink-id]') : null, id = object?.dataset.inkId;
+        if (!id)
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        changeDrawingSelection(id, event.shiftKey || event.ctrlKey || event.metaKey, svg);
+    });
+    svg.addEventListener('pointermove', event => {
+        if (!draggingDrawing || !svg.hasPointerCapture(event.pointerId))
+            return;
+        const point = drawPoint(event), dx = point[0] - draggingDrawing.start[0], dy = point[1] - draggingDrawing.start[1];
+        for (const id of draggingDrawing.ids) {
+            const stroke = doc.active.tools.drawings.find(item => item.id === id), original = draggingDrawing.points.get(id);
+            if (!stroke || !original)
+                continue;
+            stroke.points = original.map(([x, y]) => [Math.max(0, Math.min(30000, x + dx)), Math.max(0, Math.min(30000, y + dy))]);
+            const object = svg.querySelector(`[data-ink-id="${CSS.escape(id)}"]`);
+            if (stroke.tool === 'text') {
+                object?.setAttribute('x', String(stroke.points[0][0]));
+                object?.setAttribute('y', String(stroke.points[0][1]));
+            }
+            else
+                object?.setAttribute('d', drawingPath(stroke));
         }
-        catch {
-            object.focus();
-        } if (!stroke || !selectedDrawingIds.has(stroke.id))
-        return; draggingDrawing = { ids: [...selectedDrawingIds], start: drawPoint(event), points: new Map([...selectedDrawingIds].map(selectedId => { const selected = doc.active.tools.drawings.find(item => item.id === selectedId); return [selectedId, selected.points.map(point => [point[0], point[1]])]; })) }; svg.setPointerCapture(event.pointerId); });
-    svg.addEventListener('keydown', event => { if (!drawingSelectionMode || event.key !== 'Enter' && event.key !== ' ')
-        return; const object = event.target instanceof Element ? event.target.closest('[data-ink-id]') : null, id = object?.dataset.inkId; if (!id)
-        return; event.preventDefault(); event.stopPropagation(); changeDrawingSelection(id, event.shiftKey || event.ctrlKey || event.metaKey, svg); });
-    svg.addEventListener('pointermove', event => { if (!draggingDrawing || !svg.hasPointerCapture(event.pointerId))
-        return; const point = drawPoint(event), dx = point[0] - draggingDrawing.start[0], dy = point[1] - draggingDrawing.start[1]; for (const id of draggingDrawing.ids) {
-        const stroke = doc.active.tools.drawings.find(item => item.id === id), original = draggingDrawing.points.get(id);
-        if (!stroke || !original)
-            continue;
-        stroke.points = original.map(([x, y]) => [Math.max(0, Math.min(30000, x + dx)), Math.max(0, Math.min(30000, y + dy))]);
-        const object = svg.querySelector(`[data-ink-id="${CSS.escape(id)}"]`);
-        if (stroke.tool === 'text') {
-            object?.setAttribute('x', String(stroke.points[0][0]));
-            object?.setAttribute('y', String(stroke.points[0][1]));
+    });
+    svg.addEventListener('pointerup', event => {
+        if (!draggingDrawing || !svg.hasPointerCapture(event.pointerId))
+            return;
+        const ids = draggingDrawing.ids;
+        draggingDrawing = null;
+        for (const id of ids)
+            drawingBoundsCache.delete(id);
+        save();
+        el('draw-state').textContent = `${ids.length} object${ids.length === 1 ? '' : 's'} selected · drag to move, Delete to remove; Ctrl/Shift-click adds objects.`;
+    });
+    svg.addEventListener('pointercancel', () => {
+        if (!draggingDrawing)
+            return;
+        for (const id of draggingDrawing.ids) {
+            const stroke = doc.active.tools.drawings.find(item => item.id === id), original = draggingDrawing.points.get(id);
+            if (stroke && original)
+                stroke.points = original.map(point => [point[0], point[1]]);
         }
-        else
-            object?.setAttribute('d', drawingPath(stroke));
-    } });
-    svg.addEventListener('pointerup', event => { if (!draggingDrawing || !svg.hasPointerCapture(event.pointerId))
-        return; const ids = draggingDrawing.ids; draggingDrawing = null; for (const id of ids)
-        drawingBoundsCache.delete(id); save(); el('draw-state').textContent = `${ids.length} object${ids.length === 1 ? '' : 's'} selected · drag to move, Delete to remove; Ctrl/Shift-click adds objects.`; });
-    svg.addEventListener('pointercancel', () => { if (!draggingDrawing)
-        return; for (const id of draggingDrawing.ids) {
-        const stroke = doc.active.tools.drawings.find(item => item.id === id), original = draggingDrawing.points.get(id);
-        if (stroke && original)
-            stroke.points = original.map(point => [point[0], point[1]]);
-    } draggingDrawing = null; renderDrawings(); });
+        draggingDrawing = null;
+        renderDrawings();
+    });
     surface.append(svg);
 }
 function renderPageBreakPreview() {
@@ -1554,105 +1765,153 @@ function renderPageBreakPreview() {
 }
 const busyPivotSlicerIds = new Set(), busyPivotGroupIds = new Set(), pivotSlicerSearch = new Map(), pivotSlicerValueCache = new Map();
 function pivotSlicerSource(spec) { const name = spec.sourceSheet ?? doc.active.name; return doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === name.toLocaleLowerCase())?.book; }
-function pivotSlicerValues(spec, field) { const source = pivotSlicerSource(spec); if (!source)
-    return []; const cacheKey = `${spec.id}:${spec.sourceSheet ?? doc.active.name}:${spec.sourceRange}:${field}`, cached = pivotSlicerValueCache.get(cacheKey); if (cached?.source === source && cached.revision === source.valueRevision)
-    return cached.values; const [first, last = first] = spec.sourceRange.split(':'), a = parseRef(first ?? ''), b = parseRef(last ?? ''); if (!a || !b)
-    return []; const values = [], seen = new Set(); for (let row = a.row + 1; row <= b.row; row++) {
-    const cell = source.getValue(`${colToName(a.col + field)}${row + 1}`), value = cell.value === null || cell.value === '' ? null : display(cell), key = JSON.stringify(value).toLocaleLowerCase();
-    if (!seen.has(key)) {
-        seen.add(key);
-        values.push(value);
+function pivotSlicerValues(spec, field) {
+    const source = pivotSlicerSource(spec);
+    if (!source)
+        return [];
+    const cacheKey = `${spec.id}:${spec.sourceSheet ?? doc.active.name}:${spec.sourceRange}:${field}`, cached = pivotSlicerValueCache.get(cacheKey);
+    if (cached?.source === source && cached.revision === source.valueRevision)
+        return cached.values;
+    const [first, last = first] = spec.sourceRange.split(':'), a = parseRef(first ?? ''), b = parseRef(last ?? '');
+    if (!a || !b)
+        return [];
+    const values = [], seen = new Set();
+    for (let row = a.row + 1; row <= b.row; row++) {
+        const cell = source.getValue(`${colToName(a.col + field)}${row + 1}`), value = cell.value === null || cell.value === '' ? null : display(cell), key = JSON.stringify(value).toLocaleLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            values.push(value);
+        }
     }
-} pivotSlicerValueCache.set(cacheKey, { source, revision: source.valueRevision, values }); return values; }
-function pivotSlicerPivots(slicer) { const ids = new Set([slicer.pivotId, ...(slicer.pivotIds ?? [])]); return doc.active.tools.pivotTables.filter(pivot => ids.has(pivot.id)); }
-async function refreshPivotSlicerTargets(pivots) { if (!pivots.length)
-    return true; return await refreshAllPivotSummaries(undefined, new Set(pivots.map(pivot => pivot.id))) === pivots.length; }
-function setPivotSlicerBusy(id, busy) { if (busy)
-    busyPivotSlicerIds.add(id);
-else
-    busyPivotSlicerIds.delete(id); const card = surface.querySelector('[data-pivot-slicer-id="' + CSS.escape(id) + '"]'); if (card)
-    for (const control of Array.from(card.querySelectorAll('button,input')))
-        control.disabled = busy; }
-async function deletePivotSlicer(slicer) { if (busyPivotSlicerIds.has(slicer.id))
-    return; const pivots = pivotSlicerPivots(slicer), previous = pivots.map(pivot => [pivot, pivot.itemFilters]), saved = new Map((slicer.priorFilters ?? []).map(item => [item.pivotId, item.values])); busyPivotSlicerIds.add(slicer.id); setPivotSlicerBusy(slicer.id, true); try {
-    for (const pivot of pivots) {
-        const next = (pivot.itemFilters ?? []).filter(item => item.field !== slicer.field), prior = saved.get(pivot.id);
-        if (prior !== undefined && prior !== null)
-            next.push({ field: slicer.field, values: [...prior] });
-        pivot.itemFilters = next.length ? next : undefined;
-    }
-    if (pivots.length && !await refreshPivotSlicerTargets(pivots)) {
-        for (const [pivot, itemFilters] of previous)
-            pivot.itemFilters = itemFilters;
-        await refreshPivotSlicerTargets(pivots);
-        toast('The slicer was kept because its Pivot Summaries could not be refreshed.');
-        return;
-    }
-    doc.active.tools.pivotSlicers = doc.active.tools.pivotSlicers.filter(item => item.id !== slicer.id);
-    pivotSlicerSearch.delete(slicer.id);
-    save();
+    pivotSlicerValueCache.set(cacheKey, { source, revision: source.valueRevision, values });
+    return values;
 }
-finally {
-    setPivotSlicerBusy(slicer.id, false);
-    refresh();
-} }
-function renderPivotSlicers() { for (const slicer of doc.active.tools.pivotSlicers) {
-    const pivot = doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId);
-    if (!pivot)
-        continue;
-    const allValues = pivotSlicerValues(pivot, slicer.field), query = (pivotSlicerSearch.get(slicer.id) ?? '').trim().toLocaleLowerCase(), visible = allValues.filter(value => (value ?? '(blank)').toLocaleLowerCase().includes(query)).slice(0, 250), itemFilter = pivot.itemFilters?.find(item => item.field === slicer.field), selected = itemFilter?.values ?? [], isAll = !itemFilter, card = document.createElement('section');
-    card.className = 'worksheet-pivot-slicer';
-    card.dataset.pivotSlicerId = slicer.id;
-    card.style.left = `${slicer.x}px`;
-    card.style.top = `${slicer.y}px`;
-    card.style.width = `${slicer.width}px`;
-    card.style.height = `${slicer.height}px`;
-    card.setAttribute('role', 'group');
-    card.setAttribute('aria-label', `${slicer.caption} slicer`);
-    card.innerHTML = `<div class="pivot-slicer-head" data-pivot-slicer-head><strong>${escapeHtml(slicer.caption)}</strong><button type="button" data-pivot-slicer-clear title="Clear filter" aria-label="Clear ${escapeHtml(slicer.caption)} filter">↺</button><button type="button" data-pivot-slicer-connect title="Edit Pivot Summary connections" aria-label="Edit ${escapeHtml(slicer.caption)} connections">⛓</button><button type="button" data-pivot-slicer-delete title="Delete slicer" aria-label="Delete ${escapeHtml(slicer.caption)} slicer">✕</button></div><input class="pivot-slicer-search" type="search" data-pivot-slicer-search placeholder="Search items" value="${escapeHtml(pivotSlicerSearch.get(slicer.id) ?? '')}" aria-label="Search ${escapeHtml(slicer.caption)}"><div class="pivot-slicer-items">${visible.map(value => { const encoded = JSON.stringify(value), active = isAll || selected.some(item => JSON.stringify(item).toLocaleLowerCase() === encoded.toLocaleLowerCase()); return `<button type="button" data-pivot-slicer-value="${escapeHtml(encoded)}" class="pivot-slicer-item${active ? ' active' : ''}" aria-pressed="${active}">${escapeHtml(value ?? '(blank)')}</button>`; }).join('')}</div>${allValues.length > 250 ? `<span class="pivot-slicer-hint">Showing 250 of ${allValues.length}. Search to find more.</span>` : ''}<span class="pivot-slicer-resize" title="Resize slicer" aria-label="Resize slicer">◢</span>`;
-    surface.appendChild(card);
-    if (busyPivotSlicerIds.has(slicer.id))
+function pivotSlicerPivots(slicer) { const ids = new Set([slicer.pivotId, ...(slicer.pivotIds ?? [])]); return doc.active.tools.pivotTables.filter(pivot => ids.has(pivot.id)); }
+async function refreshPivotSlicerTargets(pivots) {
+    if (!pivots.length)
+        return true;
+    return await refreshAllPivotSummaries(undefined, new Set(pivots.map(pivot => pivot.id))) === pivots.length;
+}
+function setPivotSlicerBusy(id, busy) {
+    if (busy)
+        busyPivotSlicerIds.add(id);
+    else
+        busyPivotSlicerIds.delete(id);
+    const card = surface.querySelector('[data-pivot-slicer-id="' + CSS.escape(id) + '"]');
+    if (card)
         for (const control of Array.from(card.querySelectorAll('button,input')))
-            control.disabled = true;
-    const search = card.querySelector('[data-pivot-slicer-search]');
-    search?.addEventListener('input', () => { pivotSlicerSearch.set(slicer.id, search.value); const caret = search.selectionStart ?? search.value.length; renderPivotSlicers(); const next = surface.querySelector(`[data-pivot-slicer-id="${CSS.escape(slicer.id)}"] [data-pivot-slicer-search]`); next?.focus(); next?.setSelectionRange(caret, caret); });
-    card.querySelector('[data-pivot-slicer-clear]')?.addEventListener('click', () => applyPivotSlicerFilter(slicer, null));
-    card.querySelector('[data-pivot-slicer-connect]')?.addEventListener('click', () => openPivotSlicerConnections(slicer));
-    card.querySelector('[data-pivot-slicer-delete]')?.addEventListener('click', () => deletePivotSlicer(slicer));
-    for (const button of Array.from(card.querySelectorAll('[data-pivot-slicer-value]')))
-        button.addEventListener('click', () => { const value = JSON.parse(button.dataset.pivotSlicerValue ?? 'null'), prior = pivot.itemFilters?.find(item => item.field === slicer.field), selected = prior?.values ?? [], contains = selected.some(item => JSON.stringify(item).toLocaleLowerCase() === JSON.stringify(value).toLocaleLowerCase()), next = !prior ? [value] : contains ? selected.filter(item => JSON.stringify(item).toLocaleLowerCase() !== JSON.stringify(value).toLocaleLowerCase()) : [...selected, value]; applyPivotSlicerFilter(slicer, next.length === allValues.length ? null : next); });
-} }
-async function applyPivotSlicerFilter(slicer, values) { if (busyPivotSlicerIds.has(slicer.id))
-    return; const pivots = pivotSlicerPivots(slicer); if (!pivots.length)
-    return; const previous = pivots.map(pivot => [pivot, pivot.itemFilters]); busyPivotSlicerIds.add(slicer.id); setPivotSlicerBusy(slicer.id, true); try {
-    for (const pivot of pivots) {
-        const itemFilters = (pivot.itemFilters ?? []).filter(item => item.field !== slicer.field);
-        if (values !== null)
-            itemFilters.push({ field: slicer.field, values: [...values] });
-        pivot.itemFilters = itemFilters.length ? itemFilters : undefined;
-    }
-    if (await refreshPivotSlicerTargets(pivots)) {
+            control.disabled = busy;
+}
+async function deletePivotSlicer(slicer) {
+    if (busyPivotSlicerIds.has(slicer.id))
+        return;
+    const pivots = pivotSlicerPivots(slicer), previous = pivots.map(pivot => [pivot, pivot.itemFilters]), saved = new Map((slicer.priorFilters ?? []).map(item => [item.pivotId, item.values]));
+    busyPivotSlicerIds.add(slicer.id);
+    setPivotSlicerBusy(slicer.id, true);
+    try {
+        for (const pivot of pivots) {
+            const next = (pivot.itemFilters ?? []).filter(item => item.field !== slicer.field), prior = saved.get(pivot.id);
+            if (prior !== undefined && prior !== null)
+                next.push({ field: slicer.field, values: [...prior] });
+            pivot.itemFilters = next.length ? next : undefined;
+        }
+        if (pivots.length && !await refreshPivotSlicerTargets(pivots)) {
+            for (const [pivot, itemFilters] of previous)
+                pivot.itemFilters = itemFilters;
+            await refreshPivotSlicerTargets(pivots);
+            toast('The slicer was kept because its Pivot Summaries could not be refreshed.');
+            return;
+        }
+        doc.active.tools.pivotSlicers = doc.active.tools.pivotSlicers.filter(item => item.id !== slicer.id);
+        pivotSlicerSearch.delete(slicer.id);
         save();
     }
-    else {
-        for (const [pivot, itemFilters] of previous)
-            pivot.itemFilters = itemFilters;
-        await refreshPivotSlicerTargets(pivots);
-        toast('The Pivot Summaries could not be refreshed; their previous slicer selections were restored.');
+    finally {
+        setPivotSlicerBusy(slicer.id, false);
+        refresh();
     }
 }
-finally {
-    setPivotSlicerBusy(slicer.id, false);
-    refresh();
-} }
+function renderPivotSlicers() {
+    for (const slicer of doc.active.tools.pivotSlicers) {
+        const pivot = doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId);
+        if (!pivot)
+            continue;
+        const allValues = pivotSlicerValues(pivot, slicer.field), query = (pivotSlicerSearch.get(slicer.id) ?? '').trim().toLocaleLowerCase(), visible = allValues.filter(value => (value ?? '(blank)').toLocaleLowerCase().includes(query)).slice(0, 250), itemFilter = pivot.itemFilters?.find(item => item.field === slicer.field), selected = itemFilter?.values ?? [], isAll = !itemFilter, card = document.createElement('section');
+        card.className = 'worksheet-pivot-slicer';
+        card.dataset.pivotSlicerId = slicer.id;
+        card.style.left = `${slicer.x}px`;
+        card.style.top = `${slicer.y}px`;
+        card.style.width = `${slicer.width}px`;
+        card.style.height = `${slicer.height}px`;
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', `${slicer.caption} slicer`);
+        card.innerHTML = `<div class="pivot-slicer-head" data-pivot-slicer-head><strong>${escapeHtml(slicer.caption)}</strong><button type="button" data-pivot-slicer-clear title="Clear filter" aria-label="Clear ${escapeHtml(slicer.caption)} filter">↺</button><button type="button" data-pivot-slicer-connect title="Edit Pivot Summary connections" aria-label="Edit ${escapeHtml(slicer.caption)} connections">⛓</button><button type="button" data-pivot-slicer-delete title="Delete slicer" aria-label="Delete ${escapeHtml(slicer.caption)} slicer">✕</button></div><input class="pivot-slicer-search" type="search" data-pivot-slicer-search placeholder="Search items" value="${escapeHtml(pivotSlicerSearch.get(slicer.id) ?? '')}" aria-label="Search ${escapeHtml(slicer.caption)}"><div class="pivot-slicer-items">${visible.map(value => { const encoded = JSON.stringify(value), active = isAll || selected.some(item => JSON.stringify(item).toLocaleLowerCase() === encoded.toLocaleLowerCase()); return `<button type="button" data-pivot-slicer-value="${escapeHtml(encoded)}" class="pivot-slicer-item${active ? ' active' : ''}" aria-pressed="${active}">${escapeHtml(value ?? '(blank)')}</button>`; }).join('')}</div>${allValues.length > 250 ? `<span class="pivot-slicer-hint">Showing 250 of ${allValues.length}. Search to find more.</span>` : ''}<span class="pivot-slicer-resize" title="Resize slicer" aria-label="Resize slicer">◢</span>`;
+        surface.appendChild(card);
+        if (busyPivotSlicerIds.has(slicer.id))
+            for (const control of Array.from(card.querySelectorAll('button,input')))
+                control.disabled = true;
+        const search = card.querySelector('[data-pivot-slicer-search]');
+        search?.addEventListener('input', () => { pivotSlicerSearch.set(slicer.id, search.value); const caret = search.selectionStart ?? search.value.length; renderPivotSlicers(); const next = surface.querySelector(`[data-pivot-slicer-id="${CSS.escape(slicer.id)}"] [data-pivot-slicer-search]`); next?.focus(); next?.setSelectionRange(caret, caret); });
+        card.querySelector('[data-pivot-slicer-clear]')?.addEventListener('click', () => applyPivotSlicerFilter(slicer, null));
+        card.querySelector('[data-pivot-slicer-connect]')?.addEventListener('click', () => openPivotSlicerConnections(slicer));
+        card.querySelector('[data-pivot-slicer-delete]')?.addEventListener('click', () => deletePivotSlicer(slicer));
+        for (const button of Array.from(card.querySelectorAll('[data-pivot-slicer-value]')))
+            button.addEventListener('click', () => { const value = JSON.parse(button.dataset.pivotSlicerValue ?? 'null'), prior = pivot.itemFilters?.find(item => item.field === slicer.field), selected = prior?.values ?? [], contains = selected.some(item => JSON.stringify(item).toLocaleLowerCase() === JSON.stringify(value).toLocaleLowerCase()), next = !prior ? [value] : contains ? selected.filter(item => JSON.stringify(item).toLocaleLowerCase() !== JSON.stringify(value).toLocaleLowerCase()) : [...selected, value]; applyPivotSlicerFilter(slicer, next.length === allValues.length ? null : next); });
+    }
+}
+async function applyPivotSlicerFilter(slicer, values) {
+    if (busyPivotSlicerIds.has(slicer.id))
+        return;
+    const pivots = pivotSlicerPivots(slicer);
+    if (!pivots.length)
+        return;
+    const previous = pivots.map(pivot => [pivot, pivot.itemFilters]);
+    busyPivotSlicerIds.add(slicer.id);
+    setPivotSlicerBusy(slicer.id, true);
+    try {
+        for (const pivot of pivots) {
+            const itemFilters = (pivot.itemFilters ?? []).filter(item => item.field !== slicer.field);
+            if (values !== null)
+                itemFilters.push({ field: slicer.field, values: [...values] });
+            pivot.itemFilters = itemFilters.length ? itemFilters : undefined;
+        }
+        if (await refreshPivotSlicerTargets(pivots)) {
+            save();
+        }
+        else {
+            for (const [pivot, itemFilters] of previous)
+                pivot.itemFilters = itemFilters;
+            await refreshPivotSlicerTargets(pivots);
+            toast('The Pivot Summaries could not be refreshed; their previous slicer selections were restored.');
+        }
+    }
+    finally {
+        setPivotSlicerBusy(slicer.id, false);
+        refresh();
+    }
+}
 const pivotSlicerConnectionsDialog = el('pivot-slicer-connections-dialog');
 let editingPivotSlicerId = null;
-function compatiblePivotsForSlicer(slicer) { const primary = doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId); if (!primary)
-    return []; const key = (item) => `${(item.sourceSheet ?? doc.active.name).toLocaleLowerCase()}|${item.sourceRange.replace(/\$/g, '').toUpperCase()}`, connected = new Set([slicer.pivotId, ...(slicer.pivotIds ?? [])]); return doc.active.tools.pivotTables.filter(item => { const fields = [...(item.rowFields ?? [item.rowField]), ...(item.columnFields ?? (item.columnField === undefined ? [] : [item.columnField]))], grouped = [...(item.dateGroups ?? []).map(group => group.field), ...(item.numberGroups ?? []).map(group => group.field), ...(item.manualGroups ?? []).map(group => group.field)], reserved = doc.active.tools.pivotSlicers.some(other => other.id !== slicer.id && other.field === slicer.field && [other.pivotId, ...(other.pivotIds ?? [])].includes(item.id)); return key(item) === key(primary) && fields.includes(slicer.field) && !grouped.includes(slicer.field) && (!reserved || connected.has(item.id)); }); }
-function openPivotSlicerConnections(slicer) { const primary = doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId), select = el('pivot-slicer-connection-list'); if (!primary) {
-    toast('The slicer’s Pivot Summary is unavailable.');
-    return;
-} const compatible = compatiblePivotsForSlicer(slicer), connected = new Set([slicer.pivotId, ...(slicer.pivotIds ?? [])]); select.innerHTML = compatible.map((pivot, index) => `<option value="${escapeHtml(pivot.id)}"${connected.has(pivot.id) ? ' selected' : ''}>${escapeHtml(index === 0 && pivot.id === primary.id ? 'Primary · ' + pivot.id : pivot.id)}</option>`).join(''); select.disabled = false; el('pivot-slicer-connection-error').textContent = ''; editingPivotSlicerId = slicer.id; pivotSlicerConnectionsDialog.showModal(); }
+function compatiblePivotsForSlicer(slicer) {
+    const primary = doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId);
+    if (!primary)
+        return [];
+    const key = (item) => `${(item.sourceSheet ?? doc.active.name).toLocaleLowerCase()}|${item.sourceRange.replace(/\$/g, '').toUpperCase()}`, connected = new Set([slicer.pivotId, ...(slicer.pivotIds ?? [])]);
+    return doc.active.tools.pivotTables.filter(item => { const fields = [...(item.rowFields ?? [item.rowField]), ...(item.columnFields ?? (item.columnField === undefined ? [] : [item.columnField]))], grouped = [...(item.dateGroups ?? []).map(group => group.field), ...(item.numberGroups ?? []).map(group => group.field), ...(item.manualGroups ?? []).map(group => group.field)], reserved = doc.active.tools.pivotSlicers.some(other => other.id !== slicer.id && other.field === slicer.field && [other.pivotId, ...(other.pivotIds ?? [])].includes(item.id)); return key(item) === key(primary) && fields.includes(slicer.field) && !grouped.includes(slicer.field) && (!reserved || connected.has(item.id)); });
+}
+function openPivotSlicerConnections(slicer) {
+    const primary = doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId), select = el('pivot-slicer-connection-list');
+    if (!primary) {
+        toast('The slicer’s Pivot Summary is unavailable.');
+        return;
+    }
+    const compatible = compatiblePivotsForSlicer(slicer), connected = new Set([slicer.pivotId, ...(slicer.pivotIds ?? [])]);
+    select.innerHTML = compatible.map((pivot, index) => `<option value="${escapeHtml(pivot.id)}"${connected.has(pivot.id) ? ' selected' : ''}>${escapeHtml(index === 0 && pivot.id === primary.id ? 'Primary · ' + pivot.id : pivot.id)}</option>`).join('');
+    select.disabled = false;
+    el('pivot-slicer-connection-error').textContent = '';
+    editingPivotSlicerId = slicer.id;
+    pivotSlicerConnectionsDialog.showModal();
+}
 for (const id of ['close-pivot-slicer-connections', 'cancel-pivot-slicer-connections'])
     el(id).addEventListener('click', () => { pivotSlicerConnectionsDialog.close(); editingPivotSlicerId = null; });
 el('save-pivot-slicer-connections').addEventListener('click', async () => {
@@ -1797,8 +2056,13 @@ function selectChart(id) {
     updateChartRibbonControls();
     showRibbon('Chart Design');
 }
-function saveSelectedChart() { if (!selectedChart())
-    return; save(); refresh(); updateChartRibbonControls(); }
+function saveSelectedChart() {
+    if (!selectedChart())
+        return;
+    save();
+    refresh();
+    updateChartRibbonControls();
+}
 function suggestedChartRange() {
     const b = sel();
     if (b.r1 !== b.r2 || b.c1 !== b.c2)
@@ -1839,18 +2103,32 @@ function readBoxWhiskerOptions() {
         return {};
     return { boxQuartileMethod: el('chart-box-quartiles').value, boxShowInnerPoints: el('chart-box-inner').checked, boxShowOutliers: el('chart-box-outliers').checked, boxShowMeanMarker: el('chart-box-mean-marker').checked, boxShowMeanLine: el('chart-box-mean-line').checked };
 }
+function readChartAxisOptions() {
+    const number = id => { const text = el(id).value.trim(); if (!text)
+        return undefined; const value = Number(text); if (!Number.isFinite(value) || Math.abs(value) > 1e15)
+        throw Error('Chart axis values must be finite numbers within ±1e15.'); return value; };
+    const xAxisMin = number('chart-xaxis-min'), xAxisMax = number('chart-xaxis-max'), xAxisMajorUnit = number('chart-xaxis-major'), yAxisMin = number('chart-yaxis-min'), yAxisMax = number('chart-yaxis-max'), yAxisMajorUnit = number('chart-yaxis-major'), secondaryYAxisMin = number('chart-yaxis2-min'), secondaryYAxisMax = number('chart-yaxis2-max'), secondaryYAxisMajorUnit = number('chart-yaxis2-major');
+    if (xAxisMin !== undefined && xAxisMax !== undefined && xAxisMin >= xAxisMax || yAxisMin !== undefined && yAxisMax !== undefined && yAxisMin >= yAxisMax || secondaryYAxisMin !== undefined && secondaryYAxisMax !== undefined && secondaryYAxisMin >= secondaryYAxisMax)
+        throw Error('Each chart axis minimum must be less than its maximum.');
+    if ([xAxisMajorUnit, yAxisMajorUnit, secondaryYAxisMajorUnit].some(value => value !== undefined && value <= 0))
+        throw Error('Chart major units must be greater than zero.');
+    if (Number(el('chart-yaxis-log-base').value) >= 2 && (yAxisMin !== undefined && yAxisMin <= 0 || yAxisMax !== undefined && yAxisMax <= 0))
+        throw Error('Logarithmic vertical axis bounds must be positive.');
+    const scatter = el('chart-kind').value === 'scatter';
+    return { ...(scatter && xAxisMin !== undefined ? { xAxisMin } : {}), ...(scatter && xAxisMax !== undefined ? { xAxisMax } : {}), ...(scatter && xAxisMajorUnit !== undefined ? { xAxisMajorUnit } : {}), ...(yAxisMin !== undefined ? { yAxisMin } : {}), ...(yAxisMax !== undefined ? { yAxisMax } : {}), ...(yAxisMajorUnit !== undefined ? { yAxisMajorUnit } : {}), ...(secondaryYAxisMin !== undefined ? { secondaryYAxisMin } : {}), ...(secondaryYAxisMax !== undefined ? { secondaryYAxisMax } : {}), ...(secondaryYAxisMajorUnit !== undefined ? { secondaryYAxisMajorUnit } : {}) };
+}
 function chartPreview() {
     const node = el('chart-preview'), notice = el('chart-validation');
     try {
         const range = el('chart-range').value.trim().toUpperCase();
         chartRange(range, book.rows, book.cols);
-        const kind = el('chart-kind').value, sourceChart = doc.active.tools.charts.find(chart => chart.id === editingChartId), orientation = kind === 'waterfall' || kind === 'scatter' ? false : sourceChart?.switchRowsColumns ?? false, d = extractChartData(book, range, orientation);
+        const kind = el('chart-kind').value, sourceChart = doc.active.tools.charts.find(chart => chart.id === editingChartId), scatterPairs = kind === 'scatter' && el('chart-scatter-pairs').checked, orientation = kind === 'waterfall' || kind === 'scatter' ? false : sourceChart?.switchRowsColumns ?? false, includeHiddenData = sourceChart?.includeHiddenData ?? false, d = scatterPairs ? extractScatterPairData(book, range, includeHiddenData) : extractChartData(book, range, orientation, includeHiddenData);
         if (!d.series.some(x => x.values.some(v => v !== null)))
             throw Error('No numeric values found in this range.');
-        if (kind === 'scatter' && d.series.length < 2)
-            throw Error('Scatter charts need at least two numeric columns: one X series and one or more Y series.');
-        const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, d.rows) : undefined, pointColors = readPiePointColors(sourceChart, kind, range, orientation);
-        const data = { id: 'chart-preview', kind, theme: el('chart-theme').value, title: el('chart-title').value, accessibilityDescription: el('chart-accessibility-description').value.trim() || undefined, range, x: 0, y: 0, width: 460, height: 280, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, xAxisTitle: el('chart-xaxis').value, xAxisLabelAngle: sourceChart?.xAxisLabelAngle, xAxisLabelInterval: sourceChart?.xAxisLabelInterval, yAxisTitle: el('chart-yaxis').value, ...(Number(el('chart-yaxis-log-base').value) >= 2 ? { yAxisLogBase: Number(el('chart-yaxis-log-base').value) } : {}), secondaryYAxisTitle: el('chart-yaxis-secondary').value, xAxisMin: sourceChart?.xAxisMin, xAxisMax: sourceChart?.xAxisMax, xAxisMajorUnit: sourceChart?.xAxisMajorUnit, xAxisNumberFormat: sourceChart?.xAxisNumberFormat, xAxisFormatCode: sourceChart?.xAxisFormatCode, yAxisMin: sourceChart?.yAxisMin, yAxisMax: sourceChart?.yAxisMax, yAxisMajorUnit: sourceChart?.yAxisMajorUnit, yAxisNumberFormat: sourceChart?.yAxisNumberFormat, yAxisFormatCode: sourceChart?.yAxisFormatCode, dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelPosition: el('chart-data-label-position').value, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, ...readBoxWhiskerOptions(), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), ...(pointColors ? { dataPointColors: pointColors } : {}), switchRowsColumns: orientation, seriesOptions: readSeriesOptions() };
+        if (kind === 'scatter' && (scatterPairs ? d.series.length < 1 : d.series.length < 2))
+            throw Error(scatterPairs ? 'XY pair mode needs at least four numeric columns (X1, Y1, X2, Y2).' : 'Scatter charts need at least two numeric columns: one X series and one or more Y series.');
+        const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, d.rows) : undefined, pointColors = readChartPointColors(sourceChart, kind, range, orientation);
+        const data = { id: 'chart-preview', kind, ...(scatterPairs ? { scatterPairs: true } : {}), theme: el('chart-theme').value, title: el('chart-title').value, accessibilityDescription: el('chart-accessibility-description').value.trim() || undefined, range, x: 0, y: 0, width: 460, height: 280, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, categoryGapWidth: Number(el('chart-category-gap-width').value), seriesOverlap: Number(el('chart-series-overlap').value), reverseCategories: el('chart-reverse-categories').checked, xAxisTitle: el('chart-xaxis').value, xAxisLabelAngle: sourceChart?.xAxisLabelAngle, xAxisLabelInterval: sourceChart?.xAxisLabelInterval, yAxisTitle: el('chart-yaxis').value, ...(Number(el('chart-yaxis-log-base').value) >= 2 ? { yAxisLogBase: Number(el('chart-yaxis-log-base').value) } : {}), secondaryYAxisTitle: el('chart-yaxis-secondary').value, ...readChartAxisOptions(), xAxisNumberFormat: sourceChart?.xAxisNumberFormat, xAxisFormatCode: sourceChart?.xAxisFormatCode, yAxisNumberFormat: sourceChart?.yAxisNumberFormat, yAxisFormatCode: sourceChart?.yAxisFormatCode, dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelPosition: el('chart-data-label-position').value, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, ...readBoxWhiskerOptions(), ...(waterfallTotalPoints ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), ...(pointColors ? { dataPointColors: pointColors } : {}), switchRowsColumns: orientation, seriesOptions: readSeriesOptions(sourceChart) };
         node.innerHTML = chartSvg(book, data);
         notice.textContent = `${d.rows} data rows · ${d.series.length} numeric series · updates with the source cells.`;
         el('chart-submit').disabled = false;
@@ -1863,7 +2141,19 @@ function chartPreview() {
 }
 function updateChartOptionVisibility() {
     const kind = el('chart-kind').value, histogram = kind === 'histogram';
+    el('chart-xaxis-bounds').hidden = kind !== 'scatter';
+    el('chart-scatter-pairs-label').hidden = kind !== 'scatter';
+    el('chart-scatter-pairs-hint').hidden = kind !== 'scatter';
     el('chart-box-whisker-options').hidden = kind !== 'box-whisker';
+    const gapInput = el('chart-category-gap-width'), gapLabel = gapInput.previousElementSibling, overlapInput = el('chart-series-overlap'), overlapLabel = overlapInput.previousElementSibling, gapVisible = ['column', 'bar', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo'].includes(kind), overlapVisible = ['column', 'bar', 'combo'].includes(kind);
+    for (const [input, label, visible] of [[gapInput, gapLabel, gapVisible], [overlapInput, overlapLabel, overlapVisible]]) {
+        input.hidden = !visible;
+        input.style.display = visible ? '' : 'none';
+        if (label) {
+            label.hidden = !visible;
+            label.style.display = visible ? '' : 'none';
+        }
+    }
     el('chart-reverse-categories').parentElement.hidden = !['column', 'bar', 'line', 'area', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'radar'].includes(kind);
     for (const id of ['chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow']) {
         const input = el(id), label = input.previousElementSibling;
@@ -1888,8 +2178,8 @@ function renderSeriesOptions(chart) {
     const host = el('chart-series-options');
     let data;
     try {
-        data = extractChartData(book, el('chart-range').value.trim().toUpperCase(), el('chart-kind').value === 'scatter' ? false : chart?.switchRowsColumns ?? false);
-        if (el('chart-kind').value === 'scatter')
+        data = el('chart-kind').value === 'scatter' && el('chart-scatter-pairs').checked ? extractScatterPairData(book, el('chart-range').value.trim().toUpperCase(), chart?.includeHiddenData ?? false) : extractChartData(book, el('chart-range').value.trim().toUpperCase(), el('chart-kind').value === 'scatter' ? false : chart?.switchRowsColumns ?? false, chart?.includeHiddenData ?? false);
+        if (el('chart-kind').value === 'scatter' && !el('chart-scatter-pairs').checked)
             data = { ...data, series: data.series.slice(1) };
     }
     catch {
@@ -1897,30 +2187,43 @@ function renderSeriesOptions(chart) {
         el('chart-point-colors').innerHTML = '';
         return;
     }
-    const combo = el('chart-kind').value === 'combo', theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office;
-    host.innerHTML = '<strong>Series settings</strong>' + data.series.map((series, index) => { const opt = chart?.seriesOptions?.[index] ?? {}, defaultKind = combo && index === data.series.length - 1 ? 'line' : 'column', seriesKind = opt.kind ?? defaultKind, defaultColor = palette[index % palette.length]; return `<div class="chart-series-config" data-series-index="${index}"><b>${escapeHtml(series.name)}</b><label>Axis <select data-series-axis aria-label="${escapeHtml(series.name)} axis"><option value="primary" ${opt.axis !== 'secondary' ? 'selected' : ''}>Left</option><option value="secondary" ${opt.axis === 'secondary' ? 'selected' : ''}>Right</option></select></label><label>Type <select data-series-kind aria-label="${escapeHtml(series.name)} chart type"><option value="column" ${seriesKind === 'column' ? 'selected' : ''}>Columns</option><option value="line" ${seriesKind === 'line' ? 'selected' : ''}>Line</option></select></label><label>Color <input data-series-color type="color" value="${opt.color ?? defaultColor}" aria-label="${escapeHtml(series.name)} color"/></label><label>Markers <select data-series-marker aria-label="${escapeHtml(series.name)} markers"><option value="show" ${opt.marker !== false ? 'selected' : ''}>Show</option><option value="hide" ${opt.marker === false ? 'selected' : ''}>Hide</option></select></label><label>Marker shape <select data-marker-style aria-label="${escapeHtml(series.name)} marker shape">${[['circle', 'Circle'], ['square', 'Square'], ['diamond', 'Diamond'], ['triangle', 'Triangle'], ['plus', 'Plus'], ['x', 'X'], ['star', 'Star']].map(([value, label]) => `<option value="${value}" ${(opt.markerStyle ?? 'circle') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>Error bars <select data-error-type aria-label="${escapeHtml(series.name)} error bars"><option value="none" ${!opt.errorBars ? 'selected' : ''}>None</option><option value="fixed" ${opt.errorBars?.type === 'fixed' ? 'selected' : ''}>Fixed</option><option value="percentage" ${opt.errorBars?.type === 'percentage' ? 'selected' : ''}>Percent</option><option value="standardDeviation" ${opt.errorBars?.type === 'standardDeviation' ? 'selected' : ''}>Std. dev.</option><option value="standardError" ${opt.errorBars?.type === 'standardError' ? 'selected' : ''}>Std. error</option></select></label><input data-error-value type="number" min="0" step="any" value="${opt.errorBars?.value ?? 5}" title="Error bar amount" aria-label="${escapeHtml(series.name)} error bar amount"/><label data-error-axis-label ${el('chart-kind').value === 'scatter' ? '' : 'hidden'}>Error axis <select data-error-axis aria-label="${escapeHtml(series.name)} error bar axis"><option value="y" ${opt.errorBars?.axis !== 'x' ? 'selected' : ''}>Y</option><option value="x" ${opt.errorBars?.axis === 'x' ? 'selected' : ''}>X</option></select></label><label>Error direction <select data-error-direction aria-label="${escapeHtml(series.name)} error bar direction"><option value="both" ${!opt.errorBars?.direction || opt.errorBars.direction === 'both' ? 'selected' : ''}>Both</option><option value="plus" ${opt.errorBars?.direction === 'plus' ? 'selected' : ''}>Plus</option><option value="minus" ${opt.errorBars?.direction === 'minus' ? 'selected' : ''}>Minus</option></select></label><label><input data-error-cap type="checkbox" ${opt.errorBars?.endCap !== false ? 'checked' : ''}/> End caps</label><label>Trendline <select data-trendline aria-label="${escapeHtml(series.name)} trendline"><option value="none">None</option>${['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].map(type => `<option value="${type}" ${opt.trendline?.type === type ? 'selected' : ''}>${type === 'movingAverage' ? 'Moving average' : type[0].toUpperCase() + type.slice(1)}</option>`).join('')}</select></label><input data-order type="number" min="2" max="6" value="${opt.trendline?.order ?? 2}" title="Polynomial order"/><input data-period type="number" min="2" max="100" value="${opt.trendline?.period ?? 2}" title="Moving average period"/><input data-forward type="number" min="0" max="50" value="${opt.trendline?.forward ?? 0}" title="Forecast forward periods"/><input data-backward type="number" min="0" max="50" value="${opt.trendline?.backward ?? 0}" title="Forecast backward periods"/><label><input data-equation type="checkbox" ${opt.trendline?.showEquation ? 'checked' : ''}/> Equation</label><label><input data-r2 type="checkbox" ${opt.trendline?.showR2 ? 'checked' : ''}/> R²</label></div>`; }).join('');
+    const kind = el('chart-kind').value, combo = kind === 'combo', theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office, seriesForOptions = kind === 'scatter' && !el('chart-scatter-pairs').checked ? data.series.slice(1) : data.series;
+    host.innerHTML = '<strong>Series settings</strong>' + seriesForOptions.map((series, index) => { const sourceIndex = data.scatterPairIndexes?.[index] ?? index, opt = chart?.seriesOptions?.[sourceIndex] ?? {}, defaultKind = combo && index === data.series.length - 1 ? 'line' : 'column', seriesKind = opt.kind ?? defaultKind, defaultColor = palette[sourceIndex % palette.length]; return `<div class="chart-series-config" data-series-index="${index}" data-source-series-index="${sourceIndex}"><b>${escapeHtml(series.name)}</b><label>Axis <select data-series-axis aria-label="${escapeHtml(series.name)} axis"><option value="primary" ${opt.axis !== 'secondary' ? 'selected' : ''}>Left</option><option value="secondary" ${opt.axis === 'secondary' ? 'selected' : ''}>Right</option></select></label><label>Type <select data-series-kind aria-label="${escapeHtml(series.name)} chart type"><option value="column" ${seriesKind === 'column' ? 'selected' : ''}>Columns</option><option value="line" ${seriesKind === 'line' ? 'selected' : ''}>Line</option></select></label><label>Color <input data-series-color type="color" value="${opt.color ?? defaultColor}" aria-label="${escapeHtml(series.name)} color"/></label><label ${(!['line', 'scatter', 'area', 'radar'].includes(el('chart-kind').value) && !(combo && seriesKind === 'line')) ? 'hidden' : ''}>Line style <select data-line-style aria-label="${escapeHtml(series.name)} line style"><option value="solid" ${(opt.lineStyle ?? 'solid') === 'solid' ? 'selected' : ''}>Solid</option><option value="dash" ${opt.lineStyle === 'dash' ? 'selected' : ''}>Dash</option><option value="dot" ${opt.lineStyle === 'dot' ? 'selected' : ''}>Dot</option><option value="dashDot" ${opt.lineStyle === 'dashDot' ? 'selected' : ''}>Dash dot</option></select></label><label ${(!['line', 'scatter', 'area', 'radar'].includes(el('chart-kind').value) && !(combo && seriesKind === 'line')) ? 'hidden' : ''}>Line width (pt) <input data-line-width type="number" min="0.25" max="10" step="0.25" value="${opt.lineWidth ?? 1.5}" aria-label="${escapeHtml(series.name)} line width"/></label><label>Markers <select data-series-marker aria-label="${escapeHtml(series.name)} markers"><option value="show" ${opt.marker !== false ? 'selected' : ''}>Show</option><option value="hide" ${opt.marker === false ? 'selected' : ''}>Hide</option></select></label><label>Marker size <input data-marker-size type="number" min="2" max="72" step="1" value="${opt.markerSize ?? 5}" aria-label="${escapeHtml(series.name)} marker size"/></label><label>Marker shape <select data-marker-style aria-label="${escapeHtml(series.name)} marker shape">${[['circle', 'Circle'], ['square', 'Square'], ['diamond', 'Diamond'], ['triangle', 'Triangle'], ['plus', 'Plus'], ['x', 'X'], ['star', 'Star']].map(([value, label]) => `<option value="${value}" ${(opt.markerStyle ?? 'circle') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>Error bars <select data-error-type aria-label="${escapeHtml(series.name)} error bars"><option value="none" ${!opt.errorBars ? 'selected' : ''}>None</option><option value="fixed" ${opt.errorBars?.type === 'fixed' ? 'selected' : ''}>Fixed</option><option value="percentage" ${opt.errorBars?.type === 'percentage' ? 'selected' : ''}>Percent</option><option value="standardDeviation" ${opt.errorBars?.type === 'standardDeviation' ? 'selected' : ''}>Std. dev.</option><option value="standardError" ${opt.errorBars?.type === 'standardError' ? 'selected' : ''}>Std. error</option></select></label><input data-error-value type="number" min="0" step="any" value="${opt.errorBars?.value ?? 5}" title="Error bar amount" aria-label="${escapeHtml(series.name)} error bar amount"/><label data-error-axis-label ${el('chart-kind').value === 'scatter' ? '' : 'hidden'}>Error axis <select data-error-axis aria-label="${escapeHtml(series.name)} error bar axis"><option value="y" ${opt.errorBars?.axis !== 'x' ? 'selected' : ''}>Y</option><option value="x" ${opt.errorBars?.axis === 'x' ? 'selected' : ''}>X</option></select></label><label>Error direction <select data-error-direction aria-label="${escapeHtml(series.name)} error bar direction"><option value="both" ${!opt.errorBars?.direction || opt.errorBars.direction === 'both' ? 'selected' : ''}>Both</option><option value="plus" ${opt.errorBars?.direction === 'plus' ? 'selected' : ''}>Plus</option><option value="minus" ${opt.errorBars?.direction === 'minus' ? 'selected' : ''}>Minus</option></select></label><label><input data-error-cap type="checkbox" ${opt.errorBars?.endCap !== false ? 'checked' : ''}/> End caps</label><label>Trendline <select data-trendline aria-label="${escapeHtml(series.name)} trendline"><option value="none">None</option>${['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].map(type => `<option value="${type}" ${opt.trendline?.type === type ? 'selected' : ''}>${type === 'movingAverage' ? 'Moving average' : type[0].toUpperCase() + type.slice(1)}</option>`).join('')}</select></label><input data-order type="number" min="2" max="6" value="${opt.trendline?.order ?? 2}" title="Polynomial order"/><input data-period type="number" min="2" max="100" value="${opt.trendline?.period ?? 2}" title="Moving average period"/><input data-forward type="number" min="0" max="50" value="${opt.trendline?.forward ?? 0}" title="Forecast forward periods"/><input data-backward type="number" min="0" max="50" value="${opt.trendline?.backward ?? 0}" title="Forecast backward periods"/><label><input data-equation type="checkbox" ${opt.trendline?.showEquation ? 'checked' : ''}/> Equation</label><label><input data-r2 type="checkbox" ${opt.trendline?.showR2 ? 'checked' : ''}/> R²</label></div>`; }).join('');
     for (const row of Array.from(host.querySelectorAll('.chart-series-config'))) {
         const type = row.querySelector('[data-error-type]'), amount = row.querySelector('[data-error-value]');
-        const sync = () => { amount.disabled = type.value === 'none' || type.value === 'standardError'; if (type.value === 'standardError')
-            amount.title = 'Calculated from the series data'; };
+        const sync = () => {
+            amount.disabled = type.value === 'none' || type.value === 'standardError';
+            if (type.value === 'standardError')
+                amount.title = 'Calculated from the series data';
+        };
         type.addEventListener('change', sync);
         sync();
     }
-    renderPiePointColors(chart, data);
+    renderChartPointColors(chart, data);
 }
-function renderPiePointColors(chart, data) {
-    const host = el('chart-point-colors'), kind = el('chart-kind').value;
-    if (kind !== 'pie' && kind !== 'doughnut') {
+function renderChartPointColors(chart, data) {
+    const host = el('chart-point-colors'), kind = el('chart-kind').value, pie = kind === 'pie' || kind === 'doughnut', bars = ['column', 'bar', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo'].includes(kind), markers = ['line', 'scatter', 'radar'].includes(kind);
+    if (!pie && !bars && !markers) {
         host.innerHTML = '';
         return;
     }
-    const palette = CHART_PALETTES[el('chart-theme').value] ?? CHART_PALETTES.office, values = data.series[0]?.values ?? [], points = values.map((value, index) => ({ index, label: data.labels[index] ?? `Point ${index + 1}`, value })).filter(point => point.value !== null && point.value > 0).slice(0, 16);
-    host.innerHTML = points.length ? '<strong>Slice colors</strong>' + points.map(point => `<label class="chart-point-color">${escapeHtml(point.label.slice(0, 24))} <input data-point-color="${point.index}" type="color" value="${chart?.dataPointColors?.[point.index] ?? palette[point.index % palette.length]}" aria-label="${escapeHtml(point.label)} slice color"/></label>`).join('') : '<strong>Slice colors</strong><small>Positive numeric values are required.</small>';
+    const palette = CHART_PALETTES[el('chart-theme').value] ?? CHART_PALETTES.office;
+    if (markers) {
+        const plotted = kind === 'scatter' && !el('chart-scatter-pairs').checked ? data.series.slice(1) : data.series;
+        host.innerHTML = plotted.length ? '<strong>Per-series marker colors</strong><small>Choose marker colors independently for each numeric series. Up to 64 points per series are editable here.</small>' + plotted.map((series, seriesIndex) => {
+            const optionIndex = data.scatterPairIndexes?.[seriesIndex] ?? seriesIndex, options = chart?.seriesOptions?.[optionIndex] ?? {}, baseColor = options.color ?? palette[optionIndex % palette.length];
+            const points = series.values.map((value, index) => ({ index, value, label: data.labels[index] ?? `Point ${index + 1}` })).filter(point => point.value !== null).slice(0, 64);
+            return `<fieldset class="chart-point-series"><legend>${escapeHtml(series.name.slice(0, 48))}</legend>${points.map(point => { const color = options.dataPointColors?.[point.index] ?? (seriesIndex === 0 ? chart?.dataPointColors?.[point.index] : undefined) ?? baseColor; return `<label class="chart-point-color">${escapeHtml(point.label.slice(0, 24))} <input data-series-point-color="${seriesIndex}" data-point-index="${point.index}" type="color" value="${color}" aria-label="${escapeHtml(series.name)} ${escapeHtml(point.label)} marker color"/></label>`; }).join('')}</fieldset>`;
+        }).join('') : '<strong>Marker colors</strong><small>Numeric chart series are required.</small>';
+        return;
+    }
+    const values = data.series[0]?.values ?? [], points = values.map((value, index) => ({ index, label: data.labels[index] ?? `Point ${index + 1}`, value })).filter(point => point.value !== null && (bars || point.value > 0)).slice(0, 64), label = kind === 'combo' ? 'Category and marker colors' : bars ? 'Category colors' : 'Slice colors';
+    host.innerHTML = points.length ? `<strong>${label}</strong>${kind === 'combo' ? '<small>Applied to column categories and line markers.</small>' : ''}` + points.map(point => `<label class="chart-point-color">${escapeHtml(point.label.slice(0, 24))} <input data-point-color="${point.index}" type="color" value="${chart?.dataPointColors?.[point.index] ?? palette[point.index % palette.length]}" aria-label="${escapeHtml(point.label)} ${kind === 'combo' ? 'category and marker' : bars ? 'category' : 'slice'} color"/></label>`).join('') : '<strong>Point colors</strong><small>Numeric chart values are required.</small>';
 }
-function readPiePointColors(chart, kind, range, switchRowsColumns) {
-    if (kind !== 'pie' && kind !== 'doughnut')
+function readChartPointColors(chart, kind, range, switchRowsColumns) {
+    if (!['pie', 'doughnut', 'column', 'bar', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'line', 'scatter', 'radar'].includes(kind))
         return undefined;
-    const data = extractChartData(book, range, switchRowsColumns), length = data.rows, palette = CHART_PALETTES[el('chart-theme').value] ?? CHART_PALETTES.office, colors = Array.from({ length }, (_, index) => chart?.dataPointColors?.[index] ?? palette[index % palette.length]);
+    const data = kind === 'scatter' && el('chart-scatter-pairs').checked ? extractScatterPairData(book, range, chart?.includeHiddenData ?? false) : extractChartData(book, range, switchRowsColumns, chart?.includeHiddenData ?? false), length = data.rows, palette = CHART_PALETTES[el('chart-theme').value] ?? CHART_PALETTES.office, colors = Array.from({ length }, (_, index) => chart?.dataPointColors?.[index] ?? palette[index % palette.length]);
     for (const input of Array.from(document.querySelectorAll('[data-point-color]'))) {
         const index = Number(input.dataset.pointColor);
         if (Number.isInteger(index) && index >= 0 && index < length)
@@ -1928,7 +2231,24 @@ function readPiePointColors(chart, kind, range, switchRowsColumns) {
     }
     return colors.some((color, index) => color.toLowerCase() !== palette[index % palette.length].toLowerCase()) ? colors : undefined;
 }
-function readSeriesOptions() { const theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office; return Array.from(document.querySelectorAll('.chart-series-config')).map((row, index) => { const trend = row.querySelector('[data-trendline]').value, color = row.querySelector('[data-series-color]').value, marker = row.querySelector('[data-series-marker]').value === 'show', markerStyle = row.querySelector('[data-marker-style]').value, errorType = row.querySelector('[data-error-type]').value, errorValue = Number(row.querySelector('[data-error-value]').value), errorDirection = row.querySelector('[data-error-direction]').value, errorAxis = row.querySelector('[data-error-axis]').value, errorEndCap = row.querySelector('[data-error-cap]').checked; return { axis: row.querySelector('[data-series-axis]').value, kind: row.querySelector('[data-series-kind]').value, ...(color !== palette[index % palette.length] ? { color } : {}), marker, markerStyle, ...(errorType === 'none' ? {} : { errorBars: { type: errorType, value: errorType === 'standardError' ? 0 : Number.isFinite(errorValue) ? errorValue : 5, direction: errorDirection, axis: errorAxis, ...(errorEndCap ? {} : { endCap: false }) } }), ...(trend === 'none' ? {} : { trendline: { type: trend, order: Number(row.querySelector('[data-order]').value) || 2, period: Number(row.querySelector('[data-period]').value) || 2, forward: Number(row.querySelector('[data-forward]').value) || 0, backward: Number(row.querySelector('[data-backward]').value) || 0, showEquation: row.querySelector('[data-equation]').checked, showR2: row.querySelector('[data-r2]').checked } }) }; }); }
+function readSeriesOptions(sourceChart) {
+    const theme = el('chart-theme').value, palette = CHART_PALETTES[theme] ?? CHART_PALETTES.office, kind = el('chart-kind').value, range = el('chart-range').value.trim().toUpperCase(), keepPointColors = sourceChart?.kind === kind && sourceChart?.range === range && (kind !== 'scatter' || (sourceChart?.scatterPairs ?? false) === el('chart-scatter-pairs').checked), includeHiddenData = sourceChart?.includeHiddenData ?? false, chartData = kind === 'scatter' && el('chart-scatter-pairs').checked ? extractScatterPairData(book, range, includeHiddenData) : extractChartData(book, range, sourceChart?.switchRowsColumns ?? false, includeHiddenData), markerChart = ['line', 'scatter', 'radar'].includes(kind), rows = Array.from(document.querySelectorAll('.chart-series-config'));
+    const options = rows.map((row, index) => {
+        const sourceIndex = chartData.scatterPairIndexes?.[index] ?? index, trend = row.querySelector('[data-trendline]').value, color = row.querySelector('[data-series-color]').value, marker = row.querySelector('[data-series-marker]').value === 'show', markerStyle = row.querySelector('[data-marker-style]').value, errorType = row.querySelector('[data-error-type]').value, errorValue = Number(row.querySelector('[data-error-value]').value), errorDirection = row.querySelector('[data-error-direction]').value, errorAxis = row.querySelector('[data-error-axis]').value, errorEndCap = row.querySelector('[data-error-cap]').checked, lineStyle = row.querySelector('[data-line-style]').value, lineWidth = Number(row.querySelector('[data-line-width]').value), existingColors = keepPointColors ? sourceChart?.seriesOptions?.[sourceIndex]?.dataPointColors ?? (sourceIndex === 0 ? sourceChart?.dataPointColors : undefined) : undefined;
+        return { axis: row.querySelector('[data-series-axis]').value, kind: row.querySelector('[data-series-kind]').value, ...(existingColors?.length ? { dataPointColors: existingColors } : {}), ...(color !== palette[sourceIndex % palette.length] ? { color } : {}), ...(lineStyle !== 'solid' ? { lineStyle } : {}), ...(lineWidth !== 1.5 ? { lineWidth } : {}), marker, markerStyle, ...(Number(row.querySelector('[data-marker-size]').value) !== 5 ? { markerSize: Number(row.querySelector('[data-marker-size]').value) } : {}), ...(errorType === 'none' ? {} : { errorBars: { type: errorType, value: errorType === 'standardError' ? 0 : Number.isFinite(errorValue) ? errorValue : 5, direction: errorDirection, axis: errorAxis, ...(errorEndCap ? {} : { endCap: false }) } }), ...(trend === 'none' ? {} : { trendline: { type: trend, order: Number(row.querySelector('[data-order]').value) || 2, period: Number(row.querySelector('[data-period]').value) || 2, forward: Number(row.querySelector('[data-forward]').value) || 0, backward: Number(row.querySelector('[data-backward]').value) || 0, showEquation: row.querySelector('[data-equation]').checked, showR2: row.querySelector('[data-r2]').checked } }) };
+    });
+    let finalOptions = options;
+    if (markerChart) {
+        const edits = Array.from(document.querySelectorAll('[data-series-point-color]')).map(input => ({ seriesIndex: Number(input.dataset.seriesPointColor), pointIndex: Number(input.dataset.pointIndex), color: input.value })), defaults = rows.map((row, index) => row.querySelector('[data-series-color]').value || palette[index % palette.length]);
+        finalOptions = applySeriesPointColorEdits(options, chartData.rows, edits, defaults);
+    }
+    if (kind === 'scatter' && el('chart-scatter-pairs').checked) {
+        const allPairs = extractScatterPairData(book, range, true), expanded = Array.from({ length: allPairs.series.length }, (_, index) => sourceChart?.seriesOptions?.[index] ?? {});
+        (chartData.scatterPairIndexes ?? options.map((_, index) => index)).forEach((sourceIndex, visibleIndex) => { expanded[sourceIndex] = finalOptions[visibleIndex] ?? {}; });
+        return expanded;
+    }
+    return finalOptions;
+}
 function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     editingChartPivotId = pivotId ?? null;
     const c = doc.active.tools.charts.find(x => x.id === id);
@@ -1941,6 +2261,7 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     el('chart-dialog-title').textContent = c ? 'Edit chart' : 'Insert chart';
     el('chart-submit').textContent = c ? 'Save changes' : 'Insert chart';
     el('chart-kind').value = c?.kind ?? kind;
+    el('chart-scatter-pairs').checked = c?.scatterPairs ?? false;
     updateChartOptionVisibility();
     editingChartPivotId = c?.pivotId ?? editingChartPivotId;
     el('chart-range').value = c?.range ?? sourceRange ?? suggestedChartRange();
@@ -1949,14 +2270,25 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
     el('chart-theme').value = c?.theme ?? 'office';
     el('chart-legend').value = c?.legend ?? 'bottom';
     el('chart-blanks').value = c?.displayBlanksAs ?? 'gap';
+    el('chart-category-gap-width').value = String(c?.categoryGapWidth ?? 150);
+    el('chart-series-overlap').value = String(c?.seriesOverlap ?? 0);
     el('chart-reverse-categories').checked = c?.reverseCategories ?? false;
     el('chart-data-label-position').value = c?.dataLabelPosition ?? 'outsideEnd';
     el('chart-label-separator').value = c?.dataLabelSeparator ?? '';
     el('chart-data-label-format').value = c?.dataLabelFormatCode ?? '';
     el('chart-xaxis').value = c?.xAxisTitle ?? '';
+    el('chart-xaxis-min').value = c?.xAxisMin === undefined ? '' : String(c.xAxisMin);
+    el('chart-xaxis-max').value = c?.xAxisMax === undefined ? '' : String(c.xAxisMax);
+    el('chart-xaxis-major').value = c?.xAxisMajorUnit === undefined ? '' : String(c.xAxisMajorUnit);
     el('chart-yaxis').value = c?.yAxisTitle ?? '';
+    el('chart-yaxis-min').value = c?.yAxisMin === undefined ? '' : String(c.yAxisMin);
+    el('chart-yaxis-max').value = c?.yAxisMax === undefined ? '' : String(c.yAxisMax);
+    el('chart-yaxis-major').value = c?.yAxisMajorUnit === undefined ? '' : String(c.yAxisMajorUnit);
     el('chart-yaxis-log-base').value = c?.yAxisLogBase === undefined ? '' : String(c.yAxisLogBase);
     el('chart-yaxis-secondary').value = c?.secondaryYAxisTitle ?? '';
+    el('chart-yaxis2-min').value = c?.secondaryYAxisMin === undefined ? '' : String(c.secondaryYAxisMin);
+    el('chart-yaxis2-max').value = c?.secondaryYAxisMax === undefined ? '' : String(c.secondaryYAxisMax);
+    el('chart-yaxis2-major').value = c?.secondaryYAxisMajorUnit === undefined ? '' : String(c.secondaryYAxisMajorUnit);
     el('chart-labels').checked = c?.dataLabels ?? false;
     el('chart-label-category').checked = c?.dataLabelCategoryName ?? false;
     el('chart-label-series').checked = c?.dataLabelSeriesName ?? false;
@@ -1978,13 +2310,30 @@ function openChartEditor(kind = 'column', id, sourceRange, pivotId) {
 }
 for (const button of Array.from(document.querySelectorAll('[data-chart-kind]')))
     button.addEventListener('click', () => openChartEditor(button.dataset.chartKind));
-for (const id of ['chart-range', 'chart-title', 'chart-accessibility-description', 'chart-kind', 'chart-theme', 'chart-legend', 'chart-blanks', 'chart-data-label-position', 'chart-data-label-format', 'chart-reverse-categories', 'chart-xaxis', 'chart-yaxis', 'chart-yaxis-log-base', 'chart-yaxis-secondary', 'chart-labels', 'chart-label-category', 'chart-label-series', 'chart-label-percent', 'chart-label-separator', 'chart-waterfall-total-points', 'chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow', 'chart-box-quartiles', 'chart-box-inner', 'chart-box-outliers', 'chart-box-mean-marker', 'chart-box-mean-line'])
-    el(id).addEventListener('input', () => { if (id === 'chart-kind')
-        updateChartOptionVisibility(); if (id === 'chart-histogram-bins' && Number(el('chart-histogram-bins').value) > 0)
-        el('chart-histogram-bin-width').value = '0'; if (id === 'chart-histogram-bin-width' && Number(el('chart-histogram-bin-width').value) > 0)
-        el('chart-histogram-bins').value = '0'; if (id === 'chart-range' || id === 'chart-kind' || id === 'chart-theme')
-        renderSeriesOptions(doc.active.tools.charts.find(chart => chart.id === editingChartId)); chartPreview(); });
-el('chart-series-options').addEventListener('input', chartPreview);
+for (const id of ['chart-range', 'chart-title', 'chart-accessibility-description', 'chart-kind', 'chart-theme', 'chart-legend', 'chart-blanks', 'chart-category-gap-width', 'chart-series-overlap', 'chart-data-label-position', 'chart-data-label-format', 'chart-reverse-categories', 'chart-xaxis', 'chart-yaxis', 'chart-yaxis-log-base', 'chart-yaxis-secondary', 'chart-labels', 'chart-label-category', 'chart-label-series', 'chart-label-percent', 'chart-label-separator', 'chart-waterfall-total-points', 'chart-histogram-bins', 'chart-histogram-bin-width', 'chart-histogram-underflow', 'chart-histogram-overflow', 'chart-box-quartiles', 'chart-box-inner', 'chart-box-outliers', 'chart-box-mean-marker', 'chart-box-mean-line', 'chart-scatter-pairs', 'chart-xaxis-min', 'chart-xaxis-max', 'chart-xaxis-major', 'chart-yaxis-min', 'chart-yaxis-max', 'chart-yaxis-major', 'chart-yaxis2-min', 'chart-yaxis2-max', 'chart-yaxis2-major'])
+    el(id).addEventListener('input', () => {
+        if (id === 'chart-kind')
+            updateChartOptionVisibility();
+        if (id === 'chart-histogram-bins' && Number(el('chart-histogram-bins').value) > 0)
+            el('chart-histogram-bin-width').value = '0';
+        if (id === 'chart-histogram-bin-width' && Number(el('chart-histogram-bin-width').value) > 0)
+            el('chart-histogram-bins').value = '0';
+        if (id === 'chart-range' || id === 'chart-kind' || id === 'chart-theme' || id === 'chart-scatter-pairs')
+            renderSeriesOptions(doc.active.tools.charts.find(chart => chart.id === editingChartId));
+        chartPreview();
+    });
+el('chart-series-options').addEventListener('input', event => {
+    const target = event.target;
+    if (target instanceof HTMLSelectElement && target.matches('[data-series-kind]')) {
+        const row = target.closest('.chart-series-config'), visible = target.value === 'line' || ['line', 'scatter', 'area', 'radar'].includes(el('chart-kind').value);
+        for (const selector of ['[data-line-style]', '[data-line-width]']) {
+            const field = row?.querySelector(selector), label = field?.closest('label');
+            if (label)
+                label.hidden = !visible;
+        }
+    }
+    chartPreview();
+});
 el('chart-point-colors').addEventListener('input', chartPreview);
 el('chart-submit').addEventListener('click', () => {
     try {
@@ -1993,12 +2342,12 @@ el('chart-submit').addEventListener('click', () => {
         const chosen = doc.active.tools.charts.find(x => x.id === editingChartId);
         if (!chosen && doc.active.tools.charts.length >= 24)
             throw Error('Maximum 24 charts per worksheet.');
-        const b = sel(), kind = el('chart-kind').value;
-        if (kind === 'scatter' && extractChartData(book, range, false).series.length < 2)
-            throw Error('Scatter charts need at least two numeric columns: one X series and one or more Y series.');
+        const b = sel(), kind = el('chart-kind').value, scatterPairs = kind === 'scatter' && el('chart-scatter-pairs').checked, includeHiddenData = chosen?.includeHiddenData ?? false, chartSource = scatterPairs ? extractScatterPairData(book, range, includeHiddenData) : extractChartData(book, range, false, includeHiddenData);
+        if (kind === 'scatter' && chartSource.series.length < (scatterPairs ? 1 : 2))
+            throw Error(scatterPairs ? 'XY pair mode needs at least four numeric columns (X1, Y1, X2, Y2).' : 'Scatter charts need at least two numeric columns: one X series and one or more Y series.');
         const waterfallTotalPoints = kind === 'waterfall' ? parseWaterfallTotalPointInput(el('chart-waterfall-total-points').value, extractChartData(book, range).rows) : undefined;
-        const chart = { ...(chosen ? { xAxisMin: chosen.xAxisMin, xAxisMax: chosen.xAxisMax, xAxisMajorUnit: chosen.xAxisMajorUnit, xAxisNumberFormat: chosen.xAxisNumberFormat, xAxisFormatCode: chosen.xAxisFormatCode, xAxisLabelAngle: chosen.xAxisLabelAngle, xAxisLabelInterval: chosen.xAxisLabelInterval, yAxisMin: chosen.yAxisMin, yAxisMax: chosen.yAxisMax, yAxisMajorUnit: chosen.yAxisMajorUnit, secondaryYAxisMin: chosen.secondaryYAxisMin, secondaryYAxisMax: chosen.secondaryYAxisMax, secondaryYAxisMajorUnit: chosen.secondaryYAxisMajorUnit, yAxisNumberFormat: chosen.yAxisNumberFormat, secondaryYAxisNumberFormat: chosen.secondaryYAxisNumberFormat, yAxisFormatCode: chosen.yAxisFormatCode, secondaryYAxisFormatCode: chosen.secondaryYAxisFormatCode, doughnutHoleSize: chosen.doughnutHoleSize, firstSliceAngle: chosen.firstSliceAngle, majorGridlines: chosen.majorGridlines, minorGridlines: chosen.minorGridlines } : {}), id: chosen?.id ?? `chart-${Date.now()}-${Math.floor(Math.random() * 1e5)}`, kind, ...readBoxWhiskerOptions(), theme: el('chart-theme').value, title: el('chart-title').value.trim().slice(0, 100), accessibilityDescription: el('chart-accessibility-description').value.trim().slice(0, 500) || undefined, range, pivotId: editingChartPivotId && doc.active.tools.pivotTables.some(pivot => pivot.id === editingChartPivotId && pivotChartRange(pivot) === range) ? editingChartPivotId : undefined, x: chosen?.x ?? Math.min(13000, HEAD_W + Math.max(0, b.c1) * COL_W + 18), y: chosen?.y ?? Math.min(27000, HEAD_H + Math.max(0, b.r1) * ROW_H + 16), width: chosen?.width ?? 510, height: chosen?.height ?? 320, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, reverseCategories: el('chart-reverse-categories').checked, dataLabelPosition: el('chart-data-label-position').value, xAxisTitle: el('chart-xaxis').value.trim().slice(0, 70), yAxisTitle: el('chart-yaxis').value.trim().slice(0, 70), ...(Number(el('chart-yaxis-log-base').value) >= 2 ? { yAxisLogBase: Number(el('chart-yaxis-log-base').value) } : {}), secondaryYAxisTitle: el('chart-yaxis-secondary').value.trim().slice(0, 70), dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, showFinalTotal: kind === 'waterfall' && waterfallTotalPoints?.includes(extractChartData(book, range).rows - 1) === true, ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), switchRowsColumns: kind === 'scatter' ? false : chosen?.switchRowsColumns ?? false, seriesOptions: readSeriesOptions() };
-        chart.dataPointColors = readPiePointColors(chosen, kind, range, chosen?.switchRowsColumns ?? false);
+        const chart = { ...(chosen ? { xAxisMin: chosen.xAxisMin, xAxisMax: chosen.xAxisMax, xAxisMajorUnit: chosen.xAxisMajorUnit, xAxisNumberFormat: chosen.xAxisNumberFormat, xAxisFormatCode: chosen.xAxisFormatCode, xAxisLabelAngle: chosen.xAxisLabelAngle, xAxisLabelInterval: chosen.xAxisLabelInterval, yAxisMin: chosen.yAxisMin, yAxisMax: chosen.yAxisMax, yAxisMajorUnit: chosen.yAxisMajorUnit, secondaryYAxisMin: chosen.secondaryYAxisMin, secondaryYAxisMax: chosen.secondaryYAxisMax, secondaryYAxisMajorUnit: chosen.secondaryYAxisMajorUnit, yAxisNumberFormat: chosen.yAxisNumberFormat, secondaryYAxisNumberFormat: chosen.secondaryYAxisNumberFormat, yAxisFormatCode: chosen.yAxisFormatCode, secondaryYAxisFormatCode: chosen.secondaryYAxisFormatCode, doughnutHoleSize: chosen.doughnutHoleSize, firstSliceAngle: chosen.firstSliceAngle, majorGridlines: chosen.majorGridlines, minorGridlines: chosen.minorGridlines } : {}), id: chosen?.id ?? `chart-${Date.now()}-${Math.floor(Math.random() * 1e5)}`, kind, ...(scatterPairs ? { scatterPairs: true } : {}), ...readBoxWhiskerOptions(), ...readChartAxisOptions(), theme: el('chart-theme').value, title: el('chart-title').value.trim().slice(0, 100), accessibilityDescription: el('chart-accessibility-description').value.trim().slice(0, 500) || undefined, range, pivotId: editingChartPivotId && doc.active.tools.pivotTables.some(pivot => pivot.id === editingChartPivotId && pivotChartRange(pivot) === range) ? editingChartPivotId : undefined, x: chosen?.x ?? Math.min(13000, HEAD_W + Math.max(0, b.c1) * COL_W + 18), y: chosen?.y ?? Math.min(27000, HEAD_H + Math.max(0, b.r1) * ROW_H + 16), width: chosen?.width ?? 510, height: chosen?.height ?? 320, legend: el('chart-legend').value, displayBlanksAs: el('chart-blanks').value, categoryGapWidth: Number(el('chart-category-gap-width').value), reverseCategories: el('chart-reverse-categories').checked, dataLabelPosition: el('chart-data-label-position').value, xAxisTitle: el('chart-xaxis').value.trim().slice(0, 70), yAxisTitle: el('chart-yaxis').value.trim().slice(0, 70), ...(Number(el('chart-yaxis-log-base').value) >= 2 ? { yAxisLogBase: Number(el('chart-yaxis-log-base').value) } : {}), secondaryYAxisTitle: el('chart-yaxis-secondary').value.trim().slice(0, 70), dataLabels: el('chart-labels').checked, dataLabelCategoryName: el('chart-label-category').checked, dataLabelSeriesName: el('chart-label-series').checked, dataLabelPercent: el('chart-label-percent').checked, dataLabelSeparator: el('chart-label-separator').value || undefined, dataLabelFormatCode: el('chart-data-label-format').value.trim() || undefined, showFinalTotal: kind === 'waterfall' && waterfallTotalPoints?.includes(extractChartData(book, range).rows - 1) === true, ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(Number(el('chart-histogram-bins').value) > 0 ? { histogramBins: Number(el('chart-histogram-bins').value) } : {}), ...(Number(el('chart-histogram-bin-width').value) > 0 ? { histogramBinWidth: Number(el('chart-histogram-bin-width').value) } : {}), ...(el('chart-histogram-underflow').value.trim() !== '' ? { histogramUnderflow: Number(el('chart-histogram-underflow').value) } : {}), ...(el('chart-histogram-overflow').value.trim() !== '' ? { histogramOverflow: Number(el('chart-histogram-overflow').value) } : {}), switchRowsColumns: kind === 'scatter' ? false : chosen?.switchRowsColumns ?? false, seriesOptions: readSeriesOptions(chosen) };
+        chart.dataPointColors = readChartPointColors(chosen, kind, range, chosen?.switchRowsColumns ?? false);
         if (chosen)
             Object.assign(chosen, chart);
         else
@@ -2025,210 +2374,411 @@ function showChartList() {
 }
 el('btn-manage-charts').addEventListener('click', showChartList);
 el('close-chart-list').addEventListener('click', () => chartListDialog.close());
-el('chart-context-kind').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.kind = el('chart-context-kind').value; if (!chartDataTableKinds.has(chart.kind)) {
-    delete chart.dataTable;
-    delete chart.dataTableShowKeys;
-} if (!chartHiddenDataKinds.has(chart.kind))
-    delete chart.includeHiddenData; saveSelectedChart(); });
-el('chart-context-theme').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.theme = el('chart-context-theme').value; saveSelectedChart(); });
-el('chart-legend-position').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.legend = el('chart-legend-position').value; saveSelectedChart(); });
-el('chart-switch-data').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; if (chart.kind === 'scatter') {
-    toast('Scatter charts use the first numeric column for X values; switch rows and columns is disabled.');
-    return;
-} const previousCount = extractChartData(book, chart.range, chart.switchRowsColumns ?? false).series.length; chart.switchRowsColumns = !chart.switchRowsColumns; const nextCount = extractChartData(book, chart.range, chart.switchRowsColumns).series.length; if (previousCount !== nextCount)
-    chart.seriesOptions = undefined; saveSelectedChart(); toast(previousCount === nextCount ? 'Chart orientation switched' : 'Chart orientation switched; per-series settings were reset because the series count changed.'); });
-el('chart-toggle-legend').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; chart.legend = chart.legend === 'none' ? 'bottom' : 'none'; saveSelectedChart(); });
-el('chart-toggle-labels').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; chart.dataLabels = !chart.dataLabels; saveSelectedChart(); });
-el('chart-toggle-data-table').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; if (!chartDataTableKinds.has(chart.kind)) {
-    toast('Data tables are available for column, bar, line, area, stacked, 100% stacked and combo charts.');
-    return;
-} chart.dataTable = !chart.dataTable; if (!chart.dataTable)
-    delete chart.dataTableShowKeys; saveSelectedChart(); });
-el('chart-toggle-data-table-keys').addEventListener('click', () => { const chart = selectedChart(); if (!chart?.dataTable)
-    return; chart.dataTableShowKeys = !chart.dataTableShowKeys; saveSelectedChart(); });
-el('chart-toggle-hidden-data').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; if (!chartHiddenDataKinds.has(chart.kind)) {
-    toast('Plot Hidden Data is available for standard Excel chart types.');
-    return;
-} chart.includeHiddenData = !chart.includeHiddenData; saveSelectedChart(); });
-el('chart-toggle-gridlines').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; chart.majorGridlines = chart.majorGridlines === false; saveSelectedChart(); });
-el('chart-toggle-minor-gridlines').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; chart.minorGridlines = !chart.minorGridlines; saveSelectedChart(); });
-el('chart-toggle-error-bars').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; const enabled = chart.seriesOptions?.some(o => o.errorBars); const data = extractChartData(book, chart.range, chart.switchRowsColumns ?? false); chart.seriesOptions = data.series.map((_, i) => { const current = chart.seriesOptions?.[i] ?? {}; return { ...current, ...(enabled ? { errorBars: undefined } : { errorBars: { type: 'percentage', value: 5 } }) }; }); chart.seriesOptions = chart.seriesOptions.map(o => { const clean = { ...o }; if (!clean.errorBars)
-    delete clean.errorBars; return clean; }); saveSelectedChart(); toast(enabled ? 'Error bars removed' : '5% error bars added; use Series Options to change the amount.'); });
-el('chart-edit-data').addEventListener('click', () => { const chart = selectedChart(); if (chart)
-    openChartEditor(chart.kind, chart.id); });
-el('chart-more-options').addEventListener('click', () => { const chart = selectedChart(); if (chart)
-    openChartEditor(chart.kind, chart.id); });
-el('chart-format-title').addEventListener('input', () => { const chart = selectedChart(); if (!chart)
-    return; chart.title = el('chart-format-title').value.slice(0, 100); save(); refresh(); });
-el('chart-format-y-title').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.yAxisTitle = el('chart-format-y-title').value.trim().slice(0, 70); saveSelectedChart(); });
-el('chart-format-x-title').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.xAxisTitle = el('chart-format-x-title').value.trim().slice(0, 70); saveSelectedChart(); });
+el('chart-context-kind').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.kind = el('chart-context-kind').value;
+    if (!chartDataTableKinds.has(chart.kind)) {
+        delete chart.dataTable;
+        delete chart.dataTableShowKeys;
+    }
+    if (!chartHiddenDataKinds.has(chart.kind))
+        delete chart.includeHiddenData;
+    saveSelectedChart();
+});
+el('chart-context-theme').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.theme = el('chart-context-theme').value;
+    saveSelectedChart();
+});
+el('chart-legend-position').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.legend = el('chart-legend-position').value;
+    saveSelectedChart();
+});
+el('chart-switch-data').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    if (chart.kind === 'scatter') {
+        toast('Scatter charts use the first numeric column for X values; switch rows and columns is disabled.');
+        return;
+    }
+    const previousCount = extractChartData(book, chart.range, chart.switchRowsColumns ?? false).series.length;
+    chart.switchRowsColumns = !chart.switchRowsColumns;
+    const nextCount = extractChartData(book, chart.range, chart.switchRowsColumns).series.length;
+    if (previousCount !== nextCount)
+        chart.seriesOptions = undefined;
+    saveSelectedChart();
+    toast(previousCount === nextCount ? 'Chart orientation switched' : 'Chart orientation switched; per-series settings were reset because the series count changed.');
+});
+el('chart-toggle-legend').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.legend = chart.legend === 'none' ? 'bottom' : 'none';
+    saveSelectedChart();
+});
+el('chart-toggle-labels').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.dataLabels = !chart.dataLabels;
+    saveSelectedChart();
+});
+el('chart-toggle-data-table').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    if (!chartDataTableKinds.has(chart.kind)) {
+        toast('Data tables are available for column, bar, line, area, stacked, 100% stacked and combo charts.');
+        return;
+    }
+    chart.dataTable = !chart.dataTable;
+    if (!chart.dataTable)
+        delete chart.dataTableShowKeys;
+    saveSelectedChart();
+});
+el('chart-toggle-data-table-keys').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart?.dataTable)
+        return;
+    chart.dataTableShowKeys = !chart.dataTableShowKeys;
+    saveSelectedChart();
+});
+el('chart-toggle-hidden-data').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    if (!chartHiddenDataKinds.has(chart.kind)) {
+        toast('Plot Hidden Data is available for standard Excel chart types.');
+        return;
+    }
+    chart.includeHiddenData = !chart.includeHiddenData;
+    saveSelectedChart();
+});
+el('chart-toggle-gridlines').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.majorGridlines = chart.majorGridlines === false;
+    saveSelectedChart();
+});
+el('chart-toggle-minor-gridlines').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.minorGridlines = !chart.minorGridlines;
+    saveSelectedChart();
+});
+el('chart-toggle-error-bars').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const enabled = chart.seriesOptions?.some(o => o.errorBars);
+    const data = extractChartData(book, chart.range, chart.switchRowsColumns ?? false);
+    chart.seriesOptions = data.series.map((_, i) => { const current = chart.seriesOptions?.[i] ?? {}; return { ...current, ...(enabled ? { errorBars: undefined } : { errorBars: { type: 'percentage', value: 5 } }) }; });
+    chart.seriesOptions = chart.seriesOptions.map(o => {
+        const clean = { ...o };
+        if (!clean.errorBars)
+            delete clean.errorBars;
+        return clean;
+    });
+    saveSelectedChart();
+    toast(enabled ? 'Error bars removed' : '5% error bars added; use Series Options to change the amount.');
+});
+el('chart-edit-data').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (chart)
+        openChartEditor(chart.kind, chart.id);
+});
+el('chart-more-options').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (chart)
+        openChartEditor(chart.kind, chart.id);
+});
+el('chart-format-title').addEventListener('input', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.title = el('chart-format-title').value.slice(0, 100);
+    save();
+    refresh();
+});
+el('chart-format-y-title').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.yAxisTitle = el('chart-format-y-title').value.trim().slice(0, 70);
+    saveSelectedChart();
+});
+el('chart-format-x-title').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.xAxisTitle = el('chart-format-x-title').value.trim().slice(0, 70);
+    saveSelectedChart();
+});
 for (const [id, key] of [['chart-format-x-min', 'xAxisMin'], ['chart-format-x-max', 'xAxisMax']])
-    el(id).addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-        return; const raw = el(id).value.trim(); if (raw === '')
-        delete chart[key];
+    el(id).addEventListener('change', () => {
+        const chart = selectedChart();
+        if (!chart)
+            return;
+        const raw = el(id).value.trim();
+        if (raw === '')
+            delete chart[key];
+        else
+            chart[key] = Number(raw);
+        try {
+            Object.assign(chart, validateChart(chart, book.rows, book.cols));
+            saveSelectedChart();
+        }
+        catch (error) {
+            toast(error instanceof Error ? error.message : 'Invalid horizontal axis bound');
+            updateChartRibbonControls();
+        }
+    });
+el('chart-format-x-major-unit').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const raw = el('chart-format-x-major-unit').value.trim();
+    if (raw === '')
+        delete chart.xAxisMajorUnit;
     else
-        chart[key] = Number(raw); try {
+        chart.xAxisMajorUnit = Number(raw);
+    try {
         Object.assign(chart, validateChart(chart, book.rows, book.cols));
         saveSelectedChart();
     }
     catch (error) {
-        toast(error instanceof Error ? error.message : 'Invalid horizontal axis bound');
+        toast(error instanceof Error ? error.message : 'Invalid horizontal axis major unit');
         updateChartRibbonControls();
-    } });
-el('chart-format-x-major-unit').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const raw = el('chart-format-x-major-unit').value.trim(); if (raw === '')
-    delete chart.xAxisMajorUnit;
-else
-    chart.xAxisMajorUnit = Number(raw); try {
-    Object.assign(chart, validateChart(chart, book.rows, book.cols));
+    }
+});
+el('chart-format-x-format').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.xAxisNumberFormat = el('chart-format-x-format').value;
+    delete chart.xAxisFormatCode;
+    el('chart-format-x-format-code').value = '';
     saveSelectedChart();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid horizontal axis major unit');
-    updateChartRibbonControls();
-} });
-el('chart-format-x-format').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.xAxisNumberFormat = el('chart-format-x-format').value; delete chart.xAxisFormatCode; el('chart-format-x-format-code').value = ''; saveSelectedChart(); });
-el('chart-format-x-format-code').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const value = el('chart-format-x-format-code').value.trim(); if (value)
-    chart.xAxisFormatCode = value;
-else
-    delete chart.xAxisFormatCode; try {
-    Object.assign(chart, validateChart(chart, book.rows, book.cols));
-    saveSelectedChart();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid custom horizontal axis number format');
-    updateChartRibbonControls();
-} });
-el('chart-format-x-angle').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const raw = el('chart-format-x-angle').value.trim(); if (raw === '')
-    delete chart.xAxisLabelAngle;
-else
-    chart.xAxisLabelAngle = Number(raw); try {
-    Object.assign(chart, validateChart(chart, book.rows, book.cols));
-    saveSelectedChart();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid category axis angle');
-    updateChartRibbonControls();
-} });
-el('chart-format-x-interval').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const raw = el('chart-format-x-interval').value.trim(); if (raw === '')
-    delete chart.xAxisLabelInterval;
-else
-    chart.xAxisLabelInterval = Number(raw); try {
-    Object.assign(chart, validateChart(chart, book.rows, book.cols));
-    saveSelectedChart();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid category label interval');
-    updateChartRibbonControls();
-} });
+});
+el('chart-format-x-format-code').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const value = el('chart-format-x-format-code').value.trim();
+    if (value)
+        chart.xAxisFormatCode = value;
+    else
+        delete chart.xAxisFormatCode;
+    try {
+        Object.assign(chart, validateChart(chart, book.rows, book.cols));
+        saveSelectedChart();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid custom horizontal axis number format');
+        updateChartRibbonControls();
+    }
+});
+el('chart-format-x-angle').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const raw = el('chart-format-x-angle').value.trim();
+    if (raw === '')
+        delete chart.xAxisLabelAngle;
+    else
+        chart.xAxisLabelAngle = Number(raw);
+    try {
+        Object.assign(chart, validateChart(chart, book.rows, book.cols));
+        saveSelectedChart();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid category axis angle');
+        updateChartRibbonControls();
+    }
+});
+el('chart-format-x-interval').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const raw = el('chart-format-x-interval').value.trim();
+    if (raw === '')
+        delete chart.xAxisLabelInterval;
+    else
+        chart.xAxisLabelInterval = Number(raw);
+    try {
+        Object.assign(chart, validateChart(chart, book.rows, book.cols));
+        saveSelectedChart();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid category label interval');
+        updateChartRibbonControls();
+    }
+});
 for (const [id, key] of [['chart-format-y-min', 'yAxisMin'], ['chart-format-y-max', 'yAxisMax'], ['chart-format-secondary-y-min', 'secondaryYAxisMin'], ['chart-format-secondary-y-max', 'secondaryYAxisMax']])
-    el(id).addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-        return; const raw = el(id).value.trim(); if (raw === '')
-        delete chart[key];
+    el(id).addEventListener('change', () => {
+        const chart = selectedChart();
+        if (!chart)
+            return;
+        const raw = el(id).value.trim();
+        if (raw === '')
+            delete chart[key];
+        else
+            chart[key] = Number(raw);
+        try {
+            const valid = validateChart(chart, book.rows, book.cols);
+            Object.assign(chart, valid);
+            saveSelectedChart();
+        }
+        catch (e) {
+            toast(e instanceof Error ? e.message : 'Invalid axis bounds');
+            updateChartRibbonControls();
+        }
+    });
+el('chart-format-y-major-unit').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const raw = el('chart-format-y-major-unit').value.trim();
+    if (raw === '')
+        delete chart.yAxisMajorUnit;
     else
-        chart[key] = Number(raw); try {
+        chart.yAxisMajorUnit = Number(raw);
+    try {
         const valid = validateChart(chart, book.rows, book.cols);
         Object.assign(chart, valid);
         saveSelectedChart();
     }
     catch (e) {
-        toast(e instanceof Error ? e.message : 'Invalid axis bounds');
+        toast(e instanceof Error ? e.message : 'Invalid axis major unit');
         updateChartRibbonControls();
-    } });
-el('chart-format-y-major-unit').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const raw = el('chart-format-y-major-unit').value.trim(); if (raw === '')
-    delete chart.yAxisMajorUnit;
-else
-    chart.yAxisMajorUnit = Number(raw); try {
-    const valid = validateChart(chart, book.rows, book.cols);
-    Object.assign(chart, valid);
+    }
+});
+el('chart-format-secondary-y-major-unit').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const raw = el('chart-format-secondary-y-major-unit').value.trim();
+    if (raw === '')
+        delete chart.secondaryYAxisMajorUnit;
+    else
+        chart.secondaryYAxisMajorUnit = Number(raw);
+    try {
+        const valid = validateChart(chart, book.rows, book.cols);
+        Object.assign(chart, valid);
+        saveSelectedChart();
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Invalid secondary axis major unit');
+        updateChartRibbonControls();
+    }
+});
+el('chart-format-secondary-y-format').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const format = el('chart-format-secondary-y-format').value;
+    if (format === chart.yAxisNumberFormat)
+        delete chart.secondaryYAxisNumberFormat;
+    else
+        chart.secondaryYAxisNumberFormat = format;
+    delete chart.secondaryYAxisFormatCode;
+    el('chart-format-secondary-y-format-code').value = '';
     saveSelectedChart();
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Invalid axis major unit');
-    updateChartRibbonControls();
-} });
-el('chart-format-secondary-y-major-unit').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const raw = el('chart-format-secondary-y-major-unit').value.trim(); if (raw === '')
-    delete chart.secondaryYAxisMajorUnit;
-else
-    chart.secondaryYAxisMajorUnit = Number(raw); try {
-    const valid = validateChart(chart, book.rows, book.cols);
-    Object.assign(chart, valid);
-    saveSelectedChart();
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Invalid secondary axis major unit');
-    updateChartRibbonControls();
-} });
-el('chart-format-secondary-y-format').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const format = el('chart-format-secondary-y-format').value; if (format === chart.yAxisNumberFormat)
-    delete chart.secondaryYAxisNumberFormat;
-else
-    chart.secondaryYAxisNumberFormat = format; delete chart.secondaryYAxisFormatCode; el('chart-format-secondary-y-format-code').value = ''; saveSelectedChart(); });
-el('chart-format-y-format-code').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const value = el('chart-format-y-format-code').value.trim(); if (value)
-    chart.yAxisFormatCode = value;
-else
-    delete chart.yAxisFormatCode; try {
-    Object.assign(chart, validateChart(chart, book.rows, book.cols));
-    saveSelectedChart();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid custom axis number format');
-    updateChartRibbonControls();
-} });
-el('chart-format-secondary-y-format-code').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; const value = el('chart-format-secondary-y-format-code').value.trim(); if (value)
-    chart.secondaryYAxisFormatCode = value;
-else
-    delete chart.secondaryYAxisFormatCode; try {
-    Object.assign(chart, validateChart(chart, book.rows, book.cols));
-    saveSelectedChart();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid custom secondary axis number format');
-    updateChartRibbonControls();
-} });
+});
+el('chart-format-y-format-code').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const value = el('chart-format-y-format-code').value.trim();
+    if (value)
+        chart.yAxisFormatCode = value;
+    else
+        delete chart.yAxisFormatCode;
+    try {
+        Object.assign(chart, validateChart(chart, book.rows, book.cols));
+        saveSelectedChart();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid custom axis number format');
+        updateChartRibbonControls();
+    }
+});
+el('chart-format-secondary-y-format-code').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    const value = el('chart-format-secondary-y-format-code').value.trim();
+    if (value)
+        chart.secondaryYAxisFormatCode = value;
+    else
+        delete chart.secondaryYAxisFormatCode;
+    try {
+        Object.assign(chart, validateChart(chart, book.rows, book.cols));
+        saveSelectedChart();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid custom secondary axis number format');
+        updateChartRibbonControls();
+    }
+});
 for (const [id, key] of [['chart-format-doughnut-hole', 'doughnutHoleSize'], ['chart-format-first-slice-angle', 'firstSliceAngle']])
-    el(id).addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-        return; const raw = el(id).value.trim(); if (raw === '')
-        delete chart[key];
-    else
-        chart[key] = Number(raw); try {
-        const valid = validateChart(chart, book.rows, book.cols);
-        Object.assign(chart, valid);
-        saveSelectedChart();
-    }
-    catch (e) {
-        toast(e instanceof Error ? e.message : 'Invalid pie or doughnut setting');
-        updateChartRibbonControls();
-    } });
-el('chart-format-y-format').addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-    return; chart.yAxisNumberFormat = el('chart-format-y-format').value; delete chart.yAxisFormatCode; el('chart-format-y-format-code').value = ''; saveSelectedChart(); });
+    el(id).addEventListener('change', () => {
+        const chart = selectedChart();
+        if (!chart)
+            return;
+        const raw = el(id).value.trim();
+        if (raw === '')
+            delete chart[key];
+        else
+            chart[key] = Number(raw);
+        try {
+            const valid = validateChart(chart, book.rows, book.cols);
+            Object.assign(chart, valid);
+            saveSelectedChart();
+        }
+        catch (e) {
+            toast(e instanceof Error ? e.message : 'Invalid pie or doughnut setting');
+            updateChartRibbonControls();
+        }
+    });
+el('chart-format-y-format').addEventListener('change', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    chart.yAxisNumberFormat = el('chart-format-y-format').value;
+    delete chart.yAxisFormatCode;
+    el('chart-format-y-format-code').value = '';
+    saveSelectedChart();
+});
 for (const [id, key, min, max] of [['chart-format-width', 'width', 300, 900], ['chart-format-height', 'height', 210, 650]]) {
-    el(id).addEventListener('change', () => { const chart = selectedChart(); if (!chart)
-        return; chart[key] = Math.max(min, Math.min(max, Math.round(Number(el(id).value) || min))); saveSelectedChart(); });
+    el(id).addEventListener('change', () => {
+        const chart = selectedChart();
+        if (!chart)
+            return;
+        chart[key] = Math.max(min, Math.min(max, Math.round(Number(el(id).value) || min)));
+        saveSelectedChart();
+    });
 }
-el('chart-remove-selected').addEventListener('click', () => { const chart = selectedChart(); if (!chart)
-    return; doc.active.tools.charts = doc.active.tools.charts.filter(item => item.id !== chart.id); selectedChartId = null; showRibbon('Insert'); save(); refresh(); });
+el('chart-remove-selected').addEventListener('click', () => {
+    const chart = selectedChart();
+    if (!chart)
+        return;
+    doc.active.tools.charts = doc.active.tools.charts.filter(item => item.id !== chart.id);
+    selectedChartId = null;
+    showRibbon('Insert');
+    save();
+    refresh();
+});
 // Excel-like Format as Table and contextual Table Design tools.
 const tableDialog = el('table-dialog');
 let editingTableId = null, selectedTableStyle = TABLE_STYLES[0];
@@ -2241,8 +2791,13 @@ function tablePreview() {
         button.setAttribute('aria-checked', String(button.dataset.tableStyle === selectedTableStyle));
 }
 el('table-style-gallery').innerHTML = TABLE_STYLES.map((name, i) => `<button type="button" class="table-style-choice" data-table-style="${name}" role="radio" aria-checked="${i === 0}" title="${name}"><span style="background:${tableColors[i]};"></span><span style="background:${i > 5 ? '#f7f9fb' : '#dbe8f4'};"></span><small>${name.replace('TableStyle', '').replace('Medium', 'Medium ').replace('Light', 'Light ').replace('Dark', 'Dark ')}</small></button>`).join('');
-el('table-style-gallery').addEventListener('click', ev => { const button = ev.target.closest('[data-table-style]'); if (!button)
-    return; selectedTableStyle = button.dataset.tableStyle; tablePreview(); });
+el('table-style-gallery').addEventListener('click', ev => {
+    const button = ev.target.closest('[data-table-style]');
+    if (!button)
+        return;
+    selectedTableStyle = button.dataset.tableStyle;
+    tablePreview();
+});
 function openTableEditor(id) {
     const existing = doc.active.tools.tables.find(t => t.id === id) ?? tableAt(doc.active.tools.tables, active.r, active.c, book.rows, book.cols);
     editingTableId = existing?.id ?? null;
@@ -2272,36 +2827,57 @@ function saveTableForm() {
     refresh();
     return table;
 }
-el('table-apply').addEventListener('click', () => { try {
-    const t = saveTableForm();
+el('table-apply').addEventListener('click', () => {
+    try {
+        const t = saveTableForm();
+        tableDialog.close();
+        toast(`${t.name} formatted. Chart via Insert → Chart.`);
+    }
+    catch (e) {
+        el('table-validation').textContent = e instanceof Error ? e.message : 'Table error';
+    }
+});
+el('table-to-chart').addEventListener('click', () => {
+    try {
+        const t = saveTableForm(), b = tableRange(t.range, book.rows, book.cols);
+        tableDialog.close();
+        select(b.r1, b.c1);
+        openChartEditor('column');
+        el('chart-range').value = t.range;
+        chartPreview();
+    }
+    catch (e) {
+        el('table-validation').textContent = e instanceof Error ? e.message : 'Table error';
+    }
+});
+el('table-remove').addEventListener('click', () => {
+    if (!editingTableId)
+        return;
+    doc.active.tools.tables = doc.active.tools.tables.filter(t => t.id !== editingTableId);
+    book.setTableContext(doc.active.tools.tables);
     tableDialog.close();
-    toast(`${t.name} formatted. Chart via Insert → Chart.`);
-}
-catch (e) {
-    el('table-validation').textContent = e instanceof Error ? e.message : 'Table error';
-} });
-el('table-to-chart').addEventListener('click', () => { try {
-    const t = saveTableForm(), b = tableRange(t.range, book.rows, book.cols);
-    tableDialog.close();
-    select(b.r1, b.c1);
-    openChartEditor('column');
-    el('chart-range').value = t.range;
-    chartPreview();
-}
-catch (e) {
-    el('table-validation').textContent = e instanceof Error ? e.message : 'Table error';
-} });
-el('table-remove').addEventListener('click', () => { if (!editingTableId)
-    return; doc.active.tools.tables = doc.active.tools.tables.filter(t => t.id !== editingTableId); book.setTableContext(doc.active.tools.tables); tableDialog.close(); save(); refresh(); toast('Converted to regular cells. Data remains unchanged.'); });
+    save();
+    refresh();
+    toast('Converted to regular cells. Data remains unchanged.');
+});
 el('close-table').addEventListener('click', () => tableDialog.close());
 for (const id of ['btn-format-table', 'btn-table-edit', 'btn-insert-table'])
     el(id).addEventListener('click', () => openTableEditor());
-el('btn-table-to-chart').addEventListener('click', () => { const t = tableAt(doc.active.tools.tables, active.r, active.c, book.rows, book.cols); if (!t) {
-    toast('Click inside a formatted table first.');
-    return;
-} openChartEditor('column'); el('chart-range').value = t.range; chartPreview(); });
-el('chart-list').addEventListener('click', e => { const button = e.target.closest('[data-manage-chart]'); if (button)
-    openChartEditor('column', button.dataset.manageChart); });
+el('btn-table-to-chart').addEventListener('click', () => {
+    const t = tableAt(doc.active.tools.tables, active.r, active.c, book.rows, book.cols);
+    if (!t) {
+        toast('Click inside a formatted table first.');
+        return;
+    }
+    openChartEditor('column');
+    el('chart-range').value = t.range;
+    chartPreview();
+});
+el('chart-list').addEventListener('click', e => {
+    const button = e.target.closest('[data-manage-chart]');
+    if (button)
+        openChartEditor('column', button.dataset.manageChart);
+});
 let lastOpenedHyperlink = null;
 function openWorksheetHyperlink(link) {
     if (link.target) {
@@ -2395,147 +2971,205 @@ let resizingPivotSlicer = null;
 let draggingChart = null;
 let resizingChart = null;
 let resizingDimension = null;
-function autoFitDimension(axis, index) { let best = axis === 'column' ? 56 : 24; for (const item of book.allEntries()) {
-    const p = parseRef(item.ref);
-    if (!p || (axis === 'column' ? p.col !== index : p.row !== index))
-        continue;
-    const style = book.getStyle(item.ref), text = display(book.getValue(item.ref)), size = (style.fontSize ?? 11) * 4 / 3;
+function autoFitDimension(axis, index) {
+    let best = axis === 'column' ? 56 : 24;
+    for (const item of book.allEntries()) {
+        const p = parseRef(item.ref);
+        if (!p || (axis === 'column' ? p.col !== index : p.row !== index))
+            continue;
+        const style = book.getStyle(item.ref), text = display(book.getValue(item.ref)), size = (style.fontSize ?? 11) * 4 / 3;
+        if (axis === 'column') {
+            const c = document.createElement('canvas').getContext('2d');
+            if (c) {
+                c.font = `${size}px ${style.fontFamily ?? 'Aptos'}`;
+                best = Math.max(best, c.measureText(text).width + 24);
+            }
+        }
+        else
+            best = Math.max(best, Math.ceil(text.length * size * .54 / Math.max(1, colWidth(p.col) - 18)) * Math.max(18, size * 1.5) + 8);
+    }
+    const low = axis === 'column' ? 56 : 24, high = axis === 'column' ? 600 : 400, value = Math.max(low, Math.min(high, Math.ceil(best)));
+    if (axis === 'column')
+        doc.active.tools.columnWidths[index] = value;
+    else
+        doc.active.tools.rowHeights[index] = value;
+    save();
+    refresh();
+}
+grid.addEventListener('pointerdown', e => {
+    const head = e.target.closest('.col-heading,.row-heading');
+    if (!head)
+        return;
+    const axis = head.classList.contains('col-heading') ? 'column' : 'row', rect = head.getBoundingClientRect(), near = axis === 'column' ? Math.abs(e.clientX - rect.right) <= 6 : Math.abs(e.clientY - rect.bottom) <= 6, index = Number(axis === 'column' ? head.dataset.column : head.dataset.row);
+    if (!Number.isInteger(index))
+        return;
+    if (!near) {
+        e.preventDefault();
+        if (axis === 'row') {
+            active = { r: index, c: 0 };
+            anchor = { ...active };
+            end = { r: index, c: book.cols - 1 };
+        }
+        else {
+            active = { r: 0, c: index };
+            anchor = { ...active };
+            end = { r: book.rows - 1, c: index };
+        }
+        refresh();
+        grid.focus({ preventScroll: true });
+        return;
+    }
+    const b = sel(), low = axis === 'column' ? b.c1 : b.r1, high = axis === 'column' ? b.c2 : b.r2, indices = low !== high && index >= low && index <= high ? Array.from({ length: high - low + 1 }, (_, i) => low + i) : [index];
+    e.preventDefault();
+    resizingDimension = { axis, indices, start: axis === 'column' ? e.clientX : e.clientY, sizes: indices.map(i => axis === 'column' ? colWidth(i) : rowHeight(i)), current: axis === 'column' ? colWidth(index) : rowHeight(index) };
+});
+grid.addEventListener('click', e => {
+    const head = e.target.closest('.col-heading,.row-heading');
+    if (!head)
+        return;
+    const axis = head.classList.contains('col-heading') ? 'column' : 'row', rect = head.getBoundingClientRect(), near = axis === 'column' ? Math.abs(e.clientX - rect.right) <= 6 : Math.abs(e.clientY - rect.bottom) <= 6;
+    if (near)
+        return;
+    const index = Number(axis === 'column' ? head.dataset.column : head.dataset.row);
+    if (!Number.isInteger(index))
+        return;
     if (axis === 'column') {
-        const c = document.createElement('canvas').getContext('2d');
-        if (c) {
-            c.font = `${size}px ${style.fontFamily ?? 'Aptos'}`;
-            best = Math.max(best, c.measureText(text).width + 24);
+        active = { r: 0, c: index };
+        if (e.shiftKey)
+            end = { r: book.rows - 1, c: index };
+        else {
+            anchor = { ...active };
+            end = { r: book.rows - 1, c: index };
         }
     }
-    else
-        best = Math.max(best, Math.ceil(text.length * size * .54 / Math.max(1, colWidth(p.col) - 18)) * Math.max(18, size * 1.5) + 8);
-} const low = axis === 'column' ? 56 : 24, high = axis === 'column' ? 600 : 400, value = Math.max(low, Math.min(high, Math.ceil(best))); if (axis === 'column')
-    doc.active.tools.columnWidths[index] = value;
-else
-    doc.active.tools.rowHeights[index] = value; save(); refresh(); }
-grid.addEventListener('pointerdown', e => { const head = e.target.closest('.col-heading,.row-heading'); if (!head)
-    return; const axis = head.classList.contains('col-heading') ? 'column' : 'row', rect = head.getBoundingClientRect(), near = axis === 'column' ? Math.abs(e.clientX - rect.right) <= 6 : Math.abs(e.clientY - rect.bottom) <= 6, index = Number(axis === 'column' ? head.dataset.column : head.dataset.row); if (!Number.isInteger(index))
-    return; if (!near) {
-    e.preventDefault();
-    if (axis === 'row') {
-        active = { r: index, c: 0 };
-        anchor = { ...active };
-        end = { r: index, c: book.cols - 1 };
-    }
     else {
-        active = { r: 0, c: index };
-        anchor = { ...active };
-        end = { r: book.rows - 1, c: index };
+        active = { r: index, c: 0 };
+        if (e.shiftKey)
+            end = { r: index, c: book.cols - 1 };
+        else {
+            anchor = { ...active };
+            end = { r: index, c: book.cols - 1 };
+        }
     }
     refresh();
     grid.focus({ preventScroll: true });
-    return;
-} const b = sel(), low = axis === 'column' ? b.c1 : b.r1, high = axis === 'column' ? b.c2 : b.r2, indices = low !== high && index >= low && index <= high ? Array.from({ length: high - low + 1 }, (_, i) => low + i) : [index]; e.preventDefault(); resizingDimension = { axis, indices, start: axis === 'column' ? e.clientX : e.clientY, sizes: indices.map(i => axis === 'column' ? colWidth(i) : rowHeight(i)), current: axis === 'column' ? colWidth(index) : rowHeight(index) }; });
-grid.addEventListener('click', e => { const head = e.target.closest('.col-heading,.row-heading'); if (!head)
-    return; const axis = head.classList.contains('col-heading') ? 'column' : 'row', rect = head.getBoundingClientRect(), near = axis === 'column' ? Math.abs(e.clientX - rect.right) <= 6 : Math.abs(e.clientY - rect.bottom) <= 6; if (near)
-    return; const index = Number(axis === 'column' ? head.dataset.column : head.dataset.row); if (!Number.isInteger(index))
-    return; if (axis === 'column') {
-    active = { r: 0, c: index };
-    if (e.shiftKey)
-        end = { r: book.rows - 1, c: index };
-    else {
-        anchor = { ...active };
-        end = { r: book.rows - 1, c: index };
+});
+grid.addEventListener('dblclick', e => {
+    const head = e.target.closest('.col-heading,.row-heading');
+    if (!head)
+        return;
+    const axis = head.classList.contains('col-heading') ? 'column' : 'row', rect = head.getBoundingClientRect(), near = axis === 'column' ? Math.abs(e.clientX - rect.right) <= 6 : Math.abs(e.clientY - rect.bottom) <= 6;
+    if (near) {
+        e.preventDefault();
+        autoFitDimension(axis, Number(axis === 'column' ? head.dataset.column : head.dataset.row));
     }
-}
-else {
-    active = { r: index, c: 0 };
-    if (e.shiftKey)
-        end = { r: index, c: book.cols - 1 };
-    else {
-        anchor = { ...active };
-        end = { r: index, c: book.cols - 1 };
-    }
-} refresh(); grid.focus({ preventScroll: true }); });
-grid.addEventListener('dblclick', e => { const head = e.target.closest('.col-heading,.row-heading'); if (!head)
-    return; const axis = head.classList.contains('col-heading') ? 'column' : 'row', rect = head.getBoundingClientRect(), near = axis === 'column' ? Math.abs(e.clientX - rect.right) <= 6 : Math.abs(e.clientY - rect.bottom) <= 6; if (near) {
+});
+grid.addEventListener('contextmenu', e => {
+    const head = e.target.closest('.col-heading,.row-heading');
+    if (!head)
+        return;
     e.preventDefault();
-    autoFitDimension(axis, Number(axis === 'column' ? head.dataset.column : head.dataset.row));
-} });
-grid.addEventListener('contextmenu', e => { const head = e.target.closest('.col-heading,.row-heading'); if (!head)
-    return; e.preventDefault(); const axis = head.classList.contains('col-heading') ? 'column' : 'row', index = Number(axis === 'column' ? head.dataset.column : head.dataset.row), initial = axis === 'column' ? colWidth(index) : rowHeight(index), value = Number(prompt(`Set ${axis} ${index + 1} dimension in pixels`, String(initial))); if (Number.isFinite(value)) {
-    if (axis === 'column')
-        doc.active.tools.columnWidths[index] = Math.max(56, Math.min(600, value));
-    else
-        doc.active.tools.rowHeights[index] = Math.max(24, Math.min(400, value));
+    const axis = head.classList.contains('col-heading') ? 'column' : 'row', index = Number(axis === 'column' ? head.dataset.column : head.dataset.row), initial = axis === 'column' ? colWidth(index) : rowHeight(index), value = Number(prompt(`Set ${axis} ${index + 1} dimension in pixels`, String(initial)));
+    if (Number.isFinite(value)) {
+        if (axis === 'column')
+            doc.active.tools.columnWidths[index] = Math.max(56, Math.min(600, value));
+        else
+            doc.active.tools.rowHeights[index] = Math.max(24, Math.min(400, value));
+        save();
+        refresh();
+    }
+});
+function setSelectedDimension(axis) {
+    const b = sel(), index = axis === 'column' ? active.c : active.r, initial = axis === 'column' ? colWidth(index) : rowHeight(index), value = Number(prompt(`Set selected ${axis === 'column' ? 'column width' : 'row height'} in pixels`, String(initial)));
+    if (!Number.isFinite(value))
+        return;
+    const min = axis === 'column' ? 56 : 24, max = axis === 'column' ? 600 : 400, dimension = Math.max(min, Math.min(max, value));
+    for (let i = axis === 'column' ? b.c1 : b.r1; i <= (axis === 'column' ? b.c2 : b.r2); i++) {
+        if (axis === 'column')
+            doc.active.tools.columnWidths[i] = dimension;
+        else
+            doc.active.tools.rowHeights[i] = dimension;
+    }
     save();
     refresh();
-} });
-function setSelectedDimension(axis) { const b = sel(), index = axis === 'column' ? active.c : active.r, initial = axis === 'column' ? colWidth(index) : rowHeight(index), value = Number(prompt(`Set selected ${axis === 'column' ? 'column width' : 'row height'} in pixels`, String(initial))); if (!Number.isFinite(value))
-    return; const min = axis === 'column' ? 56 : 24, max = axis === 'column' ? 600 : 400, dimension = Math.max(min, Math.min(max, value)); for (let i = axis === 'column' ? b.c1 : b.r1; i <= (axis === 'column' ? b.c2 : b.r2); i++) {
-    if (axis === 'column')
-        doc.active.tools.columnWidths[i] = dimension;
-    else
-        doc.active.tools.rowHeights[i] = dimension;
-} save(); refresh(); }
+}
 el('btn-column-width').addEventListener('click', () => setSelectedDimension('column'));
 el('btn-row-height').addEventListener('click', () => setSelectedDimension('row'));
-function changeHiddenDimensions(axis, hide) { const b = sel(), tool = doc.active.tools, key = axis === 'row' ? 'hiddenRows' : 'hiddenColumns', start = axis === 'row' ? b.r1 : b.c1, endIndex = axis === 'row' ? b.r2 : b.c2, max = axis === 'row' ? book.rows : book.cols, previous = axis === 'row' ? tool.hiddenRows.join(',') : tool.hiddenColumns.join(','), hidden = new Set(tool[key]); if (hide) {
-    for (let i = start; i <= endIndex; i++)
-        hidden.add(i);
-    if (hidden.size >= max) {
-        toast(`At least one ${axis} must remain visible.`);
-        return;
+function changeHiddenDimensions(axis, hide) {
+    const b = sel(), tool = doc.active.tools, key = axis === 'row' ? 'hiddenRows' : 'hiddenColumns', start = axis === 'row' ? b.r1 : b.c1, endIndex = axis === 'row' ? b.r2 : b.c2, max = axis === 'row' ? book.rows : book.cols, previous = axis === 'row' ? tool.hiddenRows.join(',') : tool.hiddenColumns.join(','), hidden = new Set(tool[key]);
+    if (hide) {
+        for (let i = start; i <= endIndex; i++)
+            hidden.add(i);
+        if (hidden.size >= max) {
+            toast(`At least one ${axis} must remain visible.`);
+            return;
+        }
+        tool[key] = [...hidden].sort((a, b) => a - b);
     }
-    tool[key] = [...hidden].sort((a, b) => a - b);
+    else
+        tool[key] = [];
+    if (axis === 'row' && tool.hiddenRows.includes(active.r)) {
+        let next = active.r;
+        while (next < book.rows && tool.hiddenRows.includes(next))
+            next++;
+        if (next >= book.rows) {
+            next = active.r;
+            while (next >= 0 && tool.hiddenRows.includes(next))
+                next--;
+        }
+        if (next >= 0) {
+            active.r = next;
+            anchor = { ...active };
+            end = { ...active };
+        }
+    }
+    if (axis === 'column' && tool.hiddenColumns.includes(active.c)) {
+        let next = active.c;
+        while (next < book.cols && tool.hiddenColumns.includes(next))
+            next++;
+        if (next >= book.cols) {
+            next = active.c;
+            while (next >= 0 && tool.hiddenColumns.includes(next))
+                next--;
+        }
+        if (next >= 0) {
+            active.c = next;
+            anchor = { ...active };
+            end = { ...active };
+        }
+    }
+    if (axis === 'row' && previous !== tool.hiddenRows.join(','))
+        for (const sheet of doc.sheets)
+            sheet.book.recalculateAggregatesForRowVisibilityChange();
+    save();
+    refresh();
+    toast(`${hide ? 'Hid selected' : 'Unhid all'} ${axis === 'row' ? 'rows' : 'columns'}.`);
 }
-else
-    tool[key] = []; if (axis === 'row' && tool.hiddenRows.includes(active.r)) {
-    let next = active.r;
-    while (next < book.rows && tool.hiddenRows.includes(next))
-        next++;
-    if (next >= book.rows) {
-        next = active.r;
-        while (next >= 0 && tool.hiddenRows.includes(next))
-            next--;
-    }
-    if (next >= 0) {
-        active.r = next;
-        anchor = { ...active };
-        end = { ...active };
-    }
-} if (axis === 'column' && tool.hiddenColumns.includes(active.c)) {
-    let next = active.c;
-    while (next < book.cols && tool.hiddenColumns.includes(next))
-        next++;
-    if (next >= book.cols) {
-        next = active.c;
-        while (next >= 0 && tool.hiddenColumns.includes(next))
-            next--;
-    }
-    if (next >= 0) {
-        active.c = next;
-        anchor = { ...active };
-        end = { ...active };
-    }
-} if (axis === 'row' && previous !== tool.hiddenRows.join(','))
-    for (const sheet of doc.sheets)
-        sheet.book.recalculateAggregatesForRowVisibilityChange(); save(); refresh(); toast(`${hide ? 'Hid selected' : 'Unhid all'} ${axis === 'row' ? 'rows' : 'columns'}.`); }
 el('btn-hide-rows').addEventListener('click', () => changeHiddenDimensions('row', true));
 el('btn-unhide-rows').addEventListener('click', () => changeHiddenDimensions('row', false));
 el('btn-hide-columns').addEventListener('click', () => changeHiddenDimensions('column', true));
 el('btn-unhide-columns').addEventListener('click', () => changeHiddenDimensions('column', false));
-surface.addEventListener('pointerdown', e => { const target = e.target, grip = target.closest('.pivot-slicer-resize'); if (grip) {
-    const card = grip.closest('[data-pivot-slicer-id]'), item = doc.active.tools.pivotSlicers.find(slicer => slicer.id === card?.dataset.pivotSlicerId);
-    if (item && card) {
-        e.preventDefault();
-        e.stopPropagation();
-        resizingPivotSlicer = { id: item.id, startX: e.clientX, startY: e.clientY, width: item.width, height: item.height, card };
+surface.addEventListener('pointerdown', e => {
+    const target = e.target, grip = target.closest('.pivot-slicer-resize');
+    if (grip) {
+        const card = grip.closest('[data-pivot-slicer-id]'), item = doc.active.tools.pivotSlicers.find(slicer => slicer.id === card?.dataset.pivotSlicerId);
+        if (item && card) {
+            e.preventDefault();
+            e.stopPropagation();
+            resizingPivotSlicer = { id: item.id, startX: e.clientX, startY: e.clientY, width: item.width, height: item.height, card };
+        }
+        return;
     }
-    return;
-} const header = target.closest('[data-pivot-slicer-head]'); if (header && !target.closest('button')) {
-    const card = header.closest('[data-pivot-slicer-id]'), item = doc.active.tools.pivotSlicers.find(slicer => slicer.id === card?.dataset.pivotSlicerId);
-    if (item && card) {
-        e.preventDefault();
-        e.stopPropagation();
-        draggingPivotSlicer = { id: item.id, startX: e.clientX, startY: e.clientY, x: item.x, y: item.y, card };
+    const header = target.closest('[data-pivot-slicer-head]');
+    if (header && !target.closest('button')) {
+        const card = header.closest('[data-pivot-slicer-id]'), item = doc.active.tools.pivotSlicers.find(slicer => slicer.id === card?.dataset.pivotSlicerId);
+        if (item && card) {
+            e.preventDefault();
+            e.stopPropagation();
+            draggingPivotSlicer = { id: item.id, startX: e.clientX, startY: e.clientY, x: item.x, y: item.y, card };
+        }
     }
-} });
+});
 surface.addEventListener('pointerdown', e => {
     const grip = e.target.closest('.chart-resize-grip');
     if (grip) {
@@ -2562,10 +3196,13 @@ document.addEventListener('pointermove', e => {
     if (resizingDimension) {
         const d = resizingDimension, delta = (d.axis === 'column' ? e.clientX : e.clientY) - d.start, low = d.axis === 'column' ? 56 : 24, high = d.axis === 'column' ? 600 : 400;
         d.current = Math.max(low, Math.min(high, Math.round(d.sizes[0] + delta)));
-        d.indices.forEach((index, i) => { const value = Math.max(low, Math.min(high, Math.round(d.sizes[i] + delta))); if (d.axis === 'column')
-            doc.active.tools.columnWidths[index] = value;
-        else
-            doc.active.tools.rowHeights[index] = value; });
+        d.indices.forEach((index, i) => {
+            const value = Math.max(low, Math.min(high, Math.round(d.sizes[i] + delta)));
+            if (d.axis === 'column')
+                doc.active.tools.columnWidths[index] = value;
+            else
+                doc.active.tools.rowHeights[index] = value;
+        });
         return;
     }
     if (resizingPivotSlicer) {
@@ -2655,217 +3292,363 @@ function gridPointerCell(clientX, clientY) {
     return r === undefined || !inBounds(r, viewC) ? null : { r, c: viewC };
 }
 function drawPoint(event) { const rect = grid.getBoundingClientRect(); return [Math.max(0, Math.min(30000, Math.round(event.clientX - rect.left + grid.scrollLeft))), Math.max(0, Math.min(30000, Math.round(event.clientY - rect.top + grid.scrollTop)))]; }
-function setDrawMode(enabled) { if (!enabled) {
+function setDrawMode(enabled) {
+    if (!enabled) {
+        if (activeDrawStroke) {
+            doc.active.tools.drawings.push(activeDrawStroke);
+            activeDrawStroke = null;
+            save();
+        }
+        drawingPointerId = null;
+        if (drawChanged) {
+            save();
+            drawChanged = false;
+        }
+        renderDrawings();
+    }
+    drawingSelectionMode = false;
+    grid.classList.remove('draw-select-mode');
+    drawModeActive = enabled;
+    grid.classList.toggle('draw-mode', enabled);
+    document.documentElement.dataset.drawMode = enabled ? 'active' : 'off';
+    el('draw-state').textContent = enabled ? `Drawing with ${activeDrawTool}. Escape or Select returns to cells.` : 'Select a drawing tool, then use Select Objects to move a shape.';
+    el('draw-exit').classList.toggle('active', !enabled);
+}
+function setDrawingSelectionMode(enabled) { setDrawMode(false); drawingSelectionMode = enabled; grid.classList.toggle('draw-select-mode', enabled); document.documentElement.dataset.drawTool = enabled ? 'select' : ''; el('draw-select').classList.toggle('active', enabled); el('draw-state').textContent = enabled ? 'Click an object; Ctrl/Shift-click to add or remove objects. Drag the selection to move it; press Delete to remove it.' : 'Drawing object selection is off.'; renderDrawings(); }
+function chooseDrawTool(tool) { document.documentElement.dataset.drawTool = tool; activeDrawTool = tool === 'eraser' ? 'pen' : tool; setDrawMode(true); document.querySelectorAll('.draw-tool[data-draw-tool],#draw-pen,#draw-highlighter,#draw-eraser').forEach(button => button.classList.toggle('active', button.id === (tool === 'pen' ? 'draw-pen' : tool === 'highlighter' ? 'draw-highlighter' : tool === 'eraser' ? 'draw-eraser' : '') || button.dataset.drawTool === tool)); el('draw-state').textContent = tool === 'eraser' ? 'Eraser active · drag over strokes to remove them.' : tool === 'text' ? 'Text box · click on the sheet and enter text.' : `Drawing with ${tool} · drag on the sheet.`; }
+function strokeBounds(stroke) {
+    const cached = drawingBoundsCache.get(stroke.id);
+    if (cached)
+        return cached;
+    const xs = stroke.points.map(point => point[0]), ys = stroke.points.map(point => point[1]);
+    let left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
+    if (stroke.tool === 'text') {
+        const size = Math.max(12, stroke.width * 4);
+        right += ((stroke.text ?? '').length * size * .65);
+        top -= size;
+    }
+    const bounds = { left, top, right, bottom };
+    drawingBoundsCache.set(stroke.id, bounds);
+    return bounds;
+}
+function strokeDistance(stroke, x, y) {
+    const segment = (x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1, length = dx * dx + dy * dy, t = length ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / length)) : 0; return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)); };
+    if (stroke.tool === 'text') {
+        const bounds = strokeBounds(stroke);
+        return Math.hypot(Math.max(bounds.left - x, 0, x - bounds.right), Math.max(bounds.top - y, 0, y - bounds.bottom));
+    }
+    if (stroke.tool === 'rectangle') {
+        const [a, b] = [stroke.points[0], stroke.points.at(-1)], left = Math.min(a[0], b[0]), right = Math.max(a[0], b[0]), top = Math.min(a[1], b[1]), bottom = Math.max(a[1], b[1]);
+        return Math.min(segment(left, top, right, top), segment(right, top, right, bottom), segment(right, bottom, left, bottom), segment(left, bottom, left, top));
+    }
+    if (stroke.tool === 'ellipse') {
+        const [a, b] = [stroke.points[0], stroke.points.at(-1)], rx = Math.max(1, Math.abs(a[0] - b[0]) / 2), ry = Math.max(1, Math.abs(a[1] - b[1]) / 2), cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, radial = Math.hypot((x - cx) / rx, (y - cy) / ry);
+        return Math.abs(radial - 1) * Math.min(rx, ry);
+    }
+    let best = Infinity;
+    for (let i = 1; i < stroke.points.length; i++) {
+        const [x1, y1] = stroke.points[i - 1], [x2, y2] = stroke.points[i];
+        best = Math.min(best, segment(x1, y1, x2, y2));
+    }
+    if (stroke.points.length === 1) {
+        const [px, py] = stroke.points[0];
+        best = Math.hypot(x - px, y - py);
+    }
+    return best;
+}
+function eraseAt(point) {
+    const drawings = doc.active.tools.drawings, removed = drawings.filter(stroke => { const bounds = strokeBounds(stroke), radius = Math.max(10, stroke.width + 8); return point[0] >= bounds.left - radius && point[0] <= bounds.right + radius && point[1] >= bounds.top - radius && point[1] <= bounds.bottom + radius && strokeDistance(stroke, point[0], point[1]) <= radius; });
+    if (!removed.length)
+        return;
+    const ids = new Set(removed.map(stroke => stroke.id));
+    doc.active.tools.drawings = drawings.filter(stroke => !ids.has(stroke.id));
+    for (const id of ids) {
+        drawingBoundsCache.delete(id);
+        surface.querySelector(`[data-ink-id="${CSS.escape(id)}"]`)?.remove();
+    }
+    drawChanged = true;
+}
+function previewStroke(stroke) {
+    const svg = surface.querySelector('.worksheet-ink-layer');
+    if (!svg) {
+        renderDrawings();
+        return;
+    }
+    let path = svg.querySelector(`[data-ink-id="${CSS.escape(stroke.id)}"]`);
+    if (!path) {
+        const created = document.createElementNS(svg.namespaceURI, 'path');
+        created.dataset.inkId = stroke.id;
+        created.setAttribute('fill', stroke.fill && (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') ? stroke.color : 'none');
+        if (stroke.fill)
+            created.setAttribute('fill-opacity', '.18');
+        created.setAttribute('stroke', stroke.color);
+        created.setAttribute('stroke-width', String(stroke.tool === 'highlighter' ? Math.max(8, stroke.width * 2) : stroke.width));
+        created.setAttribute('stroke-linecap', 'round');
+        created.setAttribute('stroke-linejoin', 'round');
+        if (stroke.tool === 'highlighter')
+            created.setAttribute('stroke-opacity', '.25');
+        if (stroke.tool === 'arrow')
+            created.setAttribute('marker-end', 'url(#gridforge-ink-arrow)');
+        svg.append(created);
+        path = created;
+    }
+    path.setAttribute('d', drawingPath(stroke));
+}
+grid.addEventListener('pointerdown', event => {
+    if (!drawModeActive || event.button !== 0)
+        return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const point = drawPoint(event);
+    if (doc.active.tools.drawings.length >= 300 || doc.active.tools.drawings.reduce((sum, item) => sum + item.points.length, 0) + (activeDrawTool === 'text' ? 1 : 2) > 75000) {
+        toast('Drawing limit reached for this worksheet.');
+        return;
+    }
+    if (activeDrawTool === 'text') {
+        const value = window.prompt('Text to place on the worksheet (up to 500 characters):');
+        if (value === null || !value.trim())
+            return;
+        doc.active.tools.drawings.push({ id: `ink-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, tool: 'text', color: el('draw-color').value, width: Number(el('draw-width').value), points: [point], text: value.slice(0, 500) });
+        save();
+        renderDrawings();
+        return;
+    }
+    drawingPointerId = event.pointerId;
+    drawChanged = false;
+    grid.setPointerCapture(event.pointerId);
+    if (document.documentElement.dataset.drawTool === 'eraser') {
+        eraseAt(point);
+        return;
+    }
+    activeDrawStroke = { id: `ink-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, tool: activeDrawTool, color: el('draw-color').value, width: Number(el('draw-width').value), points: [point, point], ...(el('draw-fill').checked && (activeDrawTool === 'rectangle' || activeDrawTool === 'ellipse') ? { fill: true } : {}) };
+    previewStroke(activeDrawStroke);
+}, true);
+grid.addEventListener('pointermove', event => {
+    if (drawingPointerId !== event.pointerId)
+        return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const point = drawPoint(event);
+    if ((document.documentElement.dataset.drawTool === 'eraser')) {
+        eraseAt(point);
+        return;
+    }
+    if (!activeDrawStroke)
+        return;
+    const points = activeDrawStroke.points;
+    if (activeDrawStroke.tool === 'pen' || activeDrawStroke.tool === 'highlighter') {
+        const previous = points.at(-1);
+        if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) >= 1.5 && points.length < 1200 && doc.active.tools.drawings.reduce((sum, item) => sum + item.points.length, 0) + points.length < 75000)
+            points.push(point);
+    }
+    else
+        points[1] = point;
+    previewStroke(activeDrawStroke);
+}, true);
+grid.addEventListener('pointerup', event => {
+    if (drawingPointerId !== event.pointerId)
+        return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    drawingPointerId = null;
     if (activeDrawStroke) {
         doc.active.tools.drawings.push(activeDrawStroke);
         activeDrawStroke = null;
-        save();
+        drawChanged = true;
     }
-    drawingPointerId = null;
     if (drawChanged) {
         save();
-        drawChanged = false;
+        renderDrawings();
     }
-    renderDrawings();
-} drawingSelectionMode = false; grid.classList.remove('draw-select-mode'); drawModeActive = enabled; grid.classList.toggle('draw-mode', enabled); document.documentElement.dataset.drawMode = enabled ? 'active' : 'off'; el('draw-state').textContent = enabled ? `Drawing with ${activeDrawTool}. Escape or Select returns to cells.` : 'Select a drawing tool, then use Select Objects to move a shape.'; el('draw-exit').classList.toggle('active', !enabled); }
-function setDrawingSelectionMode(enabled) { setDrawMode(false); drawingSelectionMode = enabled; grid.classList.toggle('draw-select-mode', enabled); document.documentElement.dataset.drawTool = enabled ? 'select' : ''; el('draw-select').classList.toggle('active', enabled); el('draw-state').textContent = enabled ? 'Click an object; Ctrl/Shift-click to add or remove objects. Drag the selection to move it; press Delete to remove it.' : 'Drawing object selection is off.'; renderDrawings(); }
-function chooseDrawTool(tool) { document.documentElement.dataset.drawTool = tool; activeDrawTool = tool === 'eraser' ? 'pen' : tool; setDrawMode(true); document.querySelectorAll('.draw-tool[data-draw-tool],#draw-pen,#draw-highlighter,#draw-eraser').forEach(button => button.classList.toggle('active', button.id === (tool === 'pen' ? 'draw-pen' : tool === 'highlighter' ? 'draw-highlighter' : tool === 'eraser' ? 'draw-eraser' : '') || button.dataset.drawTool === tool)); el('draw-state').textContent = tool === 'eraser' ? 'Eraser active · drag over strokes to remove them.' : tool === 'text' ? 'Text box · click on the sheet and enter text.' : `Drawing with ${tool} · drag on the sheet.`; }
-function strokeBounds(stroke) { const cached = drawingBoundsCache.get(stroke.id); if (cached)
-    return cached; const xs = stroke.points.map(point => point[0]), ys = stroke.points.map(point => point[1]); let left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys); if (stroke.tool === 'text') {
-    const size = Math.max(12, stroke.width * 4);
-    right += ((stroke.text ?? '').length * size * .65);
-    top -= size;
-} const bounds = { left, top, right, bottom }; drawingBoundsCache.set(stroke.id, bounds); return bounds; }
-function strokeDistance(stroke, x, y) { const segment = (x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1, length = dx * dx + dy * dy, t = length ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / length)) : 0; return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)); }; if (stroke.tool === 'text') {
-    const bounds = strokeBounds(stroke);
-    return Math.hypot(Math.max(bounds.left - x, 0, x - bounds.right), Math.max(bounds.top - y, 0, y - bounds.bottom));
-} if (stroke.tool === 'rectangle') {
-    const [a, b] = [stroke.points[0], stroke.points.at(-1)], left = Math.min(a[0], b[0]), right = Math.max(a[0], b[0]), top = Math.min(a[1], b[1]), bottom = Math.max(a[1], b[1]);
-    return Math.min(segment(left, top, right, top), segment(right, top, right, bottom), segment(right, bottom, left, bottom), segment(left, bottom, left, top));
-} if (stroke.tool === 'ellipse') {
-    const [a, b] = [stroke.points[0], stroke.points.at(-1)], rx = Math.max(1, Math.abs(a[0] - b[0]) / 2), ry = Math.max(1, Math.abs(a[1] - b[1]) / 2), cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, radial = Math.hypot((x - cx) / rx, (y - cy) / ry);
-    return Math.abs(radial - 1) * Math.min(rx, ry);
-} let best = Infinity; for (let i = 1; i < stroke.points.length; i++) {
-    const [x1, y1] = stroke.points[i - 1], [x2, y2] = stroke.points[i];
-    best = Math.min(best, segment(x1, y1, x2, y2));
-} if (stroke.points.length === 1) {
-    const [px, py] = stroke.points[0];
-    best = Math.hypot(x - px, y - py);
-} return best; }
-function eraseAt(point) { const drawings = doc.active.tools.drawings, removed = drawings.filter(stroke => { const bounds = strokeBounds(stroke), radius = Math.max(10, stroke.width + 8); return point[0] >= bounds.left - radius && point[0] <= bounds.right + radius && point[1] >= bounds.top - radius && point[1] <= bounds.bottom + radius && strokeDistance(stroke, point[0], point[1]) <= radius; }); if (!removed.length)
-    return; const ids = new Set(removed.map(stroke => stroke.id)); doc.active.tools.drawings = drawings.filter(stroke => !ids.has(stroke.id)); for (const id of ids) {
-    drawingBoundsCache.delete(id);
-    surface.querySelector(`[data-ink-id="${CSS.escape(id)}"]`)?.remove();
-} drawChanged = true; }
-function previewStroke(stroke) { const svg = surface.querySelector('.worksheet-ink-layer'); if (!svg) {
-    renderDrawings();
-    return;
-} let path = svg.querySelector(`[data-ink-id="${CSS.escape(stroke.id)}"]`); if (!path) {
-    const created = document.createElementNS(svg.namespaceURI, 'path');
-    created.dataset.inkId = stroke.id;
-    created.setAttribute('fill', stroke.fill && (stroke.tool === 'rectangle' || stroke.tool === 'ellipse') ? stroke.color : 'none');
-    if (stroke.fill)
-        created.setAttribute('fill-opacity', '.18');
-    created.setAttribute('stroke', stroke.color);
-    created.setAttribute('stroke-width', String(stroke.tool === 'highlighter' ? Math.max(8, stroke.width * 2) : stroke.width));
-    created.setAttribute('stroke-linecap', 'round');
-    created.setAttribute('stroke-linejoin', 'round');
-    if (stroke.tool === 'highlighter')
-        created.setAttribute('stroke-opacity', '.25');
-    if (stroke.tool === 'arrow')
-        created.setAttribute('marker-end', 'url(#gridforge-ink-arrow)');
-    svg.append(created);
-    path = created;
-} path.setAttribute('d', drawingPath(stroke)); }
-grid.addEventListener('pointerdown', event => { if (!drawModeActive || event.button !== 0)
-    return; event.preventDefault(); event.stopImmediatePropagation(); const point = drawPoint(event); if (doc.active.tools.drawings.length >= 300 || doc.active.tools.drawings.reduce((sum, item) => sum + item.points.length, 0) + (activeDrawTool === 'text' ? 1 : 2) > 75000) {
-    toast('Drawing limit reached for this worksheet.');
-    return;
-} if (activeDrawTool === 'text') {
-    const value = window.prompt('Text to place on the worksheet (up to 500 characters):');
-    if (value === null || !value.trim())
+    drawChanged = false;
+}, true);
+grid.addEventListener('pointercancel', event => {
+    if (drawingPointerId !== event.pointerId)
         return;
-    doc.active.tools.drawings.push({ id: `ink-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, tool: 'text', color: el('draw-color').value, width: Number(el('draw-width').value), points: [point], text: value.slice(0, 500) });
-    save();
-    renderDrawings();
-    return;
-} drawingPointerId = event.pointerId; drawChanged = false; grid.setPointerCapture(event.pointerId); if (document.documentElement.dataset.drawTool === 'eraser') {
-    eraseAt(point);
-    return;
-} activeDrawStroke = { id: `ink-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, tool: activeDrawTool, color: el('draw-color').value, width: Number(el('draw-width').value), points: [point, point], ...(el('draw-fill').checked && (activeDrawTool === 'rectangle' || activeDrawTool === 'ellipse') ? { fill: true } : {}) }; previewStroke(activeDrawStroke); }, true);
-grid.addEventListener('pointermove', event => { if (drawingPointerId !== event.pointerId)
-    return; event.preventDefault(); event.stopImmediatePropagation(); const point = drawPoint(event); if ((document.documentElement.dataset.drawTool === 'eraser')) {
-    eraseAt(point);
-    return;
-} if (!activeDrawStroke)
-    return; const points = activeDrawStroke.points; if (activeDrawStroke.tool === 'pen' || activeDrawStroke.tool === 'highlighter') {
-    const previous = points.at(-1);
-    if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) >= 1.5 && points.length < 1200 && doc.active.tools.drawings.reduce((sum, item) => sum + item.points.length, 0) + points.length < 75000)
-        points.push(point);
-}
-else
-    points[1] = point; previewStroke(activeDrawStroke); }, true);
-grid.addEventListener('pointerup', event => { if (drawingPointerId !== event.pointerId)
-    return; event.preventDefault(); event.stopImmediatePropagation(); drawingPointerId = null; if (activeDrawStroke) {
-    doc.active.tools.drawings.push(activeDrawStroke);
+    drawingPointerId = null;
     activeDrawStroke = null;
-    drawChanged = true;
-} if (drawChanged) {
-    save();
     renderDrawings();
-} drawChanged = false; }, true);
-grid.addEventListener('pointercancel', event => { if (drawingPointerId !== event.pointerId)
-    return; drawingPointerId = null; activeDrawStroke = null; renderDrawings(); }, { capture: true });
+}, { capture: true });
 el('draw-pen').addEventListener('click', () => chooseDrawTool('pen'));
 el('draw-highlighter').addEventListener('click', () => chooseDrawTool('highlighter'));
 el('draw-eraser').addEventListener('click', () => { chooseDrawTool('eraser'); document.documentElement.dataset.drawTool = 'eraser'; });
 for (const button of Array.from(document.querySelectorAll('[data-draw-tool]')))
     button.addEventListener('click', () => { document.documentElement.dataset.drawTool = button.dataset.drawTool ?? ''; chooseDrawTool(button.dataset.drawTool); });
 el('draw-select').addEventListener('click', () => setDrawingSelectionMode(true));
-function duplicateSelectedDrawings() { const originals = doc.active.tools.drawings.filter(stroke => selectedDrawingIds.has(stroke.id)); if (!originals.length)
-    return; const totalPoints = doc.active.tools.drawings.reduce((sum, stroke) => sum + stroke.points.length, 0), copyPoints = originals.reduce((sum, stroke) => sum + stroke.points.length, 0); if (doc.active.tools.drawings.length + originals.length > 300 || totalPoints + copyPoints > 75000) {
-    toast('There is not enough room to duplicate the selected drawings on this worksheet.');
-    return;
-} const ids = new Set(doc.active.tools.drawings.map(stroke => stroke.id)), copies = originals.map(stroke => { let id = ''; do {
-    id = `ink-copy-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-} while (ids.has(id)); ids.add(id); return { ...stroke, id, points: stroke.points.map(([x, y]) => [Math.min(30000, x + 14), Math.min(30000, y + 14)]) }; }); doc.active.tools.drawings.push(...copies); selectedDrawingIds = new Set(copies.map(stroke => stroke.id)); save(); renderDrawings(); el('draw-state').textContent = `${copies.length} drawing${copies.length === 1 ? '' : 's'} duplicated; drag to reposition.`; }
-el('draw-duplicate-selected').addEventListener('click', duplicateSelectedDrawings);
-el('draw-delete-selected').addEventListener('click', () => { if (!selectedDrawingIds.size)
-    return; const ids = new Set(selectedDrawingIds); doc.active.tools.drawings = doc.active.tools.drawings.filter(stroke => !ids.has(stroke.id)); for (const id of ids)
-    drawingBoundsCache.delete(id); selectedDrawingIds.clear(); save(); renderDrawings(); });
-el('draw-exit').addEventListener('click', () => { document.documentElement.dataset.drawTool = ''; selectedDrawingIds.clear(); setDrawMode(false); });
-el('draw-undo').addEventListener('click', () => { const removed = doc.active.tools.drawings.pop(); if (removed)
-    drawingBoundsCache.delete(removed.id); selectedDrawingIds.clear(); save(); renderDrawings(); });
-el('draw-clear').addEventListener('click', () => { if (!doc.active.tools.drawings.length)
-    return; if (!window.confirm('Remove all drawing ink and shapes from this worksheet?'))
-    return; for (const stroke of doc.active.tools.drawings)
-    drawingBoundsCache.delete(stroke.id); doc.active.tools.drawings = []; selectedDrawingIds.clear(); save(); renderDrawings(); });
-el('draw-color').addEventListener('change', () => { if (!selectedDrawingIds.size)
-    return; for (const stroke of doc.active.tools.drawings)
-    if (selectedDrawingIds.has(stroke.id)) {
-        stroke.color = el('draw-color').value;
-        drawingBoundsCache.delete(stroke.id);
-    } save(); renderDrawings(); });
-el('draw-width').addEventListener('change', () => { if (!selectedDrawingIds.size)
-    return; for (const stroke of doc.active.tools.drawings)
-    if (selectedDrawingIds.has(stroke.id)) {
-        stroke.width = Number(el('draw-width').value);
-        drawingBoundsCache.delete(stroke.id);
-    } save(); renderDrawings(); });
-el('draw-replay').addEventListener('click', () => { const paths = Array.from(surface.querySelectorAll('.worksheet-ink-layer path[data-ink-id]')); let delay = 0; for (const path of paths) {
-    try {
-        const length = path.getTotalLength();
-        path.style.strokeDasharray = String(length);
-        path.style.strokeDashoffset = String(length);
-        const animation = path.animate([{ strokeDashoffset: String(length) }, { strokeDashoffset: '0' }], { duration: Math.min(1400, Math.max(180, length * 2)), delay, easing: 'ease-out', fill: 'forwards' });
-        delay += 90;
-        animation.onfinish = () => { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; };
+function duplicateSelectedDrawings() {
+    const originals = doc.active.tools.drawings.filter(stroke => selectedDrawingIds.has(stroke.id));
+    if (!originals.length)
+        return;
+    const totalPoints = doc.active.tools.drawings.reduce((sum, stroke) => sum + stroke.points.length, 0), copyPoints = originals.reduce((sum, stroke) => sum + stroke.points.length, 0);
+    if (doc.active.tools.drawings.length + originals.length > 300 || totalPoints + copyPoints > 75000) {
+        toast('There is not enough room to duplicate the selected drawings on this worksheet.');
+        return;
     }
-    catch { /* Some SVG engines do not expose path-length animation. */ }
-} });
-document.addEventListener('keydown', event => { if (event.key === 'Escape' && drawModeActive) {
-    document.documentElement.dataset.drawTool = '';
-    setDrawMode(false);
-    return;
-} if (event.key === 'Escape' && drawingSelectionMode) {
+    const ids = new Set(doc.active.tools.drawings.map(stroke => stroke.id)), copies = originals.map(stroke => {
+        let id = '';
+        do {
+            id = `ink-copy-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+        } while (ids.has(id));
+        ids.add(id);
+        return { ...stroke, id, points: stroke.points.map(([x, y]) => [Math.min(30000, x + 14), Math.min(30000, y + 14)]) };
+    });
+    doc.active.tools.drawings.push(...copies);
+    selectedDrawingIds = new Set(copies.map(stroke => stroke.id));
+    save();
+    renderDrawings();
+    el('draw-state').textContent = `${copies.length} drawing${copies.length === 1 ? '' : 's'} duplicated; drag to reposition.`;
+}
+el('draw-duplicate-selected').addEventListener('click', duplicateSelectedDrawings);
+el('draw-delete-selected').addEventListener('click', () => {
+    if (!selectedDrawingIds.size)
+        return;
+    const ids = new Set(selectedDrawingIds);
+    doc.active.tools.drawings = doc.active.tools.drawings.filter(stroke => !ids.has(stroke.id));
+    for (const id of ids)
+        drawingBoundsCache.delete(id);
     selectedDrawingIds.clear();
-    setDrawingSelectionMode(false);
-    return;
-} const target = event.target, editable = target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)); if (editable)
-    return; if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd' && drawingSelectionMode && selectedDrawingIds.size) {
-    event.preventDefault();
-    duplicateSelectedDrawings();
-    return;
-} if ((event.key === 'Delete' || event.key === 'Backspace') && drawingSelectionMode && selectedDrawingIds.size) {
-    event.preventDefault();
-    el('draw-delete-selected').click();
-} });
-function apply(edits) { pivotValueCache.clear(); pivotGroupedValueCache.clear(); try {
-    for (const edit of edits) {
-        const rule = dataValidationAt(edit.ref, doc.active.tools.dataValidations);
-        if (rule) {
-            const issue = dataValidationError(edit.raw, rule, dataValidationValues(rule, book));
-            if (issue) {
-                const title = rule.errorTitle || 'Invalid entry', message = rule.errorMessage || issue, details = `${title}\n\n${message}`;
-                if ((rule.errorStyle ?? 'stop') === 'warning') {
-                    if (!window.confirm(`${details}\n\nKeep this entry anyway?`))
-                        throw Error(`${edit.ref}: entry canceled.`);
+    save();
+    renderDrawings();
+});
+el('draw-exit').addEventListener('click', () => { document.documentElement.dataset.drawTool = ''; selectedDrawingIds.clear(); setDrawMode(false); });
+el('draw-undo').addEventListener('click', () => {
+    const removed = doc.active.tools.drawings.pop();
+    if (removed)
+        drawingBoundsCache.delete(removed.id);
+    selectedDrawingIds.clear();
+    save();
+    renderDrawings();
+});
+el('draw-clear').addEventListener('click', () => {
+    if (!doc.active.tools.drawings.length)
+        return;
+    if (!window.confirm('Remove all drawing ink and shapes from this worksheet?'))
+        return;
+    for (const stroke of doc.active.tools.drawings)
+        drawingBoundsCache.delete(stroke.id);
+    doc.active.tools.drawings = [];
+    selectedDrawingIds.clear();
+    save();
+    renderDrawings();
+});
+el('draw-color').addEventListener('change', () => {
+    if (!selectedDrawingIds.size)
+        return;
+    for (const stroke of doc.active.tools.drawings)
+        if (selectedDrawingIds.has(stroke.id)) {
+            stroke.color = el('draw-color').value;
+            drawingBoundsCache.delete(stroke.id);
+        }
+    save();
+    renderDrawings();
+});
+el('draw-width').addEventListener('change', () => {
+    if (!selectedDrawingIds.size)
+        return;
+    for (const stroke of doc.active.tools.drawings)
+        if (selectedDrawingIds.has(stroke.id)) {
+            stroke.width = Number(el('draw-width').value);
+            drawingBoundsCache.delete(stroke.id);
+        }
+    save();
+    renderDrawings();
+});
+el('draw-replay').addEventListener('click', () => {
+    const paths = Array.from(surface.querySelectorAll('.worksheet-ink-layer path[data-ink-id]'));
+    let delay = 0;
+    for (const path of paths) {
+        try {
+            const length = path.getTotalLength();
+            path.style.strokeDasharray = String(length);
+            path.style.strokeDashoffset = String(length);
+            const animation = path.animate([{ strokeDashoffset: String(length) }, { strokeDashoffset: '0' }], { duration: Math.min(1400, Math.max(180, length * 2)), delay, easing: 'ease-out', fill: 'forwards' });
+            delay += 90;
+            animation.onfinish = () => { path.style.strokeDasharray = ''; path.style.strokeDashoffset = ''; };
+        }
+        catch { /* Some SVG engines do not expose path-length animation. */ }
+    }
+});
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && drawModeActive) {
+        document.documentElement.dataset.drawTool = '';
+        setDrawMode(false);
+        return;
+    }
+    if (event.key === 'Escape' && drawingSelectionMode) {
+        selectedDrawingIds.clear();
+        setDrawingSelectionMode(false);
+        return;
+    }
+    const target = event.target, editable = target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+    if (editable)
+        return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd' && drawingSelectionMode && selectedDrawingIds.size) {
+        event.preventDefault();
+        duplicateSelectedDrawings();
+        return;
+    }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && drawingSelectionMode && selectedDrawingIds.size) {
+        event.preventDefault();
+        el('draw-delete-selected').click();
+    }
+});
+function apply(edits) {
+    pivotValueCache.clear();
+    pivotGroupedValueCache.clear();
+    try {
+        for (const edit of edits) {
+            const rule = dataValidationAt(edit.ref, doc.active.tools.dataValidations);
+            if (rule) {
+                const issue = dataValidationError(edit.raw, rule, dataValidationValues(rule, book));
+                if (issue) {
+                    const title = rule.errorTitle || 'Invalid entry', message = rule.errorMessage || issue, details = `${title}\n\n${message}`;
+                    if ((rule.errorStyle ?? 'stop') === 'warning') {
+                        if (!window.confirm(`${details}\n\nKeep this entry anyway?`))
+                            throw Error(`${edit.ref}: entry canceled.`);
+                    }
+                    else if (rule.errorStyle === 'information')
+                        window.alert(details);
+                    else
+                        throw Error(`${edit.ref}: ${message}`);
                 }
-                else if (rule.errorStyle === 'information')
-                    window.alert(details);
-                else
-                    throw Error(`${edit.ref}: ${message}`);
             }
         }
+        const finalEdits = propagateCalculatedColumns(book, doc.active.tools.tables, edits), recalc = book.applyEdits(finalEdits);
+        const grown = expandTablesAfterEdit(book, doc.active.tools, finalEdits);
+        let auto = [];
+        for (const g of grown) {
+            const table = doc.active.tools.tables.find(t => t.name === g.table);
+            if (table)
+                auto.push(...fillCalculatedRows(book, table, tableRange(g.before, book.rows, book.cols).r2 + 1, tableRange(g.after, book.rows, book.cols).r2));
+        }
+        const autoStats = auto.length ? book.applyEdits(auto) : null;
+        const headerEdited = finalEdits.some(edit => doc.active.tools.tables.some(table => { const b = tableRange(table.range, book.rows, book.cols), p = parseRef(edit.ref); return !!p && p.row === b.r1 && p.col >= b.c1 && p.col <= b.c2; }));
+        if (grown.length || headerEdited)
+            book.setTableContext(doc.active.tools.tables);
+        extendPivotSourcesForTableGrowth(grown);
+        const pivotAffectedEdits = [...finalEdits, ...auto, ...recalc.affected.map(ref => ({ ref, raw: book.getRaw(ref) })), ...(autoStats?.affected.map(ref => ({ ref, raw: book.getRaw(ref) })) ?? [])];
+        if (doc.active.tools.pivotTables.length || doc.sheets.some(sheet => sheet.tools.pivotTables.some(pivot => pivot.sourceSheet?.toLocaleLowerCase() === doc.active.name.toLocaleLowerCase())))
+            scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: Array.from(new Set(pivotAffectedEdits.map(edit => edit.ref))) }]);
+        flushPendingPivotRefreshes();
+        if (recorder && edits.length)
+            recorder.steps.push({ kind: 'cells', sheetName: doc.active.name, edits: finalEdits.map(e => ({ ...e })) });
+        save();
+        refresh();
     }
-    const finalEdits = propagateCalculatedColumns(book, doc.active.tools.tables, edits), recalc = book.applyEdits(finalEdits);
-    const grown = expandTablesAfterEdit(book, doc.active.tools, finalEdits);
-    let auto = [];
-    for (const g of grown) {
-        const table = doc.active.tools.tables.find(t => t.name === g.table);
-        if (table)
-            auto.push(...fillCalculatedRows(book, table, tableRange(g.before, book.rows, book.cols).r2 + 1, tableRange(g.after, book.rows, book.cols).r2));
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Unable to modify cells.');
     }
-    const autoStats = auto.length ? book.applyEdits(auto) : null;
-    const headerEdited = finalEdits.some(edit => doc.active.tools.tables.some(table => { const b = tableRange(table.range, book.rows, book.cols), p = parseRef(edit.ref); return !!p && p.row === b.r1 && p.col >= b.c1 && p.col <= b.c2; }));
-    if (grown.length || headerEdited)
-        book.setTableContext(doc.active.tools.tables);
-    extendPivotSourcesForTableGrowth(grown);
-    const pivotAffectedEdits = [...finalEdits, ...auto, ...recalc.affected.map(ref => ({ ref, raw: book.getRaw(ref) })), ...(autoStats?.affected.map(ref => ({ ref, raw: book.getRaw(ref) })) ?? [])];
-    if (doc.active.tools.pivotTables.length || doc.sheets.some(sheet => sheet.tools.pivotTables.some(pivot => pivot.sourceSheet?.toLocaleLowerCase() === doc.active.name.toLocaleLowerCase())))
-        scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: Array.from(new Set(pivotAffectedEdits.map(edit => edit.ref))) }]);
-    flushPendingPivotRefreshes();
-    if (recorder && edits.length)
-        recorder.steps.push({ kind: 'cells', sheetName: doc.active.name, edits: finalEdits.map(e => ({ ...e })) });
-    save();
-    refresh();
 }
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Unable to modify cells.');
-} }
-function commitEdit(move = null) { if (!editing)
-    return; const text = editing.value, ref = editingRef; editing = null; editingRef = ''; apply([{ ref, raw: text }]); if (move)
-    select(Math.min(book.rows - 1, Math.max(0, move.r)), Math.min(book.cols - 1, Math.max(0, move.c))); }
+function commitEdit(move = null) {
+    if (!editing)
+        return;
+    const text = editing.value, ref = editingRef;
+    editing = null;
+    editingRef = '';
+    apply([{ ref, raw: text }]);
+    if (move)
+        select(Math.min(book.rows - 1, Math.max(0, move.r)), Math.min(book.cols - 1, Math.max(0, move.c)));
+}
 function beginEdit(replace) {
     if (editing)
         return;
@@ -2904,23 +3687,28 @@ function beginEdit(replace) {
             inp.showPicker();
         }
         catch { /* Browser picker is optional; the input suggestions remain available. */ }
-    inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') {
-        ev.preventDefault();
-        commitEdit({ r: active.r + 1, c: active.c });
-    }
-    else if (ev.key === 'Tab') {
-        ev.preventDefault();
-        commitEdit({ r: active.r, c: active.c + (ev.shiftKey ? -1 : 1) });
-    }
-    else if (ev.key === 'Escape') {
-        ev.preventDefault();
-        editing = null;
-        editingRef = '';
-        refresh();
-        grid.focus({ preventScroll: true });
-    } });
-    inp.addEventListener('blur', () => { if (editing === inp)
-        commitEdit(); });
+    inp.addEventListener('keydown', ev => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') {
+            ev.preventDefault();
+            commitEdit({ r: active.r + 1, c: active.c });
+        }
+        else if (ev.key === 'Tab') {
+            ev.preventDefault();
+            commitEdit({ r: active.r, c: active.c + (ev.shiftKey ? -1 : 1) });
+        }
+        else if (ev.key === 'Escape') {
+            ev.preventDefault();
+            editing = null;
+            editingRef = '';
+            refresh();
+            grid.focus({ preventScroll: true });
+        }
+    });
+    inp.addEventListener('blur', () => {
+        if (editing === inp)
+            commitEdit();
+    });
 }
 function actionFor(rect, raw = '') { return book.allEntries().filter(cell => { const point = parseRef(cell.ref); return !!point && point.row >= rect.r1 && point.row <= rect.r2 && point.col >= rect.c1 && point.col <= rect.c2; }).map(cell => ({ ref: cell.ref, raw })); }
 function fillTo(target) {
@@ -2985,8 +3773,11 @@ function renderSidebar() {
         side.innerHTML = `<div class="panel-spotlight"><div class="overline">EXCEL-STYLE FUNCTION LIBRARY</div><div class="panel-value">${functionNames.length - connectedFunctionNames.length} local · ${connectedFunctionNames.length} connected</div><p>Browse Excel-style categories. Connected functions are recognized but require external data providers and cannot calculate offline.</p></div><div class="panel-block"><label class="field-label" for="function-category">Function category</label><select id="function-category" class="context-select" aria-label="Function category">${categoryNames.map(c => `<option value="${escapeHtml(c)}" ${c === functionCategoryFilter ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select><input class="function-search" id="function-search" aria-label="Filter functions" placeholder="Search formulas…" value="${escapeHtml(functionFilter)}"/><div class="function-list">${[...groups].map(([category, names]) => `<div class="function-category-label">${escapeHtml(category)} · ${names.length}</div>${names.map(f => `<button class="function-card" data-function="${f}"><div><strong>${f}</strong><span>${connectedFunctionNames.includes(f) ? "Requires connection" : "＋"}</span></div><small>${escapeHtml(functions[f].description)}</small><code>${escapeHtml(functions[f].example)}</code></button>`).join('')}`).join('') || '<p>No matching functions.</p>'}</div></div>`;
     }
 }
-function jump(ref) { const p = parseRef(ref); if (p && inBounds(p.row, p.col))
-    select(p.row, p.col); }
+function jump(ref) {
+    const p = parseRef(ref);
+    if (p && inBounds(p.row, p.col))
+        select(p.row, p.col);
+}
 side.addEventListener('click', ev => {
     const target = ev.target;
     const jumpEl = target.closest('[data-jump]');
@@ -3019,27 +3810,42 @@ side.addEventListener('click', ev => {
         toast('Scenario applied to workbook');
     }
 });
-side.addEventListener('change', e => { if (e.target.id === 'function-category') {
-    functionCategoryFilter = e.target.value;
-    renderSidebar();
-} });
-side.addEventListener('input', e => { if (e.target.id === 'function-search') {
-    const input = e.target;
-    const caret = input.selectionStart;
-    functionFilter = input.value;
-    renderSidebar();
-    const restored = el('function-search');
-    restored.focus();
-    restored.setSelectionRange(caret, caret);
-} });
+side.addEventListener('change', e => {
+    if (e.target.id === 'function-category') {
+        functionCategoryFilter = e.target.value;
+        renderSidebar();
+    }
+});
+side.addEventListener('input', e => {
+    if (e.target.id === 'function-search') {
+        const input = e.target;
+        const caret = input.selectionStart;
+        functionFilter = input.value;
+        renderSidebar();
+        const restored = el('function-search');
+        restored.focus();
+        restored.setSelectionRange(caret, caret);
+    }
+});
 document.querySelectorAll('[data-mode]').forEach(node => node.addEventListener('click', () => setMode(node.dataset.mode)));
-grid.addEventListener('scroll', () => { if (editing)
-    commitEdit(); if (!scrollFrame)
-    scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; renderGrid(); }); });
+grid.addEventListener('scroll', () => {
+    if (editing)
+        commitEdit();
+    if (!scrollFrame)
+        scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; renderGrid(); });
+});
 let pendingPivotDetailRef = '';
-function pivotAtOutputRef(ref) { const point = parseRef(ref); if (!point)
-    return undefined; return doc.active.tools.pivotTables.find(spec => { if (!spec.lastOutputRange)
-    return false; const [firstRef, lastRef] = spec.lastOutputRange.replace(/\$/g, '').toUpperCase().split(':'), first = parseRef(firstRef ?? ''), last = parseRef(lastRef ?? firstRef ?? ''); return !!first && !!last && point.row >= first.row && point.row <= last.row && point.col >= first.col && point.col <= last.col; }); }
+function pivotAtOutputRef(ref) {
+    const point = parseRef(ref);
+    if (!point)
+        return undefined;
+    return doc.active.tools.pivotTables.find(spec => {
+        if (!spec.lastOutputRange)
+            return false;
+        const [firstRef, lastRef] = spec.lastOutputRange.replace(/\$/g, '').toUpperCase().split(':'), first = parseRef(firstRef ?? ''), last = parseRef(lastRef ?? firstRef ?? '');
+        return !!first && !!last && point.row >= first.row && point.row <= last.row && point.col >= first.col && point.col <= last.col;
+    });
+}
 async function showPivotDetails(ref) {
     try {
         const spec = pivotAtOutputRef(ref);
@@ -3143,8 +3949,10 @@ surface.addEventListener('mousedown', ev => {
             return;
         if (pivotAtOutputRef(cell.dataset.ref)) {
             pendingPivotDetailRef = cell.dataset.ref;
-            window.setTimeout(() => { if (pendingPivotDetailRef === cell.dataset.ref)
-                pendingPivotDetailRef = ''; }, 800);
+            window.setTimeout(() => {
+                if (pendingPivotDetailRef === cell.dataset.ref)
+                    pendingPivotDetailRef = '';
+            }, 800);
             return;
         }
         beginEdit();
@@ -3163,22 +3971,26 @@ surface.addEventListener('mousedown', ev => {
     refresh();
     grid.focus({ preventScroll: true });
 });
-grid.addEventListener('dblclick', ev => { if (ev.target.closest('.worksheet-chart,.worksheet-pivot-slicer'))
-    return; const where = gridPointerCell(ev.clientX, ev.clientY); if (where) {
-    const ref = `${colToName(where.c)}${where.r + 1}`;
-    select(where.r, where.c);
-    if (doc.active.tools.hyperlinks.some(link => link.ref === ref) || book.getHyperlinkInfo(ref)) {
-        ev.preventDefault();
+grid.addEventListener('dblclick', ev => {
+    if (ev.target.closest('.worksheet-chart,.worksheet-pivot-slicer'))
         return;
+    const where = gridPointerCell(ev.clientX, ev.clientY);
+    if (where) {
+        const ref = `${colToName(where.c)}${where.r + 1}`;
+        select(where.r, where.c);
+        if (doc.active.tools.hyperlinks.some(link => link.ref === ref) || book.getHyperlinkInfo(ref)) {
+            ev.preventDefault();
+            return;
+        }
+        if (pendingPivotDetailRef === ref) {
+            pendingPivotDetailRef = '';
+            ev.preventDefault();
+            showPivotDetails(ref);
+            return;
+        }
+        beginEdit();
     }
-    if (pendingPivotDetailRef === ref) {
-        pendingPivotDetailRef = '';
-        ev.preventDefault();
-        showPivotDetails(ref);
-        return;
-    }
-    beginEdit();
-} });
+});
 surface.addEventListener('mouseover', ev => {
     const cell = ev.target.closest('[data-ref]');
     if (!cell?.dataset.ref)
@@ -3192,13 +4004,16 @@ surface.addEventListener('mouseover', ev => {
         renderGrid();
     }
 });
-window.addEventListener('mouseup', () => { if (fillDrag) {
-    fillDrag = false;
-    fillTo(dragTarget);
-} if (rangeDrag) {
-    rangeDrag = false;
-    refresh();
-} });
+window.addEventListener('mouseup', () => {
+    if (fillDrag) {
+        fillDrag = false;
+        fillTo(dragTarget);
+    }
+    if (rangeDrag) {
+        rangeDrag = false;
+        refresh();
+    }
+});
 grid.addEventListener('keydown', ev => {
     if (editing)
         return;
@@ -3500,15 +4315,17 @@ document.addEventListener('paste', ev => {
     apply(edits);
     toast(`Pasted ${edits.length} cells from text`);
 });
-formulaInput.addEventListener('keydown', ev => { if (ev.key === 'Enter') {
-    ev.preventDefault();
-    apply([{ ref: currentRef(), raw: formulaInput.value }]);
-    grid.focus({ preventScroll: true });
-}
-else if (ev.key === 'Escape') {
-    formulaInput.value = book.getRaw(currentRef());
-    grid.focus({ preventScroll: true });
-} });
+formulaInput.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') {
+        ev.preventDefault();
+        apply([{ ref: currentRef(), raw: formulaInput.value }]);
+        grid.focus({ preventScroll: true });
+    }
+    else if (ev.key === 'Escape') {
+        formulaInput.value = book.getRaw(currentRef());
+        grid.focus({ preventScroll: true });
+    }
+});
 el('btn-commit').addEventListener('click', () => { apply([{ ref: currentRef(), raw: formulaInput.value }]); grid.focus({ preventScroll: true }); });
 el('btn-cancel-formula').addEventListener('click', () => { formulaInput.value = book.getRaw(currentRef()); grid.focus({ preventScroll: true }); });
 function jumpFromNameBox(input) {
@@ -3556,11 +4373,14 @@ function jumpFromNameBox(input) {
     grid.focus({ preventScroll: true });
     return true;
 }
-nameBox.addEventListener('keydown', ev => { if (ev.key === 'Enter') {
-    if (!jumpFromNameBox(nameBox.value))
-        toast('Enter a valid cell or range such as AA120 or A1:C20, or a supported defined name.');
-} if (ev.key === 'Escape')
-    nameBox.value = currentRef(); });
+nameBox.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') {
+        if (!jumpFromNameBox(nameBox.value))
+            toast('Enter a valid cell or range such as AA120 or A1:C20, or a supported defined name.');
+    }
+    if (ev.key === 'Escape')
+        nameBox.value = currentRef();
+});
 const desktopAPI = () => {
     const bridge = window;
     return bridge.pywebview?.api?.save_file ? bridge.pywebview.api : null;
@@ -3648,23 +4468,33 @@ el('macro-add-template').addEventListener('click', () => {
         toast(error instanceof Error ? error.message : 'Unable to create macro');
     }
 });
-el('macro-record').addEventListener('click', () => { const name = el('macro-name').value.trim(); if (!name) {
-    toast('Enter a macro name.');
-    return;
-} recorder = { name, sheetName: doc.active.name, steps: [] }; renderMacroState(); macroDlg.close(); toast('Recording cell edits, formatting and sorting across tabs. Open Automate to stop.'); });
-el('macro-stop').addEventListener('click', () => { if (!recorder)
-    return; try {
-    const m = validateMacro({ version: 2, ...recorder });
-    macros = [...macros.filter(x => x.name !== m.name), m].slice(-30);
-    saveMacros();
-    recorder = null;
+el('macro-record').addEventListener('click', () => {
+    const name = el('macro-name').value.trim();
+    if (!name) {
+        toast('Enter a macro name.');
+        return;
+    }
+    recorder = { name, sheetName: doc.active.name, steps: [] };
     renderMacroState();
-    el('macro-select').value = String(macros.findIndex(x => x.name === m.name));
-    toast('Saved GridForge action macro.');
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Macro invalid');
-} });
+    macroDlg.close();
+    toast('Recording cell edits, formatting and sorting across tabs. Open Automate to stop.');
+});
+el('macro-stop').addEventListener('click', () => {
+    if (!recorder)
+        return;
+    try {
+        const m = validateMacro({ version: 2, ...recorder });
+        macros = [...macros.filter(x => x.name !== m.name), m].slice(-30);
+        saveMacros();
+        recorder = null;
+        renderMacroState();
+        el('macro-select').value = String(macros.findIndex(x => x.name === m.name));
+        toast('Saved GridForge action macro.');
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Macro invalid');
+    }
+});
 function macroParameters() {
     const raw = el('macro-params').value.trim();
     if (!raw)
@@ -3674,28 +4504,36 @@ function macroParameters() {
         throw Error('Parameters must be a JSON object of string values.');
     return parsed;
 }
-el('macro-preview').addEventListener('click', () => { const m = macros[Number(el('macro-select').value)]; if (!m)
-    return; try {
-    const report = runActionMacro(doc, m, { dryRun: true, parameters: macroParameters() });
-    el('macro-state').textContent = `Preview: ${report.values} cell edits, ${report.styles} styles across ${report.sheets.join(', ') || '0 sheets'}. Examples: ${report.changes.slice(0, 5).map(x => `${x.sheet}!${x.ref}: ${x.before || '∅'} → ${x.after || '∅'}`).join(' | ')}. Nothing was applied.`;
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Macro preview failed');
-} });
-el('macro-run').addEventListener('click', () => { const i = Number(el('macro-select').value), m = macros[i]; if (!m || recorder) {
-    toast('Select a saved macro and stop recording first.');
-    return;
-} try {
-    const result = runActionMacro(doc, m, { parameters: macroParameters() });
-    lastMacroExecution = { macro: m.name, executedAt: new Date().toISOString(), values: result.values, styles: result.styles, sheets: result.sheets, changes: result.changes };
-    save();
-    refresh();
-    el('macro-state').textContent = `Completed: ${result.values} cells and ${result.styles} styles across ${result.sheets.join(', ')}. Export the run report for auditing.`;
-    toast(`Ran ${m.name}: ${result.values} cells, ${result.styles} styles`);
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Macro failed');
-} });
+el('macro-preview').addEventListener('click', () => {
+    const m = macros[Number(el('macro-select').value)];
+    if (!m)
+        return;
+    try {
+        const report = runActionMacro(doc, m, { dryRun: true, parameters: macroParameters() });
+        el('macro-state').textContent = `Preview: ${report.values} cell edits, ${report.styles} styles across ${report.sheets.join(', ') || '0 sheets'}. Examples: ${report.changes.slice(0, 5).map(x => `${x.sheet}!${x.ref}: ${x.before || '∅'} → ${x.after || '∅'}`).join(' | ')}. Nothing was applied.`;
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Macro preview failed');
+    }
+});
+el('macro-run').addEventListener('click', () => {
+    const i = Number(el('macro-select').value), m = macros[i];
+    if (!m || recorder) {
+        toast('Select a saved macro and stop recording first.');
+        return;
+    }
+    try {
+        const result = runActionMacro(doc, m, { parameters: macroParameters() });
+        lastMacroExecution = { macro: m.name, executedAt: new Date().toISOString(), values: result.values, styles: result.styles, sheets: result.sheets, changes: result.changes };
+        save();
+        refresh();
+        el('macro-state').textContent = `Completed: ${result.values} cells and ${result.styles} styles across ${result.sheets.join(', ')}. Export the run report for auditing.`;
+        toast(`Ran ${m.name}: ${result.values} cells, ${result.styles} styles`);
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Macro failed');
+    }
+});
 el('macro-export-log').addEventListener('click', () => {
     if (!lastMacroExecution) {
         toast('Run a macro before exporting an execution report.');
@@ -3714,24 +4552,32 @@ el('macro-delete').addEventListener('click', () => {
     renderMacroState();
     toast('Macro removed from this device.');
 });
-el('macro-export').addEventListener('click', () => { const m = macros[Number(el('macro-select').value)]; if (!m)
-    return; download('gridforge-macro.json', JSON.stringify(m, null, 2), 'application/json'); });
+el('macro-export').addEventListener('click', () => {
+    const m = macros[Number(el('macro-select').value)];
+    if (!m)
+        return;
+    download('gridforge-macro.json', JSON.stringify(m, null, 2), 'application/json');
+});
 el('macro-import').addEventListener('click', () => el('macro-file').click());
-el('macro-file').addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (!file)
-    return; try {
-    const m = validateMacro(JSON.parse(await file.text()));
-    macros = [...macros.filter(x => x.name !== m.name), m].slice(-30);
-    saveMacros();
-    renderMacroState();
-    el('macro-select').value = String(macros.findIndex(x => x.name === m.name));
-    toast('Imported GridForge action macro.');
-}
-catch (ex) {
-    toast(ex instanceof Error ? ex.message : 'Invalid macro JSON');
-}
-finally {
-    el('macro-file').value = '';
-} });
+el('macro-file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file)
+        return;
+    try {
+        const m = validateMacro(JSON.parse(await file.text()));
+        macros = [...macros.filter(x => x.name !== m.name), m].slice(-30);
+        saveMacros();
+        renderMacroState();
+        el('macro-select').value = String(macros.findIndex(x => x.name === m.name));
+        toast('Imported GridForge action macro.');
+    }
+    catch (ex) {
+        toast(ex instanceof Error ? ex.message : 'Invalid macro JSON');
+    }
+    finally {
+        el('macro-file').value = '';
+    }
+});
 function showXlsmMessages(warnings) {
     if (!warnings.length)
         return;
@@ -3756,8 +4602,12 @@ el('btn-save-xlsm').addEventListener('click', async () => {
         toast(e instanceof Error ? e.message : 'XLSM export failed');
     }
 });
-const toBase64 = (bytes) => { let encoded = ''; for (let i = 0; i < bytes.length; i += 16384)
-    encoded += String.fromCharCode(...bytes.subarray(i, i + 16384)); return btoa(encoded); };
+const toBase64 = (bytes) => {
+    let encoded = '';
+    for (let i = 0; i < bytes.length; i += 16384)
+        encoded += String.fromCharCode(...bytes.subarray(i, i + 16384));
+    return btoa(encoded);
+};
 const fromBase64 = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));
 el('run-excel-vba').addEventListener('click', async () => {
     const status = el('vba-status'), button = el('run-excel-vba');
@@ -3818,116 +4668,172 @@ el('run-excel-vba').addEventListener('click', async () => {
 if (new URLSearchParams(window.location.search).get('macro-workbench') === '1') {
     window.addEventListener('load', () => { renderMacroState(); macroDlg.showModal(); });
 }
-el('btn-original-xlsm').addEventListener('click', () => { if (!originalMacroFile) {
-    toast('No original .xlsm is loaded.');
-    return;
-} download(originalMacroFile.name, originalMacroFile.bytes, 'application/vnd.ms-excel.sheet.macroEnabled.12'); toast('Downloaded unchanged original XLSM. Your GridForge edits are not included.'); });
-el('btn-xlsx').addEventListener('click', async () => { const button = el('btn-xlsx'), saveState = el('save-state'), prior = saveState.textContent ?? 'Saved locally'; try {
-    if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !window.confirm('GridForge ink strokes and drawn shapes are saved in GridForge JSON, not embedded in XLSX. Export the workbook without those drawings?'))
+el('btn-original-xlsm').addEventListener('click', () => {
+    if (!originalMacroFile) {
+        toast('No original .xlsm is loaded.');
         return;
-    button.disabled = true;
-    saveState.textContent = 'Preparing Excel workbook…';
-    await new Promise(resolve => requestAnimationFrame(() => resolve()));
-    const bytes = await exportXlsxOffThread(doc);
-    download(xlsxFileName(workbookTitle), bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    toast(doc.sheets.some(s => s.tools.charts.length) ? 'XLSX exported with editable native Excel chart objects.' : 'Exported multi-sheet XLSX.');
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'XLSX export failed');
-}
-finally {
-    button.disabled = false;
-    saveState.textContent = prior;
-} });
-el('btn-json').addEventListener('click', async () => { const button = el('btn-json'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; try {
-    button.disabled = true;
-    status.textContent = 'Preparing workbook JSON…';
-    await new Promise(resolve => requestAnimationFrame(() => resolve()));
-    const bytes = await exportDataOffThread(doc, 'json');
-    download('gridforge-workbook-v3.json', bytes, 'application/json');
-    toast('Exported GridForge workbook JSON.');
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'JSON export failed.');
-}
-finally {
-    button.disabled = false;
-    status.textContent = prior;
-} });
-el('btn-csv').addEventListener('click', async () => { const button = el('btn-csv'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; try {
-    button.disabled = true;
-    status.textContent = 'Calculating CSV values…';
-    await new Promise(resolve => requestAnimationFrame(() => resolve()));
-    const bytes = await exportDataOffThread(doc, 'csv');
-    download('gridforge-values.csv', bytes, 'text/csv');
-    toast('Exported calculated values to CSV.');
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'CSV export failed.');
-}
-finally {
-    button.disabled = false;
-    status.textContent = prior;
-} });
-el('btn-tsv').addEventListener('click', async () => { const button = el('btn-tsv'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; try {
-    button.disabled = true;
-    status.textContent = 'Calculating tab-separated values…';
-    await new Promise(resolve => requestAnimationFrame(() => resolve()));
-    const bytes = await exportDataOffThread(doc, 'tsv');
-    download('gridforge-values.tsv', bytes, 'text/tab-separated-values');
-    toast('Exported calculated values as TSV.');
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'TSV export failed.');
-}
-finally {
-    button.disabled = false;
-    status.textContent = prior;
-} });
-el('btn-ods').addEventListener('click', async () => { const button = el('btn-ods'), status = el('save-state'), prior = status.textContent ?? 'Saved locally'; if (!window.confirm('ODS export writes supported formulas in OpenFormula syntax. Unsupported formula text is retained for GridForge reopening; other ODF apps receive cached values. Common charts are saved as ODF objects. Specialized charts, conditional rules, drawings, data tables, Pivot summaries, and slicers are retained only in GridForge metadata. Macros, unrelated embedded objects, and complex number formats are not preserved. Supported validations, prompts, and hyperlinks are preserved, up to 100,000 validated rows per sheet. Continue?'))
-    return; try {
-    button.disabled = true;
-    status.textContent = 'Preparing OpenDocument workbook…';
-    await new Promise(resolve => requestAnimationFrame(() => resolve()));
-    const bytes = await exportDataOffThread(doc, 'ods');
-    download('gridforge-values.ods', bytes, 'application/vnd.oasis.opendocument.spreadsheet');
-    toast('Exported OpenDocument workbook with supported formulas.');
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'ODS export failed.');
-}
-finally {
-    button.disabled = false;
-    status.textContent = prior;
-} });
-el('btn-html').addEventListener('click', () => { try {
-    const html = buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name, false);
-    download('gridforge-sheet.html', html, 'text/html;charset=utf-8');
-    toast('Exported the active worksheet as a printable HTML file.');
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'HTML export failed.');
-} });
-el('btn-undo').addEventListener('click', () => { if (undoWorkbook()) {
+    }
+    download(originalMacroFile.name, originalMacroFile.bytes, 'application/vnd.ms-excel.sheet.macroEnabled.12');
+    toast('Downloaded unchanged original XLSM. Your GridForge edits are not included.');
+});
+el('btn-xlsx').addEventListener('click', async () => {
+    const button = el('btn-xlsx'), saveState = el('save-state'), prior = saveState.textContent ?? 'Saved locally';
+    try {
+        if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !window.confirm('GridForge ink strokes and drawn shapes are saved in GridForge JSON, not embedded in XLSX. Export the workbook without those drawings?'))
+            return;
+        button.disabled = true;
+        saveState.textContent = 'Preparing Excel workbook…';
+        await new Promise(resolve => requestAnimationFrame(() => resolve()));
+        const bytes = await exportXlsxOffThread(doc);
+        download(xlsxFileName(workbookTitle), bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        toast(doc.sheets.some(s => s.tools.charts.length) ? 'XLSX exported with editable native Excel chart objects.' : 'Exported multi-sheet XLSX.');
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'XLSX export failed');
+    }
+    finally {
+        button.disabled = false;
+        saveState.textContent = prior;
+    }
+});
+el('btn-json').addEventListener('click', async () => {
+    const button = el('btn-json'), status = el('save-state'), prior = status.textContent ?? 'Saved locally';
+    try {
+        button.disabled = true;
+        status.textContent = 'Preparing workbook JSON…';
+        await new Promise(resolve => requestAnimationFrame(() => resolve()));
+        const bytes = await exportDataOffThread(doc, 'json');
+        download('gridforge-workbook-v3.json', bytes, 'application/json');
+        toast('Exported GridForge workbook JSON.');
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'JSON export failed.');
+    }
+    finally {
+        button.disabled = false;
+        status.textContent = prior;
+    }
+});
+el('btn-csv').addEventListener('click', async () => {
+    const button = el('btn-csv'), status = el('save-state'), prior = status.textContent ?? 'Saved locally';
+    try {
+        button.disabled = true;
+        status.textContent = 'Calculating CSV values…';
+        await new Promise(resolve => requestAnimationFrame(() => resolve()));
+        const bytes = await exportDataOffThread(doc, 'csv');
+        download('gridforge-values.csv', bytes, 'text/csv');
+        toast('Exported calculated values to CSV.');
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'CSV export failed.');
+    }
+    finally {
+        button.disabled = false;
+        status.textContent = prior;
+    }
+});
+el('btn-tsv').addEventListener('click', async () => {
+    const button = el('btn-tsv'), status = el('save-state'), prior = status.textContent ?? 'Saved locally';
+    try {
+        button.disabled = true;
+        status.textContent = 'Calculating tab-separated values…';
+        await new Promise(resolve => requestAnimationFrame(() => resolve()));
+        const bytes = await exportDataOffThread(doc, 'tsv');
+        download('gridforge-values.tsv', bytes, 'text/tab-separated-values');
+        toast('Exported calculated values as TSV.');
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'TSV export failed.');
+    }
+    finally {
+        button.disabled = false;
+        status.textContent = prior;
+    }
+});
+el('btn-ods').addEventListener('click', async () => {
+    const button = el('btn-ods'), status = el('save-state'), prior = status.textContent ?? 'Saved locally';
+    if (!window.confirm('ODS export writes supported formulas in OpenFormula syntax. Unsupported formula text is retained for GridForge reopening; other ODF apps receive cached values. Common charts are saved as ODF objects. Specialized charts, conditional rules, drawings, data tables, Pivot summaries, and slicers are retained only in GridForge metadata. Macros, unrelated embedded objects, and complex number formats are not preserved. Supported validations, prompts, and hyperlinks are preserved, up to 100,000 validated rows per sheet. Continue?'))
+        return;
+    try {
+        button.disabled = true;
+        status.textContent = 'Preparing OpenDocument workbook…';
+        await new Promise(resolve => requestAnimationFrame(() => resolve()));
+        const bytes = await exportDataOffThread(doc, 'ods');
+        download('gridforge-values.ods', bytes, 'application/vnd.oasis.opendocument.spreadsheet');
+        toast('Exported OpenDocument workbook with supported formulas.');
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'ODS export failed.');
+    }
+    finally {
+        button.disabled = false;
+        status.textContent = prior;
+    }
+});
+el('btn-html').addEventListener('click', () => {
+    try {
+        const html = buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name, false);
+        download('gridforge-sheet.html', html, 'text/html;charset=utf-8');
+        toast('Exported the active worksheet as a printable HTML file.');
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'HTML export failed.');
+    }
+});
+el('btn-undo').addEventListener('click', () => {
+    if (undoWorkbook()) {
+        pivotValueCache.clear();
+        pivotGroupedValueCache.clear();
+        reconcileCalculatedColumns(book, doc.active.tools.tables);
+        scheduleExternalPivotRefresh();
+        save();
+        refresh();
+    }
+});
+el('btn-redo').addEventListener('click', () => {
+    if (redoWorkbook()) {
+        pivotValueCache.clear();
+        pivotGroupedValueCache.clear();
+        reconcileCalculatedColumns(book, doc.active.tools.tables);
+        scheduleExternalPivotRefresh();
+        save();
+        refresh();
+    }
+});
+el('btn-new').addEventListener('click', () => {
+    if (!confirm('Create a blank workbook? Export your current workbook first if you need a copy.'))
+        return;
     pivotValueCache.clear();
     pivotGroupedValueCache.clear();
-    reconcileCalculatedColumns(book, doc.active.tools.tables);
-    scheduleExternalPivotRefresh();
+    doc = new SpreadsheetDocument();
+    book = doc.active.book;
+    pivotExpandControls.clear();
+    originalMacroFile = null;
+    el('btn-original-xlsm').hidden = true;
+    el('btn-save-xlsm').hidden = true;
+    workbookTitle = 'Book1';
+    el('book-title').textContent = workbookTitle;
     save();
-    refresh();
-} });
-el('btn-redo').addEventListener('click', () => { if (redoWorkbook()) {
+    select(0, 0);
+    toast('Blank workbook created');
+});
+el('btn-sample').addEventListener('click', () => {
+    if (!confirm('Replace current workbook with the demo data?'))
+        return;
     pivotValueCache.clear();
     pivotGroupedValueCache.clear();
-    reconcileCalculatedColumns(book, doc.active.tools.tables);
-    scheduleExternalPivotRefresh();
+    doc = new SpreadsheetDocument(sample());
+    book = doc.active.book;
+    pivotExpandControls.clear();
+    originalMacroFile = null;
+    el('btn-original-xlsm').hidden = true;
+    el('btn-save-xlsm').hidden = true;
+    workbookTitle = 'Northstar / Q4 Sales';
+    el('book-title').textContent = workbookTitle;
     save();
-    refresh();
-} });
-el('btn-new').addEventListener('click', () => { if (!confirm('Create a blank workbook? Export your current workbook first if you need a copy.'))
-    return; pivotValueCache.clear(); pivotGroupedValueCache.clear(); doc = new SpreadsheetDocument(); book = doc.active.book; pivotExpandControls.clear(); originalMacroFile = null; el('btn-original-xlsm').hidden = true; el('btn-save-xlsm').hidden = true; workbookTitle = 'Book1'; el('book-title').textContent = workbookTitle; save(); select(0, 0); toast('Blank workbook created'); });
-el('btn-sample').addEventListener('click', () => { if (!confirm('Replace current workbook with the demo data?'))
-    return; pivotValueCache.clear(); pivotGroupedValueCache.clear(); doc = new SpreadsheetDocument(sample()); book = doc.active.book; pivotExpandControls.clear(); originalMacroFile = null; el('btn-original-xlsm').hidden = true; el('btn-save-xlsm').hidden = true; workbookTitle = 'Northstar / Q4 Sales'; el('book-title').textContent = workbookTitle; save(); select(3, 3); toast('Demo workbook loaded'); });
+    select(3, 3);
+    toast('Demo workbook loaded');
+});
 const picker = el('file-picker');
 el('btn-import').addEventListener('click', () => picker.click());
 window.addEventListener('keydown', e => {
@@ -4026,41 +4932,69 @@ picker.addEventListener('change', async () => {
         picker.value = '';
     }
 });
-const cloudDialog = el('cloud-dialog'), cloudProvider = el('cloud-provider'), cloudProviderConfigs = (() => { try {
-    return JSON.parse(localStorage.getItem('gridforge:cloud-oauth-config:v1') ?? '{}');
-}
-catch {
-    return {};
-} })();
+const cloudDialog = el('cloud-dialog'), cloudProvider = el('cloud-provider'), cloudProviderConfigs = (() => {
+    try {
+        return JSON.parse(localStorage.getItem('gridforge:cloud-oauth-config:v1') ?? '{}');
+    }
+    catch {
+        return {};
+    }
+})();
 let cloudFiles = [], cloudNextPage, cloudSelectedFile = null, cloudOpenFile = null, cloudFolderPath = [], cloudBusy = false;
 const cloudNames = { onedrive: 'OneDrive', googledrive: 'Google Drive', dropbox: 'Dropbox', box: 'Box' };
 function selectedCloudProvider() { return cloudProvider.value; }
-function cloudApi() { const api = desktopAPI(); if (!api?.start_cloud_auth || !api.cloud_credential)
-    throw Error('Cloud accounts require the installed Windows app so sign-in tokens can be protected on this device.'); return api; }
+function cloudApi() {
+    const api = desktopAPI();
+    if (!api?.start_cloud_auth || !api.cloud_credential)
+        throw Error('Cloud accounts require the installed Windows app so sign-in tokens can be protected on this device.');
+    return api;
+}
 function cloudStatus(message) { el('cloud-status').textContent = message; }
 function saveCloudConfig() { const safe = Object.fromEntries(Object.entries(cloudProviderConfigs).map(([provider, config]) => [provider, provider === 'box' && config ? { clientId: config.clientId, redirectUri: config.redirectUri } : config])); localStorage.setItem('gridforge:cloud-oauth-config:v1', JSON.stringify(safe)); }
 function readCloudConfig() { const provider = selectedCloudProvider(), redirectUri = provider === 'dropbox' ? el('cloud-dropbox-redirect').value.trim() : provider === 'box' ? el('cloud-box-redirect').value.trim() : ''; return { clientId: el('cloud-client-id').value.trim(), ...(el('cloud-client-secret').value.trim() ? { clientSecret: el('cloud-client-secret').value.trim() } : {}), ...(redirectUri ? { redirectUri } : {}) }; }
 function showCloudProviderConfig() { const provider = selectedCloudProvider(), config = cloudProviderConfigs[provider] ?? { clientId: '' }; el('cloud-client-id').value = config.clientId; el('cloud-client-secret').value = config.clientSecret ?? ''; el('cloud-dropbox-redirect').value = config.redirectUri ?? 'http://localhost:53682/oauth/callback'; el('cloud-box-redirect').value = config.redirectUri ?? 'http://localhost:53683/oauth/callback'; document.querySelectorAll('.cloud-secret-only').forEach(node => node.hidden = provider !== 'googledrive' && provider !== 'box'); document.querySelectorAll('.cloud-dropbox-only').forEach(node => node.hidden = provider !== 'dropbox'); document.querySelectorAll('.cloud-box-only').forEach(node => node.hidden = provider !== 'box'); cloudFiles = []; cloudNextPage = undefined; cloudSelectedFile = null; cloudFolderPath = []; renderCloudFileList(); cloudStatus(`${cloudNames[provider]} selected. Sign in to browse workbooks.`); el('cloud-save-current').disabled = !cloudOpenFile || cloudOpenFile.provider !== provider; }
-function renderCloudFileList() { const breadcrumbs = el('cloud-breadcrumbs'); breadcrumbs.replaceChildren(); const root = document.createElement('button'); root.type = 'button'; root.className = 'cloud-breadcrumb'; root.textContent = cloudNames[selectedCloudProvider()]; root.addEventListener('click', () => void navigateCloudFolder(-1)); breadcrumbs.append(root); cloudFolderPath.forEach((folder, index) => { const separator = document.createElement('span'); separator.textContent = '›'; breadcrumbs.append(separator); const crumb = document.createElement('button'); crumb.type = 'button'; crumb.className = 'cloud-breadcrumb'; crumb.textContent = folder.name; crumb.addEventListener('click', () => void navigateCloudFolder(index)); breadcrumbs.append(crumb); }); const container = el('cloud-files'); container.replaceChildren(); for (const file of cloudFiles) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `cloud-file-row${file.kind === 'folder' ? ' cloud-folder-row' : ''}`;
-    button.setAttribute('role', 'option');
-    button.setAttribute('aria-selected', String(cloudSelectedFile?.id === file.id));
-    button.innerHTML = `<span class="cloud-file-name">${file.kind === 'folder' ? '📁 ' : ''}${escapeHtml(file.name)}</span><span class="cloud-file-meta">${file.kind === 'folder' ? 'Folder' : file.modified ? escapeHtml(new Date(file.modified).toLocaleString()) : ''}${file.size ? ` · ${(file.size / 1024).toFixed(0)} KB` : ''}</span>`;
-    button.addEventListener('click', () => { cloudSelectedFile = file; renderCloudFileList(); });
-    button.addEventListener('dblclick', () => { cloudSelectedFile = file; void activateCloudSelection().catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to open cloud item.')); });
-    container.append(button);
-} if (cloudNextPage) {
-    const more = document.createElement('button');
-    more.type = 'button';
-    more.className = 'secondary-button';
-    more.textContent = 'Load more files';
-    more.addEventListener('click', () => void browseCloudFiles(true));
-    container.append(more);
-} const open = el('cloud-open-file'); open.disabled = !cloudSelectedFile || cloudBusy; open.textContent = cloudSelectedFile?.kind === 'folder' ? 'Open folder' : 'Open selected workbook'; }
-function cloudOauthRandom(size = 48) { const bytes = crypto.getRandomValues(new Uint8Array(size)); let raw = ''; for (const byte of bytes)
-    raw += String.fromCharCode(byte); return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function renderCloudFileList() {
+    const breadcrumbs = el('cloud-breadcrumbs');
+    breadcrumbs.replaceChildren();
+    const root = document.createElement('button');
+    root.type = 'button';
+    root.className = 'cloud-breadcrumb';
+    root.textContent = cloudNames[selectedCloudProvider()];
+    root.addEventListener('click', () => void navigateCloudFolder(-1));
+    breadcrumbs.append(root);
+    cloudFolderPath.forEach((folder, index) => { const separator = document.createElement('span'); separator.textContent = '›'; breadcrumbs.append(separator); const crumb = document.createElement('button'); crumb.type = 'button'; crumb.className = 'cloud-breadcrumb'; crumb.textContent = folder.name; crumb.addEventListener('click', () => void navigateCloudFolder(index)); breadcrumbs.append(crumb); });
+    const container = el('cloud-files');
+    container.replaceChildren();
+    for (const file of cloudFiles) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `cloud-file-row${file.kind === 'folder' ? ' cloud-folder-row' : ''}`;
+        button.setAttribute('role', 'option');
+        button.setAttribute('aria-selected', String(cloudSelectedFile?.id === file.id));
+        button.innerHTML = `<span class="cloud-file-name">${file.kind === 'folder' ? '📁 ' : ''}${escapeHtml(file.name)}</span><span class="cloud-file-meta">${file.kind === 'folder' ? 'Folder' : file.modified ? escapeHtml(new Date(file.modified).toLocaleString()) : ''}${file.size ? ` · ${(file.size / 1024).toFixed(0)} KB` : ''}</span>`;
+        button.addEventListener('click', () => { cloudSelectedFile = file; renderCloudFileList(); });
+        button.addEventListener('dblclick', () => { cloudSelectedFile = file; void activateCloudSelection().catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to open cloud item.')); });
+        container.append(button);
+    }
+    if (cloudNextPage) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'secondary-button';
+        more.textContent = 'Load more files';
+        more.addEventListener('click', () => void browseCloudFiles(true));
+        container.append(more);
+    }
+    const open = el('cloud-open-file');
+    open.disabled = !cloudSelectedFile || cloudBusy;
+    open.textContent = cloudSelectedFile?.kind === 'folder' ? 'Open folder' : 'Open selected workbook';
+}
+function cloudOauthRandom(size = 48) {
+    const bytes = crypto.getRandomValues(new Uint8Array(size));
+    let raw = '';
+    for (const byte of bytes)
+        raw += String.fromCharCode(byte);
+    return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 async function connectCloud() {
     if (cloudBusy)
         return;
@@ -4151,81 +5085,134 @@ async function connectCloud() {
         }
     }
 }
-async function cloudAccessToken(provider = selectedCloudProvider()) { const api = cloudApi(), config = cloudProviderConfigs[provider]; if (!config?.clientId)
-    throw Error('Add the provider OAuth client ID and connect your account.'); const raw = await api.cloud_credential(provider); if (!raw)
-    throw Error(`Connect your ${cloudNames[provider]} account first.`); let token; try {
-    token = JSON.parse(raw);
-}
-catch {
-    throw Error('Saved cloud sign-in is damaged. Disconnect and connect again.');
-} if (token.expires_at > Date.now() && token.access_token)
-    return token.access_token; if (!token.refresh_token)
-    throw Error('Cloud sign-in expired. Connect your account again.'); const clientSecret = provider === 'box' ? await api.box_client_secret() ?? '' : config.clientSecret ?? ''; const refreshed = await api.refresh_cloud_token(provider, config.clientId, token.refresh_token, clientSecret); token = { ...token, ...refreshed, access_token: String(refreshed.access_token), expires_at: Date.now() + Math.max(60, Number(refreshed.expires_in) || 3600) * 1000 - 60_000 }; await api.cloud_credential(provider, JSON.stringify(token)); return token.access_token; }
-async function browseCloudFiles(append = false) { const provider = selectedCloudProvider(); cloudBusy = true; el('cloud-refresh').disabled = true; el('cloud-open-file').disabled = true; cloudStatus(`Reading ${cloudNames[provider]} folder…`); try {
-    const api = cloudApi(), token = await cloudAccessToken(provider), folder = cloudFolderPath.at(-1), page = await listCloudFiles(provider, token, append ? cloudNextPage : undefined, api.box_api_request.bind(api), folder);
-    const visible = page.files.filter(file => file.kind === 'folder' || /\.(xlsx|json)$/i.test(file.name));
-    cloudFiles = append ? [...cloudFiles, ...visible].slice(0, 500) : visible;
-    cloudNextPage = page.next;
-    if (!append)
-        cloudSelectedFile = null;
-    renderCloudFileList();
-    cloudStatus(`${cloudFiles.length} folder or XLSX/JSON file(s) shown. Edits stay on this device until you choose a cloud save.`);
-}
-finally {
-    cloudBusy = false;
-    el('cloud-refresh').disabled = false;
-    renderCloudFileList();
-} }
-async function navigateCloudFolder(index) { if (cloudBusy)
-    return; if (index < 0)
-    cloudFolderPath = [];
-else
-    cloudFolderPath = cloudFolderPath.slice(0, index + 1); cloudFiles = []; cloudNextPage = undefined; cloudSelectedFile = null; renderCloudFileList(); await browseCloudFiles(); }
-async function activateCloudSelection() { if (!cloudSelectedFile || cloudBusy)
-    return; if (cloudSelectedFile.kind === 'folder') {
-    cloudFolderPath.push(cloudSelectedFile);
-    await navigateCloudFolder(cloudFolderPath.length - 1);
-    return;
-} await openCloudWorkbook(); }
-async function openCloudWorkbook() { if (!cloudSelectedFile)
-    throw Error('Select a workbook to open.'); cloudBusy = true; el('cloud-open-file').disabled = true; cloudStatus(`Opening ${cloudSelectedFile.name}…`); try {
-    const api = cloudApi(), file = cloudSelectedFile, token = await cloudAccessToken(file.provider), bytes = await downloadCloudFile(file, token, api.box_api_request.bind(api));
-    if (/\.json$/i.test(file.name)) {
-        doc = await importJsonOffThread(bytes, message => cloudStatus(message));
-        originalMacroFile = null;
+async function cloudAccessToken(provider = selectedCloudProvider()) {
+    const api = cloudApi(), config = cloudProviderConfigs[provider];
+    if (!config?.clientId)
+        throw Error('Add the provider OAuth client ID and connect your account.');
+    const raw = await api.cloud_credential(provider);
+    if (!raw)
+        throw Error(`Connect your ${cloudNames[provider]} account first.`);
+    let token;
+    try {
+        token = JSON.parse(raw);
     }
-    else {
-        const imported = await importXlsxOffThread(bytes, message => cloudStatus(message));
-        doc = imported.document;
-        originalMacroFile = null;
-        if (imported.warnings.length) {
-            el('import-notes-body').innerHTML = `<strong>${doc.sheets.length} worksheet(s) loaded from ${escapeHtml(cloudNames[file.provider])}</strong><ul>${imported.warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
-            el('import-notes-dialog').showModal();
+    catch {
+        throw Error('Saved cloud sign-in is damaged. Disconnect and connect again.');
+    }
+    if (token.expires_at > Date.now() && token.access_token)
+        return token.access_token;
+    if (!token.refresh_token)
+        throw Error('Cloud sign-in expired. Connect your account again.');
+    const clientSecret = provider === 'box' ? await api.box_client_secret() ?? '' : config.clientSecret ?? '';
+    const refreshed = await api.refresh_cloud_token(provider, config.clientId, token.refresh_token, clientSecret);
+    token = { ...token, ...refreshed, access_token: String(refreshed.access_token), expires_at: Date.now() + Math.max(60, Number(refreshed.expires_in) || 3600) * 1000 - 60_000 };
+    await api.cloud_credential(provider, JSON.stringify(token));
+    return token.access_token;
+}
+async function browseCloudFiles(append = false) {
+    const provider = selectedCloudProvider();
+    cloudBusy = true;
+    el('cloud-refresh').disabled = true;
+    el('cloud-open-file').disabled = true;
+    cloudStatus(`Reading ${cloudNames[provider]} folder…`);
+    try {
+        const api = cloudApi(), token = await cloudAccessToken(provider), folder = cloudFolderPath.at(-1), page = await listCloudFiles(provider, token, append ? cloudNextPage : undefined, api.box_api_request.bind(api), folder);
+        const visible = page.files.filter(file => file.kind === 'folder' || /\.(xlsx|json)$/i.test(file.name));
+        cloudFiles = append ? [...cloudFiles, ...visible].slice(0, 500) : visible;
+        cloudNextPage = page.next;
+        if (!append)
+            cloudSelectedFile = null;
+        renderCloudFileList();
+        cloudStatus(`${cloudFiles.length} folder or XLSX/JSON file(s) shown. Edits stay on this device until you choose a cloud save.`);
+    }
+    finally {
+        cloudBusy = false;
+        el('cloud-refresh').disabled = false;
+        renderCloudFileList();
+    }
+}
+async function navigateCloudFolder(index) {
+    if (cloudBusy)
+        return;
+    if (index < 0)
+        cloudFolderPath = [];
+    else
+        cloudFolderPath = cloudFolderPath.slice(0, index + 1);
+    cloudFiles = [];
+    cloudNextPage = undefined;
+    cloudSelectedFile = null;
+    renderCloudFileList();
+    await browseCloudFiles();
+}
+async function activateCloudSelection() {
+    if (!cloudSelectedFile || cloudBusy)
+        return;
+    if (cloudSelectedFile.kind === 'folder') {
+        cloudFolderPath.push(cloudSelectedFile);
+        await navigateCloudFolder(cloudFolderPath.length - 1);
+        return;
+    }
+    await openCloudWorkbook();
+}
+async function openCloudWorkbook() {
+    if (!cloudSelectedFile)
+        throw Error('Select a workbook to open.');
+    cloudBusy = true;
+    el('cloud-open-file').disabled = true;
+    cloudStatus(`Opening ${cloudSelectedFile.name}…`);
+    try {
+        const api = cloudApi(), file = cloudSelectedFile, token = await cloudAccessToken(file.provider), bytes = await downloadCloudFile(file, token, api.box_api_request.bind(api));
+        if (/\.json$/i.test(file.name)) {
+            doc = await importJsonOffThread(bytes, message => cloudStatus(message));
+            originalMacroFile = null;
         }
+        else {
+            const imported = await importXlsxOffThread(bytes, message => cloudStatus(message));
+            doc = imported.document;
+            originalMacroFile = null;
+            if (imported.warnings.length) {
+                el('import-notes-body').innerHTML = `<strong>${doc.sheets.length} worksheet(s) loaded from ${escapeHtml(cloudNames[file.provider])}</strong><ul>${imported.warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
+                el('import-notes-dialog').showModal();
+            }
+        }
+        pivotValueCache.clear();
+        pivotGroupedValueCache.clear();
+        book = doc.active.book;
+        pivotExpandControls.clear();
+        cloudOpenFile = file;
+        workbookTitle = file.name.replace(/\.(json|xlsx)$/i, '').slice(0, 45) || 'Cloud Workbook';
+        el('book-title').textContent = workbookTitle;
+        el('btn-original-xlsm').hidden = true;
+        el('btn-save-xlsm').hidden = true;
+        if (doc.sheets.some(sheet => sheet.tools.pivotTables.length))
+            scheduleExternalPivotRefresh();
+        save();
+        select(0, 0);
+        el('cloud-save-current').disabled = false;
+        cloudStatus(`Opened ${file.name}. Save changes to update this cloud file or save a new copy.`);
+        toast(`Opened ${file.name} from ${cloudNames[file.provider]}.`);
     }
-    pivotValueCache.clear();
-    pivotGroupedValueCache.clear();
-    book = doc.active.book;
-    pivotExpandControls.clear();
-    cloudOpenFile = file;
-    workbookTitle = file.name.replace(/\.(json|xlsx)$/i, '').slice(0, 45) || 'Cloud Workbook';
-    el('book-title').textContent = workbookTitle;
-    el('btn-original-xlsm').hidden = true;
-    el('btn-save-xlsm').hidden = true;
-    if (doc.sheets.some(sheet => sheet.tools.pivotTables.length))
-        scheduleExternalPivotRefresh();
-    save();
-    select(0, 0);
-    el('cloud-save-current').disabled = false;
-    cloudStatus(`Opened ${file.name}. Save changes to update this cloud file or save a new copy.`);
-    toast(`Opened ${file.name} from ${cloudNames[file.provider]}.`);
+    finally {
+        cloudBusy = false;
+        el('cloud-open-file').disabled = !cloudSelectedFile;
+    }
 }
-finally {
-    cloudBusy = false;
-    el('cloud-open-file').disabled = !cloudSelectedFile;
-} }
-async function saveCloudWorkbook(copy) { const api = cloudApi(), provider = selectedCloudProvider(), token = await cloudAccessToken(provider), file = !copy && cloudOpenFile?.provider === provider ? cloudOpenFile : undefined; if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !confirm('GridForge-only drawings are not included in XLSX cloud saves. Save without drawings? Use GridForge JSON to preserve them.'))
-    return; const safeBase = workbookTitle.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'GridForge Workbook', suffix = copy ? ` - ${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}` : '', name = `${safeBase}${suffix}.xlsx`; cloudStatus('Preparing Excel workbook…'); await new Promise(resolve => requestAnimationFrame(() => resolve())); const bytes = await exportXlsxOffThread(doc); cloudStatus(`Saving ${name} to ${cloudNames[provider]}…`); const saved = await uploadCloudFile(provider, token, name, bytes, file, api.box_api_request.bind(api), copy ? cloudFolderPath.at(-1) : undefined); cloudOpenFile = saved; cloudStatus(`${saved.name} saved to ${cloudNames[provider]}.`); el('cloud-save-current').disabled = false; toast(`Saved ${saved.name} to ${cloudNames[provider]}.`); await browseCloudFiles(); }
+async function saveCloudWorkbook(copy) {
+    const api = cloudApi(), provider = selectedCloudProvider(), token = await cloudAccessToken(provider), file = !copy && cloudOpenFile?.provider === provider ? cloudOpenFile : undefined;
+    if (doc.sheets.some(sheet => sheet.tools.drawings.length) && !confirm('GridForge-only drawings are not included in XLSX cloud saves. Save without drawings? Use GridForge JSON to preserve them.'))
+        return;
+    const safeBase = workbookTitle.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'GridForge Workbook', suffix = copy ? ` - ${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}` : '', name = `${safeBase}${suffix}.xlsx`;
+    cloudStatus('Preparing Excel workbook…');
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    const bytes = await exportXlsxOffThread(doc);
+    cloudStatus(`Saving ${name} to ${cloudNames[provider]}…`);
+    const saved = await uploadCloudFile(provider, token, name, bytes, file, api.box_api_request.bind(api), copy ? cloudFolderPath.at(-1) : undefined);
+    cloudOpenFile = saved;
+    cloudStatus(`${saved.name} saved to ${cloudNames[provider]}.`);
+    el('cloud-save-current').disabled = false;
+    toast(`Saved ${saved.name} to ${cloudNames[provider]}.`);
+    await browseCloudFiles();
+}
 el('btn-cloud').addEventListener('click', () => { showCloudProviderConfig(); cloudDialog.showModal(); });
 el('close-cloud').addEventListener('click', () => cloudDialog.close());
 cloudProvider.addEventListener('change', showCloudProviderConfig);
@@ -4238,19 +5225,21 @@ el('cloud-refresh').addEventListener('click', () => void browseCloudFiles().catc
 el('cloud-open-file').addEventListener('click', () => void activateCloudSelection().catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to open cloud item.')));
 el('cloud-save-copy').addEventListener('click', () => void saveCloudWorkbook(true).catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to save cloud workbook.')));
 el('cloud-save-current').addEventListener('click', () => void saveCloudWorkbook(false).catch(error => cloudStatus(error instanceof Error ? error.message : 'Unable to update cloud workbook.')));
-el('cloud-disconnect').addEventListener('click', async () => { try {
-    const api = cloudApi(), provider = selectedCloudProvider();
-    await api.remove_cloud_credential(provider);
-    if (provider === 'box')
-        await api.box_client_secret('');
-    cloudFiles = [];
-    cloudNextPage = undefined;
-    renderCloudFileList();
-    cloudStatus(`${cloudNames[selectedCloudProvider()]} disconnected on this device. For full access revocation, remove GridForge from the provider's connected-app settings.`);
-}
-catch (error) {
-    cloudStatus(error instanceof Error ? error.message : 'Unable to disconnect cloud account.');
-} });
+el('cloud-disconnect').addEventListener('click', async () => {
+    try {
+        const api = cloudApi(), provider = selectedCloudProvider();
+        await api.remove_cloud_credential(provider);
+        if (provider === 'box')
+            await api.box_client_secret('');
+        cloudFiles = [];
+        cloudNextPage = undefined;
+        renderCloudFileList();
+        cloudStatus(`${cloudNames[selectedCloudProvider()]} disconnected on this device. For full access revocation, remove GridForge from the provider's connected-app settings.`);
+    }
+    catch (error) {
+        cloudStatus(error instanceof Error ? error.message : 'Unable to disconnect cloud account.');
+    }
+});
 for (const id of ['close-import-notes', 'confirm-import-notes'])
     el(id).addEventListener('click', () => el('import-notes-dialog').close());
 const studioDialog = el('data-studio-dialog');
@@ -4400,12 +5389,18 @@ function openFeatureAvailability(featureId) {
     if (!featureAvailabilityDialog.open)
         featureAvailabilityDialog.showModal();
 }
-document.addEventListener('click', event => { const target = event.target; if (!(target instanceof Element))
-    return; const featureButton = target.closest('[data-feature-notice]'); if (featureButton) {
-    openFeatureAvailability(featureButton.dataset.featureNotice);
-    return;
-} if (target.closest('#btn-feature-status'))
-    openFeatureAvailability(); });
+document.addEventListener('click', event => {
+    const target = event.target;
+    if (!(target instanceof Element))
+        return;
+    const featureButton = target.closest('[data-feature-notice]');
+    if (featureButton) {
+        openFeatureAvailability(featureButton.dataset.featureNotice);
+        return;
+    }
+    if (target.closest('#btn-feature-status'))
+        openFeatureAvailability();
+});
 let ribbon = 'Home';
 function showRibbon(next) {
     ribbon = next;
@@ -4487,9 +5482,14 @@ function showRibbon(next) {
         el('ribbon-hint').textContent = 'Create editable worksheet charts. Export XLSX to edit compatible charts directly in Excel.';
 }
 for (const tab of Array.from(document.querySelectorAll('[data-ribbon]'))) {
-    tab.addEventListener('click', () => { const name = tab.dataset.ribbon ?? 'All'; showRibbon(name); if (document.documentElement.dataset.ribbonCollapsed === 'true')
-        setRibbonCollapsed(false); if (name === 'Help')
-        el('help-dialog').showModal(); });
+    tab.addEventListener('click', () => {
+        const name = tab.dataset.ribbon ?? 'All';
+        showRibbon(name);
+        if (document.documentElement.dataset.ribbonCollapsed === 'true')
+            setRibbonCollapsed(false);
+        if (name === 'Help')
+            el('help-dialog').showModal();
+    });
     tab.addEventListener('keydown', event => {
         const all = Array.from(document.querySelectorAll('.excel-tab:not(.ribbon-hidden)'));
         const index = all.indexOf(tab);
@@ -4514,10 +5514,12 @@ function setRibbonCollapsed(collapsed) {
     catch { /* storage restricted */ }
 }
 collapseButton.addEventListener('click', () => setRibbonCollapsed(document.documentElement.dataset.ribbonCollapsed !== 'true'));
-document.addEventListener('keydown', event => { if (event.ctrlKey && event.key === 'F1') {
-    event.preventDefault();
-    setRibbonCollapsed(document.documentElement.dataset.ribbonCollapsed !== 'true');
-} });
+document.addEventListener('keydown', event => {
+    if (event.ctrlKey && event.key === 'F1') {
+        event.preventDefault();
+        setRibbonCollapsed(document.documentElement.dataset.ribbonCollapsed !== 'true');
+    }
+});
 try {
     setRibbonCollapsed(localStorage.getItem('gridforge:ribbonCollapsed:v10_4') === 'true');
 }
@@ -4629,12 +5631,21 @@ for (const key of ['bold', 'italic', 'underline', 'wrap', 'strike'])
 el('fmt-font').addEventListener('change', ev => applyStyle({ fontFamily: ev.target.value.trim() }));
 el('fmt-size').addEventListener('change', ev => applyStyle({ fontSize: Number(ev.target.value) }));
 el('fmt-border').addEventListener('change', ev => applyBorderTarget(ev.target.value));
-el('fmt-border-style').addEventListener('change', () => { const target = el('fmt-border').value; if (target !== 'none')
-    applyBorderTarget(target); });
-el('fmt-border-weight').addEventListener('change', () => { const target = el('fmt-border').value; if (target !== 'none')
-    applyBorderTarget(target); });
-el('fmt-border-color').addEventListener('input', () => { const target = el('fmt-border').value; if (target !== 'none')
-    applyBorderTarget(target); });
+el('fmt-border-style').addEventListener('change', () => {
+    const target = el('fmt-border').value;
+    if (target !== 'none')
+        applyBorderTarget(target);
+});
+el('fmt-border-weight').addEventListener('change', () => {
+    const target = el('fmt-border').value;
+    if (target !== 'none')
+        applyBorderTarget(target);
+});
+el('fmt-border-color').addEventListener('input', () => {
+    const target = el('fmt-border').value;
+    if (target !== 'none')
+        applyBorderTarget(target);
+});
 el('fmt-preset').addEventListener('change', event => {
     const input = event.target;
     const styles = { header: { bold: true, color: '#173d32', background: '#dfefe5', fontSize: 12, border: 'bottom' }, title: { bold: true, color: '#153f32', fontSize: 20 }, total: { bold: true, color: '#0e7544', background: '#e0f3e8', border: 'all' }, highlight: { bold: true, color: '#124b39', background: '#d4efe5' }, warning: { bold: true, color: '#9d361e', background: '#fff0df', border: 'bottom' }, success: { bold: true, color: '#176542', background: '#dff5e9' }, note: { italic: true, color: '#344b66', background: '#eaf1fa' }, input: { color: '#1f4a87', background: '#f2f8ff', border: 'bottom' }, neutral: { color: '#343d4a', background: '#eef0f3' } };
@@ -4647,29 +5658,33 @@ el('fmt-number').addEventListener('change', ev => applyStyle({ numberFormat: ev.
 el('fmt-number-code').addEventListener('change', ev => { const code = ev.target.value.trim(); applyStyle(code ? isExcelDateNumberFormat(code) ? { numberFormat: 'general', dateFormatCode: code, customNumberFormatCode: undefined } : { numberFormat: 'general', dateFormatCode: undefined, customNumberFormatCode: code } : { numberFormat: 'general', dateFormatCode: undefined, customNumberFormatCode: undefined }); });
 el('fmt-align').addEventListener('change', ev => applyStyle({ align: ev.target.value }));
 el('fmt-vertical-align').addEventListener('change', ev => applyStyle({ verticalAlign: ev.target.value }));
-function adjustCellIndent(delta) { try {
-    const edits = selectionRefs().map(ref => { const style = book.getStyle(ref), indent = Math.max(0, Math.min(250, (style.indent ?? 0) + delta)); return { ref, style: { ...style, indent } }; });
-    book.applyStyles(edits);
-    save();
-    refresh();
+function adjustCellIndent(delta) {
+    try {
+        const edits = selectionRefs().map(ref => { const style = book.getStyle(ref), indent = Math.max(0, Math.min(250, (style.indent ?? 0) + delta)); return { ref, style: { ...style, indent } }; });
+        book.applyStyles(edits);
+        save();
+        refresh();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Unable to change cell indent.');
+    }
 }
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Unable to change cell indent.');
-} }
 el('fmt-indent-less').addEventListener('click', () => adjustCellIndent(-1));
 el('fmt-indent-more').addEventListener('click', () => adjustCellIndent(1));
 el('fmt-color').addEventListener('change', ev => applyStyle({ color: ev.target.value }));
 el('fmt-fill').addEventListener('change', ev => applyStyle({ background: ev.target.value }));
 for (const button of Array.from(document.querySelectorAll('[data-color-swatch]')))
     button.addEventListener('click', () => { const color = button.dataset.colorSwatch; applyStyle(button.dataset.colorTarget === 'fill' ? { background: color } : { color }); });
-el('fmt-clear').addEventListener('click', () => { try {
-    book.clearStyles(styledRefsInSelection());
-    save();
-    refresh();
-}
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Unable to clear formatting.');
-} });
+el('fmt-clear').addEventListener('click', () => {
+    try {
+        book.clearStyles(styledRefsInSelection());
+        save();
+        refresh();
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Unable to clear formatting.');
+    }
+});
 el('btn-merge-center').addEventListener('click', mergeSelectedCells);
 el('btn-unmerge').addEventListener('click', unmergeSelectedCells);
 el('btn-paste-values').addEventListener('click', () => pasteCached(true));
@@ -4764,8 +5779,15 @@ function editWorksheetHyperlink() {
         toast(error instanceof Error ? error.message : 'Invalid hyperlink destination.');
     }
 }
-function removeWorksheetHyperlink() { const ref = currentRef(), remaining = doc.active.tools.hyperlinks.filter(link => link.ref !== ref); if (remaining.length === doc.active.tools.hyperlinks.length)
-    return; doc.active.tools.hyperlinks = remaining; save(); refresh(); toast(`Hyperlink removed from ${ref}.`); }
+function removeWorksheetHyperlink() {
+    const ref = currentRef(), remaining = doc.active.tools.hyperlinks.filter(link => link.ref !== ref);
+    if (remaining.length === doc.active.tools.hyperlinks.length)
+        return;
+    doc.active.tools.hyperlinks = remaining;
+    save();
+    refresh();
+    toast(`Hyperlink removed from ${ref}.`);
+}
 function openContextMenu(clientX, clientY) {
     if (editing)
         commitEdit();
@@ -4892,8 +5914,10 @@ contextMenu.addEventListener('keydown', event => {
         grid.focus({ preventScroll: true });
     }
 });
-document.addEventListener('pointerdown', event => { if (!contextMenu.contains(event.target))
-    closeContextMenu(); });
+document.addEventListener('pointerdown', event => {
+    if (!contextMenu.contains(event.target))
+        closeContextMenu();
+});
 window.addEventListener('resize', closeContextMenu);
 grid.addEventListener('wheel', closeContextMenu, { passive: true });
 window.addEventListener('blur', closeContextMenu);
@@ -4960,16 +5984,21 @@ function changeSheet(id) {
     refresh();
     grid.focus({ preventScroll: true });
 }
-el('sheet-tab-list').addEventListener('click', event => { const target = event.target.closest('[data-sheet-id]'); if (target?.dataset.sheetId)
-    changeSheet(target.dataset.sheetId); });
-el('btn-add-sheet').addEventListener('click', () => { try {
-    const created = doc.addSheet();
-    changeSheet(created.id);
-    toast(`Created ${created.name}`);
-}
-catch (e) {
-    toast(e.message);
-} });
+el('sheet-tab-list').addEventListener('click', event => {
+    const target = event.target.closest('[data-sheet-id]');
+    if (target?.dataset.sheetId)
+        changeSheet(target.dataset.sheetId);
+});
+el('btn-add-sheet').addEventListener('click', () => {
+    try {
+        const created = doc.addSheet();
+        changeSheet(created.id);
+        toast(`Created ${created.name}`);
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
 el('btn-rename-sheet').addEventListener('click', () => {
     const name = prompt('Rename worksheet:', doc.active.name);
     if (name === null)
@@ -4983,64 +6012,78 @@ el('btn-rename-sheet').addEventListener('click', () => {
         toast(e.message);
     }
 });
-el('btn-duplicate-sheet').addEventListener('click', () => { try {
-    const copy = doc.duplicateSheet();
-    changeSheet(copy.id);
-    toast(`Duplicated as ${copy.name}`);
-}
-catch (e) {
-    toast(e.message);
-} });
-el('btn-sheet-left').addEventListener('click', () => { try {
-    const index = doc.sheets.findIndex(x => x.id === doc.activeId);
-    doc.reorderSheet(doc.activeId, index - 1);
-    save();
-    refresh();
-}
-catch (e) {
-    toast(e.message);
-} });
-el('btn-sheet-right').addEventListener('click', () => { try {
-    const index = doc.sheets.findIndex(x => x.id === doc.activeId);
-    doc.reorderSheet(doc.activeId, index + 1);
-    save();
-    refresh();
-}
-catch (e) {
-    toast(e.message);
-} });
-el('sheet-tab-color').addEventListener('change', event => { try {
-    doc.setSheetTabColor(doc.activeId, event.target.value || undefined);
-    save();
-    renderTabs();
-}
-catch (e) {
-    toast(e.message);
-} });
-el('btn-hide-sheet').addEventListener('click', () => { try {
-    const name = doc.active.name;
-    doc.hideSheet();
-    changeSheet(doc.activeId);
-    toast(`Hidden ${name}`);
-}
-catch (e) {
-    toast(e.message);
-} });
+el('btn-duplicate-sheet').addEventListener('click', () => {
+    try {
+        const copy = doc.duplicateSheet();
+        changeSheet(copy.id);
+        toast(`Duplicated as ${copy.name}`);
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
+el('btn-sheet-left').addEventListener('click', () => {
+    try {
+        const index = doc.sheets.findIndex(x => x.id === doc.activeId);
+        doc.reorderSheet(doc.activeId, index - 1);
+        save();
+        refresh();
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
+el('btn-sheet-right').addEventListener('click', () => {
+    try {
+        const index = doc.sheets.findIndex(x => x.id === doc.activeId);
+        doc.reorderSheet(doc.activeId, index + 1);
+        save();
+        refresh();
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
+el('sheet-tab-color').addEventListener('change', event => {
+    try {
+        doc.setSheetTabColor(doc.activeId, event.target.value || undefined);
+        save();
+        renderTabs();
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
+el('btn-hide-sheet').addEventListener('click', () => {
+    try {
+        const name = doc.active.name;
+        doc.hideSheet();
+        changeSheet(doc.activeId);
+        toast(`Hidden ${name}`);
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
 const hiddenSheetsDialog = el('hidden-sheets-dialog');
 function renderHiddenSheets() { const list = el('hidden-sheets-list'), hidden = doc.sheets.filter(sheet => sheet.hidden); list.innerHTML = hidden.length ? hidden.map(sheet => `<button type="button" class="hidden-sheet-option" data-unhide-sheet="${sheet.id}">▦ ${escapeHtml(sheet.name)} <span>Unhide</span></button>`).join('') : '<p>There are no hidden worksheets.</p>'; }
 el('btn-show-hidden').addEventListener('click', () => { renderHiddenSheets(); hiddenSheetsDialog.showModal(); });
 el('close-hidden-sheets').addEventListener('click', () => hiddenSheetsDialog.close());
-el('hidden-sheets-list').addEventListener('click', event => { const button = event.target.closest('[data-unhide-sheet]'), id = button?.dataset.unhideSheet; if (!id)
-    return; try {
-    doc.unhideSheet(id);
-    save();
-    refresh();
-    renderHiddenSheets();
-    toast(`Unhid ${doc.sheets.find(sheet => sheet.id === id)?.name ?? 'worksheet'}`);
-}
-catch (e) {
-    toast(e.message);
-} });
+el('hidden-sheets-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-unhide-sheet]'), id = button?.dataset.unhideSheet;
+    if (!id)
+        return;
+    try {
+        doc.unhideSheet(id);
+        save();
+        refresh();
+        renderHiddenSheets();
+        toast(`Unhid ${doc.sheets.find(sheet => sheet.id === id)?.name ?? 'worksheet'}`);
+    }
+    catch (e) {
+        toast(e.message);
+    }
+});
 el('btn-delete-sheet').addEventListener('click', () => {
     if (!confirm(`Delete worksheet ${doc.active.name}? This cannot be undone.`))
         return;
@@ -5205,10 +6248,13 @@ nameManagerDialog.addEventListener('click', e => {
 });
 nameManagerDialog.querySelectorAll('[data-close-name-manager]').forEach(x => x.addEventListener('click', () => nameManagerDialog.close()));
 el('btn-use-name').addEventListener('click', () => { const names = [...book.getDefinedNames().map(n => ({ ...n, scope: 'Worksheet' })), ...doc.getWorkbookDefinedNames().map(n => ({ ...n, scope: 'Workbook' }))]; el('use-name-list').innerHTML = names.length ? names.map(n => `<button type="button" class="name-use-item" data-use-name="${escapeHtml(n.name)}"><strong>${escapeHtml(n.name)} · ${n.scope}</strong><code>${escapeHtml(n.ref)}</code></button>`).join('') : '<p class="empty-sub">No names are defined yet.</p>'; useNameDialog.showModal(); });
-el('use-name-list').addEventListener('click', e => { const item = e.target.closest('[data-use-name]'); if (item?.dataset.useName) {
-    prepareDefinedName(item.dataset.useName);
-    useNameDialog.close();
-} });
+el('use-name-list').addEventListener('click', e => {
+    const item = e.target.closest('[data-use-name]');
+    if (item?.dataset.useName) {
+        prepareDefinedName(item.dataset.useName);
+        useNameDialog.close();
+    }
+});
 useNameDialog.querySelectorAll('[data-close-use-name]').forEach(x => x.addEventListener('click', () => useNameDialog.close()));
 el('btn-create-names').addEventListener('click', () => { const b = sel(); el('create-names-range').textContent = `Selected range: ${selectedRangeRef()}`; el('create-name-top-row').checked = b.r2 > b.r1; el('create-name-left-column').checked = b.c2 > b.c1; createNamesDialog.showModal(); });
 createNamesDialog.querySelectorAll('[data-close-create-names]').forEach(x => x.addEventListener('click', () => createNamesDialog.close()));
@@ -5219,11 +6265,22 @@ el('apply-create-names').addEventListener('click', () => {
         return;
     }
     const current = book.getDefinedNames(), reserved = new Set(current.map(n => n.name.toLowerCase())), made = [];
-    const safeName = (label) => { let n = label.trim().replace(/[^A-Za-z0-9_.\\]/g, '_'); if (!n)
-        n = 'Field'; if (!/^[_A-Za-z\\]/.test(n))
-        n = `_${n}`; if (parseRef(n) || /^[RC]\d+$/i.test(n) || functions[n.toUpperCase()])
-        n = `_${n}`; const base = n.slice(0, 240); n = base; let suffix = 2; while (reserved.has(n.toLowerCase()))
-        n = `${base.slice(0, 235)}_${suffix++}`; reserved.add(n.toLowerCase()); return n; };
+    const safeName = (label) => {
+        let n = label.trim().replace(/[^A-Za-z0-9_.\\]/g, '_');
+        if (!n)
+            n = 'Field';
+        if (!/^[_A-Za-z\\]/.test(n))
+            n = `_${n}`;
+        if (parseRef(n) || /^[RC]\d+$/i.test(n) || functions[n.toUpperCase()])
+            n = `_${n}`;
+        const base = n.slice(0, 240);
+        n = base;
+        let suffix = 2;
+        while (reserved.has(n.toLowerCase()))
+            n = `${base.slice(0, 235)}_${suffix++}`;
+        reserved.add(n.toLowerCase());
+        return n;
+    };
     if (fromTop) {
         if (b.r1 === b.r2) {
             toast('Top row names need at least one data row beneath the headings.');
@@ -5269,22 +6326,36 @@ el('btn-insert-function').addEventListener('click', () => { selectedFormulaFunct
 el('formula-category').addEventListener('change', e => { el('function-dialog-category').value = e.target.value; selectedFormulaFunction = ''; el('function-dialog-search').value = ''; renderFunctionDialog(); functionDialog.showModal(); });
 el('function-dialog-search').addEventListener('input', renderFunctionDialog);
 el('function-dialog-category').addEventListener('change', () => { selectedFormulaFunction = ''; renderFunctionDialog(); });
-functionDialog.addEventListener('click', e => { const target = e.target; const close = target.closest('[data-close-function-dialog]'); if (close) {
+functionDialog.addEventListener('click', e => {
+    const target = e.target;
+    const close = target.closest('[data-close-function-dialog]');
+    if (close) {
+        functionDialog.close();
+        return;
+    }
+    const option = target.closest('[data-select-function]');
+    if (option?.dataset.selectFunction) {
+        selectedFormulaFunction = option.dataset.selectFunction;
+        renderFunctionDialog();
+    }
+});
+el('function-dialog-insert').addEventListener('click', () => {
+    if (!selectedFormulaFunction)
+        return;
+    prepareFunction(selectedFormulaFunction);
     functionDialog.close();
-    return;
-} const option = target.closest('[data-select-function]'); if (option?.dataset.selectFunction) {
-    selectedFormulaFunction = option.dataset.selectFunction;
-    renderFunctionDialog();
-} });
-el('function-dialog-insert').addEventListener('click', () => { if (!selectedFormulaFunction)
-    return; prepareFunction(selectedFormulaFunction); functionDialog.close(); });
+});
 document.querySelectorAll('[data-close-function-dialog]').forEach(x => x.addEventListener('click', () => functionDialog.close()));
 const formulaRibbon = el('formula-ribbon');
-formulaRibbon.addEventListener('click', e => { const target = e.target; const fn = target.closest('[data-function]')?.dataset.function; if (fn) {
-    prepareFunction(fn);
-    document.querySelectorAll('.formula-menu[open]').forEach(d => d.open = false);
-    return;
-} });
+formulaRibbon.addEventListener('click', e => {
+    const target = e.target;
+    const fn = target.closest('[data-function]')?.dataset.function;
+    if (fn) {
+        prepareFunction(fn);
+        document.querySelectorAll('.formula-menu[open]').forEach(d => d.open = false);
+        return;
+    }
+});
 el('btn-formula-aggregate').addEventListener('click', () => autoSum(el('formula-aggregate').value));
 function traceFormula(kind) {
     const info = book.inspect(currentRef()), refs = kind === 'precedent' ? info.dependencies : info.dependents;
@@ -5326,10 +6397,12 @@ el('btn-evaluate-formula').addEventListener('click', () => {
     evaluateDialog.showModal();
 });
 evaluateDialog.querySelectorAll('[data-close-evaluate]').forEach(x => x.addEventListener('click', () => evaluateDialog.close()));
-window.addEventListener('keydown', e => { if (e.altKey && e.key === '=') {
-    e.preventDefault();
-    autoSum();
-} });
+window.addEventListener('keydown', e => {
+    if (e.altKey && e.key === '=') {
+        e.preventDefault();
+        autoSum();
+    }
+});
 function freeze(axis) {
     const tool = doc.active.tools, key = axis === 'row' ? 'freezeRows' : 'freezeCols';
     tool[key] = tool[key] ? 0 : 1;
@@ -5340,10 +6413,18 @@ function freeze(axis) {
 el('btn-freeze-row').addEventListener('click', () => freeze('row'));
 el('btn-freeze-col').addEventListener('click', () => freeze('col'));
 el('btn-freeze-panes').addEventListener('click', () => { const tools = doc.active.tools; tools.freezeRows = active.r; tools.freezeCols = active.c; save(); renderGrid(); toast(`Frozen ${tools.freezeRows} row${tools.freezeRows === 1 ? '' : 's'} above and ${tools.freezeCols} column${tools.freezeCols === 1 ? '' : 's'} to the left of ${asRef(active.r, active.c)}.`); });
-el('btn-unfreeze-panes').addEventListener('click', () => { const tools = doc.active.tools; if (!tools.freezeRows && !tools.freezeCols) {
-    toast('No rows or columns are frozen.');
-    return;
-} tools.freezeRows = 0; tools.freezeCols = 0; save(); renderGrid(); toast('Frozen rows and columns cleared.'); });
+el('btn-unfreeze-panes').addEventListener('click', () => {
+    const tools = doc.active.tools;
+    if (!tools.freezeRows && !tools.freezeCols) {
+        toast('No rows or columns are frozen.');
+        return;
+    }
+    tools.freezeRows = 0;
+    tools.freezeCols = 0;
+    save();
+    renderGrid();
+    toast('Frozen rows and columns cleared.');
+});
 el('btn-sheet-gridlines').addEventListener('click', () => { const view = doc.active.viewOptions ?? {}, showGridLines = view.showGridLines === false; doc.active.viewOptions = { ...view, showGridLines }; save(); refresh(); toast(`Worksheet gridlines ${showGridLines ? 'shown' : 'hidden'}.`); });
 const filterDialog = el('filter-dialog');
 let editingFilterBounds = { r1: 0, r2: 1, c1: 0, c2: 1 };
@@ -5385,9 +6466,15 @@ function openColumnFilter(forcedTable, column) {
     filterDialog.showModal();
 }
 el('btn-filter').addEventListener('click', () => openColumnFilter());
-surface.addEventListener('click', ev => { const target = ev.target.closest('[data-table-filter]'); if (!target)
-    return; ev.stopPropagation(); const table = doc.active.tools.tables.find(t => t.name === target.dataset.tableName); if (table)
-    openColumnFilter(table, Number(target.dataset.tableFilter)); });
+surface.addEventListener('click', ev => {
+    const target = ev.target.closest('[data-table-filter]');
+    if (!target)
+        return;
+    ev.stopPropagation();
+    const table = doc.active.tools.tables.find(t => t.name === target.dataset.tableName);
+    if (table)
+        openColumnFilter(table, Number(target.dataset.tableFilter));
+});
 el('filter-column').addEventListener('change', filterValueOptions);
 el('filter-select-all').addEventListener('click', () => el('filter-values').querySelectorAll('input').forEach(x => x.checked = true));
 el('filter-select-none').addEventListener('click', () => el('filter-values').querySelectorAll('input').forEach(x => x.checked = false));
@@ -5426,14 +6513,24 @@ const selectionRange = () => { const b = sel(); return { start: asRef(b.r1, b.c1
 const overlapsValidation = (rule, b) => { const a = parseRef(rule.start), z = parseRef(rule.end); return a.row <= b.r2 && z.row >= b.r1 && a.col <= b.c2 && z.col >= b.c1; };
 function dateToExcelSerial(value) { return excelDateSerial(value) ?? NaN; }
 function excelSerialToDate(value) { return value === undefined ? '' : excelSerialDateIso(value) ?? ''; }
-function syncValidationFields() { const list = validationType.value === 'list', range = validationSourceType.value === 'range', type = validationType.value, operator = el('validation-operator').value, two = operator === 'between' || operator === 'notBetween', date = type === 'date', length = type === 'textLength'; el('validation-list-fields').classList.toggle('ribbon-hidden', !list); el('validation-number-fields').classList.toggle('ribbon-hidden', list); el('validation-values-fields').classList.toggle('ribbon-hidden', !list || range); el('validation-range-fields').classList.toggle('ribbon-hidden', !list || !range); el('validation-second-field').classList.toggle('ribbon-hidden', !two); el('validation-first-label').textContent = two ? (date ? 'Start date' : 'Minimum') : (date ? 'Date' : length ? 'Length' : 'Value'); for (const id of ['validation-min', 'validation-max']) {
-    const input = el(id);
-    input.type = date ? 'text' : 'number';
-    input.placeholder = date ? 'YYYY-MM-DD' : '';
-    input.inputMode = date ? 'text' : 'decimal';
-    input.step = type === 'whole' || length ? '1' : 'any';
-} if (length)
-    el('validation-first-label').textContent = two ? 'Minimum length' : 'Length'; }
+function syncValidationFields() {
+    const list = validationType.value === 'list', range = validationSourceType.value === 'range', type = validationType.value, operator = el('validation-operator').value, two = operator === 'between' || operator === 'notBetween', date = type === 'date', length = type === 'textLength';
+    el('validation-list-fields').classList.toggle('ribbon-hidden', !list);
+    el('validation-number-fields').classList.toggle('ribbon-hidden', list);
+    el('validation-values-fields').classList.toggle('ribbon-hidden', !list || range);
+    el('validation-range-fields').classList.toggle('ribbon-hidden', !list || !range);
+    el('validation-second-field').classList.toggle('ribbon-hidden', !two);
+    el('validation-first-label').textContent = two ? (date ? 'Start date' : 'Minimum') : (date ? 'Date' : length ? 'Length' : 'Value');
+    for (const id of ['validation-min', 'validation-max']) {
+        const input = el(id);
+        input.type = date ? 'text' : 'number';
+        input.placeholder = date ? 'YYYY-MM-DD' : '';
+        input.inputMode = date ? 'text' : 'decimal';
+        input.step = type === 'whole' || length ? '1' : 'any';
+    }
+    if (length)
+        el('validation-first-label').textContent = two ? 'Minimum length' : 'Length';
+}
 function openDataValidation() { const { start, end } = selectionRange(), existing = doc.active.tools.dataValidations.find(rule => rule.start === start && rule.end === end); el('validation-range-note').textContent = `Applies to ${start}${start === end ? '' : `:${end}`} on ${doc.active.name}`; validationType.value = existing?.type ?? 'list'; validationSourceType.value = existing?.type === 'list' && existing.sourceRange ? 'range' : 'inline'; el('validation-operator').value = existing?.type !== 'list' ? (existing?.operator ?? (existing?.min !== undefined && existing?.max !== undefined ? 'between' : existing?.min !== undefined ? 'greaterThanOrEqual' : 'lessThanOrEqual')) : 'between'; syncValidationFields(); el('validation-values').value = existing?.type === 'list' ? (existing.values ?? []).join(', ') : ''; el('validation-source-range').value = existing?.sourceRange ?? ''; el('validation-min').value = existing?.type === 'date' ? excelSerialToDate(existing.min) : existing?.type !== 'list' && existing?.min !== undefined ? String(existing.min) : ''; el('validation-max').value = existing?.type === 'date' ? excelSerialToDate(existing.max) : existing?.type !== 'list' && existing?.max !== undefined ? String(existing.max) : ''; el('validation-allow-blank').checked = existing?.allowBlank ?? true; el('validation-error-style').value = existing?.errorStyle ?? 'stop'; el('validation-prompt-title').value = existing?.promptTitle ?? ''; el('validation-prompt-message').value = existing?.promptMessage ?? ''; el('validation-error-title').value = existing?.errorTitle ?? ''; el('validation-error-message').value = existing?.errorMessage ?? ''; el('validation-show-input').checked = existing?.showInputMessage ?? Boolean(existing?.promptMessage || existing?.promptTitle); el('validation-show-error').checked = existing?.showErrorMessage ?? true; el('validation-error').textContent = ''; syncValidationFields(); dataValidationDialog.showModal(); }
 el('btn-data-validation').addEventListener('click', openDataValidation);
 el('close-data-validation').addEventListener('click', () => dataValidationDialog.close());
@@ -5482,142 +6579,215 @@ el('apply-data-validation').addEventListener('click', () => {
 });
 el('clear-data-validation').addEventListener('click', () => { const { bounds: b } = selectionRange(), before = doc.active.tools.dataValidations.length; doc.active.tools.dataValidations = doc.active.tools.dataValidations.filter(item => !overlapsValidation(item, b)); save(); refresh(); dataValidationDialog.close(); toast(before === doc.active.tools.dataValidations.length ? 'No validation rule covered that selection.' : 'Validation removed from the selected cells.'); });
 const textColumnsDialog = el('text-columns-dialog');
-function textColumnDelimiter() { const kind = el('text-columns-delimiter').value; if (kind === 'comma')
-    return ','; if (kind === 'semicolon')
-    return ';'; if (kind === 'tab')
-    return '\t'; if (kind === 'space')
-    return ' '; return el('text-columns-other').value; }
-function textColumnSource() { const text = el('text-columns-source-range').value.trim().replace(/\$/g, '').toUpperCase(), parts = text.split(':'), from = parseRef(parts[0] ?? ''), to = parseRef(parts[1] ?? parts[0] ?? ''); if (!from || !to || from.col !== to.col || from.row > to.row)
-    throw Error('Choose a valid source range in one column.'); return { from, to }; }
-function previewTextColumns() { const preview = el('text-columns-preview'), error = el('text-columns-error'); try {
-    const { from, to } = textColumnSource(), delimiter = textColumnDelimiter();
-    if (delimiter.length !== 1)
-        throw Error('Enter one custom delimiter character.');
-    error.textContent = '';
-    const rows = [];
-    for (let r = from.row; r <= Math.min(to.row, from.row + 4); r++) {
-        const raw = display(book.getValue(`${colToName(from.col)}${r + 1}`));
-        rows.push(splitDelimitedText(raw, delimiter, el('text-columns-merge').checked).slice(0, 8));
-    }
-    const width = Math.max(1, ...rows.map(row => row.length));
-    preview.innerHTML = `<div class="filter-help">Preview · first ${rows.length} rows</div><div class="text-columns-table">${rows.map(row => `<div class="text-columns-row">${Array.from({ length: width }, (_, i) => `<span>${escapeHtml(row[i] ?? '')}</span>`).join('')}</div>`).join('')}</div>`;
+function textColumnDelimiter() {
+    const kind = el('text-columns-delimiter').value;
+    if (kind === 'comma')
+        return ',';
+    if (kind === 'semicolon')
+        return ';';
+    if (kind === 'tab')
+        return '\t';
+    if (kind === 'space')
+        return ' ';
+    return el('text-columns-other').value;
 }
-catch (e) {
-    preview.textContent = '';
-    error.textContent = e instanceof Error ? e.message : 'Cannot preview this selection.';
-} }
-function openTextColumns() { const { start, end, bounds: b } = selectionRange(); if (b.c1 !== b.c2) {
-    toast('Select cells in one source column first.');
-    return;
-} el('text-columns-source-range').value = `${start}:${end}`; el('text-columns-destination').value = start; el('text-columns-other').value = ''; el('text-columns-merge').checked = false; el('text-columns-delimiter').value = 'comma'; el('text-columns-other-field').classList.add('ribbon-hidden'); el('text-columns-other').classList.add('ribbon-hidden'); previewTextColumns(); textColumnsDialog.showModal(); }
+function textColumnSource() {
+    const text = el('text-columns-source-range').value.trim().replace(/\$/g, '').toUpperCase(), parts = text.split(':'), from = parseRef(parts[0] ?? ''), to = parseRef(parts[1] ?? parts[0] ?? '');
+    if (!from || !to || from.col !== to.col || from.row > to.row)
+        throw Error('Choose a valid source range in one column.');
+    return { from, to };
+}
+function previewTextColumns() {
+    const preview = el('text-columns-preview'), error = el('text-columns-error');
+    try {
+        const { from, to } = textColumnSource(), delimiter = textColumnDelimiter();
+        if (delimiter.length !== 1)
+            throw Error('Enter one custom delimiter character.');
+        error.textContent = '';
+        const rows = [];
+        for (let r = from.row; r <= Math.min(to.row, from.row + 4); r++) {
+            const raw = display(book.getValue(`${colToName(from.col)}${r + 1}`));
+            rows.push(splitDelimitedText(raw, delimiter, el('text-columns-merge').checked).slice(0, 8));
+        }
+        const width = Math.max(1, ...rows.map(row => row.length));
+        preview.innerHTML = `<div class="filter-help">Preview · first ${rows.length} rows</div><div class="text-columns-table">${rows.map(row => `<div class="text-columns-row">${Array.from({ length: width }, (_, i) => `<span>${escapeHtml(row[i] ?? '')}</span>`).join('')}</div>`).join('')}</div>`;
+    }
+    catch (e) {
+        preview.textContent = '';
+        error.textContent = e instanceof Error ? e.message : 'Cannot preview this selection.';
+    }
+}
+function openTextColumns() {
+    const { start, end, bounds: b } = selectionRange();
+    if (b.c1 !== b.c2) {
+        toast('Select cells in one source column first.');
+        return;
+    }
+    el('text-columns-source-range').value = `${start}:${end}`;
+    el('text-columns-destination').value = start;
+    el('text-columns-other').value = '';
+    el('text-columns-merge').checked = false;
+    el('text-columns-delimiter').value = 'comma';
+    el('text-columns-other-field').classList.add('ribbon-hidden');
+    el('text-columns-other').classList.add('ribbon-hidden');
+    previewTextColumns();
+    textColumnsDialog.showModal();
+}
 el('btn-text-to-columns').addEventListener('click', openTextColumns);
 el('close-text-columns').addEventListener('click', () => textColumnsDialog.close());
 el('cancel-text-columns').addEventListener('click', () => textColumnsDialog.close());
 el('text-columns-delimiter').addEventListener('change', () => { const other = el('text-columns-delimiter').value === 'other'; el('text-columns-other-field').classList.toggle('ribbon-hidden', !other); el('text-columns-other').classList.toggle('ribbon-hidden', !other); previewTextColumns(); });
 for (const id of ['text-columns-source-range', 'text-columns-destination', 'text-columns-other', 'text-columns-merge'])
     el(id).addEventListener('input', previewTextColumns);
-el('apply-text-columns').addEventListener('click', () => { try {
-    const { from, to } = textColumnSource(), destination = el('text-columns-destination').value.trim(), delimiter = textColumnDelimiter();
-    if (delimiter.length !== 1)
-        throw Error('Enter one custom delimiter character.');
-    const result = textToColumnsEdits(book, `${colToName(from.col)}${from.row + 1}`, `${colToName(to.col)}${to.row + 1}`, destination, delimiter, el('text-columns-merge').checked);
-    const srcFrom = from, srcTo = to, overwritten = result.edits.some(edit => { const p = parseRef(edit.ref); return !(p.col >= srcFrom.col && p.col <= srcTo.col && p.row >= srcFrom.row && p.row <= srcTo.row) && book.getRaw(edit.ref) !== ''; });
-    if (overwritten && !window.confirm('Text to Columns will replace existing cells in the destination range. Continue?'))
-        return;
-    apply(result.edits);
-    textColumnsDialog.close();
-    toast(`Split ${result.rows} rows into ${result.columns} columns.`);
-}
-catch (e) {
-    el('text-columns-error').textContent = e instanceof Error ? e.message : 'Unable to split this range.';
-} });
+el('apply-text-columns').addEventListener('click', () => {
+    try {
+        const { from, to } = textColumnSource(), destination = el('text-columns-destination').value.trim(), delimiter = textColumnDelimiter();
+        if (delimiter.length !== 1)
+            throw Error('Enter one custom delimiter character.');
+        const result = textToColumnsEdits(book, `${colToName(from.col)}${from.row + 1}`, `${colToName(to.col)}${to.row + 1}`, destination, delimiter, el('text-columns-merge').checked);
+        const srcFrom = from, srcTo = to, overwritten = result.edits.some(edit => { const p = parseRef(edit.ref); return !(p.col >= srcFrom.col && p.col <= srcTo.col && p.row >= srcFrom.row && p.row <= srcTo.row) && book.getRaw(edit.ref) !== ''; });
+        if (overwritten && !window.confirm('Text to Columns will replace existing cells in the destination range. Continue?'))
+            return;
+        apply(result.edits);
+        textColumnsDialog.close();
+        toast(`Split ${result.rows} rows into ${result.columns} columns.`);
+    }
+    catch (e) {
+        el('text-columns-error').textContent = e instanceof Error ? e.message : 'Unable to split this range.';
+    }
+});
 const descriptiveStatsDialog = el('descriptive-stats-dialog');
 function openDescriptiveStatistics() { const { start, end, bounds: b } = selectionRange(), columnFits = b.c2 + 2 < book.cols && b.r1 + 13 < book.rows, destination = columnFits ? asRef(b.r1, b.c2 + 2) : asRef(b.r2 + 14 < book.rows ? b.r2 + 2 : Math.max(0, book.rows - 14), b.c1); el('stats-source-range').value = `${start}:${end}`; el('stats-destination').value = destination; el('stats-error').textContent = ''; descriptiveStatsDialog.showModal(); }
 el('btn-descriptive-stats').addEventListener('click', openDescriptiveStatistics);
 for (const id of ['close-descriptive-stats', 'cancel-descriptive-stats'])
     el(id).addEventListener('click', () => descriptiveStatsDialog.close());
-el('create-descriptive-stats').addEventListener('click', () => { const error = el('stats-error'); try {
-    const source = el('stats-source-range').value.trim(), destination = el('stats-destination').value.trim(), report = buildDescriptiveStatistics(book, source, destination), overwrite = report.edits.some(edit => book.getRaw(edit.ref) !== '');
-    if (overwrite && !window.confirm('The report destination contains data. Replace it?'))
-        return;
-    apply(report.edits);
-    descriptiveStatsDialog.close();
-    toast(`Created descriptive statistics for ${report.count} numeric value${report.count === 1 ? '' : 's'}.`);
+el('create-descriptive-stats').addEventListener('click', () => {
+    const error = el('stats-error');
+    try {
+        const source = el('stats-source-range').value.trim(), destination = el('stats-destination').value.trim(), report = buildDescriptiveStatistics(book, source, destination), overwrite = report.edits.some(edit => book.getRaw(edit.ref) !== '');
+        if (overwrite && !window.confirm('The report destination contains data. Replace it?'))
+            return;
+        apply(report.edits);
+        descriptiveStatsDialog.close();
+        toast(`Created descriptive statistics for ${report.count} numeric value${report.count === 1 ? '' : 's'}.`);
+    }
+    catch (e) {
+        error.textContent = e instanceof Error ? e.message : 'Unable to create the statistics report.';
+    }
+});
+function splitPivotManualGroupText(value, separator) {
+    const parts = [], current = [];
+    let escaped = false;
+    for (const character of value) {
+        if (escaped) {
+            current.push('\\', character);
+            escaped = false;
+        }
+        else if (character === '\\')
+            escaped = true;
+        else if (character === separator) {
+            parts.push(current.join(''));
+            current.length = 0;
+        }
+        else
+            current.push(character);
+    }
+    if (escaped)
+        current.push('\\');
+    parts.push(current.join(''));
+    return parts;
 }
-catch (e) {
-    error.textContent = e instanceof Error ? e.message : 'Unable to create the statistics report.';
-} });
-function splitPivotManualGroupText(value, separator) { const parts = [], current = []; let escaped = false; for (const character of value) {
-    if (escaped) {
-        current.push('\\', character);
-        escaped = false;
-    }
-    else if (character === '\\')
-        escaped = true;
-    else if (character === separator) {
-        parts.push(current.join(''));
-        current.length = 0;
-    }
-    else
-        current.push(character);
-} if (escaped)
-    current.push('\\'); parts.push(current.join('')); return parts; }
-function trimPivotManualGroupToken(value) { const escapedAt = (index) => { let slashes = 0; for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor--)
-    slashes++; return slashes % 2 === 1; }; let start = 0, end = value.length; while (start < end && /\s/.test(value[start]) && !escapedAt(start))
-    start++; while (end > start && /\s/.test(value[end - 1]) && !escapedAt(end - 1))
-    end--; return value.slice(start, end); }
+function trimPivotManualGroupToken(value) {
+    const escapedAt = (index) => {
+        let slashes = 0;
+        for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor--)
+            slashes++;
+        return slashes % 2 === 1;
+    };
+    let start = 0, end = value.length;
+    while (start < end && /\s/.test(value[start]) && !escapedAt(start))
+        start++;
+    while (end > start && /\s/.test(value[end - 1]) && !escapedAt(end - 1))
+        end--;
+    return value.slice(start, end);
+}
 function decodePivotManualGroupToken(value) { return trimPivotManualGroupToken(value).replace(/\\([\\|= ])/g, '$1'); }
-function pivotSourceManualItems(field) { const { a, b } = pivotSourceBounds(), groupedText = pivotManualGroupChoices.get(field) ?? '', unit = pivotDateGroupChoices.get(field), interval = Number(pivotNumberGroupChoices.get(field)); try {
-    const grouping = groupedText.trim() ? parsePivotManualGroupText(field, groupedText) : undefined;
-    if (unit && unit !== 'none' || interval > 0 || grouping) {
-        const groupedItems = pivotGroupedSourceValues(field, a, b);
-        if (!grouping)
-            return groupedItems;
-        const ordered = [], captions = new Set();
-        for (const group of grouping.groups) {
-            const key = group.label.toLocaleLowerCase();
-            if (!captions.has(key)) {
-                captions.add(key);
-                ordered.push(group.label);
+function pivotSourceManualItems(field) {
+    const { a, b } = pivotSourceBounds(), groupedText = pivotManualGroupChoices.get(field) ?? '', unit = pivotDateGroupChoices.get(field), interval = Number(pivotNumberGroupChoices.get(field));
+    try {
+        const grouping = groupedText.trim() ? parsePivotManualGroupText(field, groupedText) : undefined;
+        if (unit && unit !== 'none' || interval > 0 || grouping) {
+            const groupedItems = pivotGroupedSourceValues(field, a, b);
+            if (!grouping)
+                return groupedItems;
+            const ordered = [], captions = new Set();
+            for (const group of grouping.groups) {
+                const key = group.label.toLocaleLowerCase();
+                if (!captions.has(key)) {
+                    captions.add(key);
+                    ordered.push(group.label);
+                }
             }
-        }
-        for (const item of groupedItems) {
-            const key = (item ?? '').toLocaleLowerCase();
-            if (!captions.has(key)) {
-                captions.add(key);
-                ordered.push(item);
+            for (const item of groupedItems) {
+                const key = (item ?? '').toLocaleLowerCase();
+                if (!captions.has(key)) {
+                    captions.add(key);
+                    ordered.push(item);
+                }
             }
+            return ordered;
         }
-        return ordered;
+    }
+    catch { /* Fall back to raw labels while an editor contains invalid grouping options. */ }
+    const column = colToName(a.col + field), sourceItems = [], seen = new Set();
+    for (let row = a.row + 1; row <= b.row; row++) {
+        const label = display(pivotSourceBook().getValue(`${column}${row + 1}`)), key = label.toLocaleLowerCase();
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        sourceItems.push(label === '' ? null : label);
+    }
+    return sourceItems;
+}
+function reconcilePivotManualItemOrder(field) {
+    const available = pivotSourceManualItems(field), prior = pivotManualItemOrderChoices.get(field), selected = prior?.[pivotManualItemSelectedChoices.get(field) ?? 0], availableKeys = new Set(available.map(item => (item ?? '').toLocaleLowerCase())), ordered = prior ? prior.filter(item => availableKeys.has((item ?? '').toLocaleLowerCase())) : [], orderedKeys = new Set(ordered.map(item => (item ?? '').toLocaleLowerCase()));
+    for (const item of available) {
+        const key = (item ?? '').toLocaleLowerCase();
+        if (!orderedKeys.has(key)) {
+            orderedKeys.add(key);
+            ordered.push(item);
+        }
+    }
+    pivotManualItemOrderChoices.set(field, ordered);
+    const selectedKey = (selected ?? '').toLocaleLowerCase(), selectedIndex = ordered.findIndex(item => (item ?? '').toLocaleLowerCase() === selectedKey);
+    pivotManualItemSelectedChoices.set(field, selectedIndex < 0 ? 0 : selectedIndex);
+}
+function reconcileSelectedPivotManualItemOrders() {
+    for (const id of ['pivot-row-field', 'pivot-column-field'])
+        for (const option of Array.from(el(id).selectedOptions)) {
+            const field = Number(option.value);
+            if ((pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value) === 'manual')
+                reconcilePivotManualItemOrder(field);
+        }
+}
+function refreshPivotManualOrder(field) {
+    if ((pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value) === 'manual') {
+        reconcilePivotManualItemOrder(field);
+        renderPivotFieldOrder(pivotRowFieldOrder.includes(field) ? 'row' : 'column');
     }
 }
-catch { /* Fall back to raw labels while an editor contains invalid grouping options. */ } const column = colToName(a.col + field), sourceItems = [], seen = new Set(); for (let row = a.row + 1; row <= b.row; row++) {
-    const label = display(pivotSourceBook().getValue(`${column}${row + 1}`)), key = label.toLocaleLowerCase();
-    if (seen.has(key))
-        continue;
-    seen.add(key);
-    sourceItems.push(label === '' ? null : label);
-} return sourceItems; }
-function reconcilePivotManualItemOrder(field) { const available = pivotSourceManualItems(field), prior = pivotManualItemOrderChoices.get(field), selected = prior?.[pivotManualItemSelectedChoices.get(field) ?? 0], availableKeys = new Set(available.map(item => (item ?? '').toLocaleLowerCase())), ordered = prior ? prior.filter(item => availableKeys.has((item ?? '').toLocaleLowerCase())) : [], orderedKeys = new Set(ordered.map(item => (item ?? '').toLocaleLowerCase())); for (const item of available) {
-    const key = (item ?? '').toLocaleLowerCase();
-    if (!orderedKeys.has(key)) {
-        orderedKeys.add(key);
-        ordered.push(item);
-    }
-} pivotManualItemOrderChoices.set(field, ordered); const selectedKey = (selected ?? '').toLocaleLowerCase(), selectedIndex = ordered.findIndex(item => (item ?? '').toLocaleLowerCase() === selectedKey); pivotManualItemSelectedChoices.set(field, selectedIndex < 0 ? 0 : selectedIndex); }
-function reconcileSelectedPivotManualItemOrders() { for (const id of ['pivot-row-field', 'pivot-column-field'])
-    for (const option of Array.from(el(id).selectedOptions)) {
-        const field = Number(option.value);
-        if ((pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value) === 'manual')
-            reconcilePivotManualItemOrder(field);
-    } }
-function refreshPivotManualOrder(field) { if ((pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value) === 'manual') {
-    reconcilePivotManualItemOrder(field);
-    renderPivotFieldOrder(pivotRowFieldOrder.includes(field) ? 'row' : 'column');
-} }
-function parsePivotManualGroupText(field, text) { const lines = text.split(/\r?\n/).filter(line => line.trim()), groups = lines.map(line => { const sides = splitPivotManualGroupText(line, '='); if (sides.length !== 2 || !decodePivotManualGroupToken(sides[0] ?? ''))
-    throw Error('Manual groups must use “Group = item | item”, one group per line. Escape literal =, |, \\, or edge spaces with a backslash.'); const label = decodePivotManualGroupToken(sides[0] ?? ''), items = splitPivotManualGroupText(sides[1] ?? '', '|').map(decodePivotManualGroupToken); if (items.some(value => !value))
-    throw Error('Each manual group needs a caption and non-empty source items.'); return { label, values: items.map(value => value.toLocaleLowerCase() === '(blank)' ? null : value) }; }); return { field, groups }; }
+function parsePivotManualGroupText(field, text) {
+    const lines = text.split(/\r?\n/).filter(line => line.trim()), groups = lines.map(line => {
+        const sides = splitPivotManualGroupText(line, '=');
+        if (sides.length !== 2 || !decodePivotManualGroupToken(sides[0] ?? ''))
+            throw Error('Manual groups must use “Group = item | item”, one group per line. Escape literal =, |, \\, or edge spaces with a backslash.');
+        const label = decodePivotManualGroupToken(sides[0] ?? ''), items = splitPivotManualGroupText(sides[1] ?? '', '|').map(decodePivotManualGroupToken);
+        if (items.some(value => !value))
+            throw Error('Each manual group needs a caption and non-empty source items.');
+        return { label, values: items.map(value => value.toLocaleLowerCase() === '(blank)' ? null : value) };
+    });
+    return { field, groups };
+}
 const pivotDialog = el('pivot-summary-dialog');
 let editingPivotId = null, pivotRowFieldOrder = [], pivotColumnFieldOrder = [], pivotValueFieldOrder = [];
 const pivotSubtotalChoices = new Map(), pivotColumnSubtotalChoices = new Map(), pivotFieldSortChoices = new Map(), pivotSortMeasureChoices = new Map(), pivotManualItemOrderChoices = new Map(), pivotManualItemSelectedChoices = new Map(), pivotLabelFilterChoices = new Map(), pivotDateGroupChoices = new Map(), pivotNumberGroupChoices = new Map(), pivotNumberGroupStarts = new Map(), pivotNumberGroupEnds = new Map(), pivotManualGroupChoices = new Map(), pivotShowEmptyItemChoices = new Map();
@@ -5627,98 +6797,144 @@ const pivotMeasureCaptions = new Map();
 const pivotMeasureShows = new Map(), pivotMeasureBaseFields = new Map(), pivotMeasureBaseItems = new Map();
 let pivotAdditionalMeasures = [];
 const pivotAggregationOptions = [['sum', 'Sum'], ['count', 'Count (nonblank)'], ['countNumbers', 'Count Numbers'], ['average', 'Average'], ['min', 'Minimum'], ['max', 'Maximum'], ['product', 'Product'], ['stdDev', 'StdDev (sample)'], ['stdDevp', 'StdDevp (population)'], ['var', 'Var (sample)'], ['varp', 'VarP (population)']];
-function defaultPivotAggregation(field) { const { a, b, range } = pivotSourceBounds(), cacheKey = `${range}#${field}`, cached = pivotDefaultAggregationCache.get(cacheKey); if (cached)
-    return cached; let aggregation = 'sum'; for (let row = a.row + 1; row <= b.row; row++) {
-    const cell = pivotSourceBook().getValue(`${colToName(a.col + field)}${row + 1}`), value = cell.value;
-    if (cell.error || value !== null && value !== '' && typeof value !== 'number') {
-        aggregation = 'count';
-        break;
+function defaultPivotAggregation(field) {
+    const { a, b, range } = pivotSourceBounds(), cacheKey = `${range}#${field}`, cached = pivotDefaultAggregationCache.get(cacheKey);
+    if (cached)
+        return cached;
+    let aggregation = 'sum';
+    for (let row = a.row + 1; row <= b.row; row++) {
+        const cell = pivotSourceBook().getValue(`${colToName(a.col + field)}${row + 1}`), value = cell.value;
+        if (cell.error || value !== null && value !== '' && typeof value !== 'number') {
+            aggregation = 'count';
+            break;
+        }
     }
-} pivotDefaultAggregationCache.set(cacheKey, aggregation); return aggregation; }
+    pivotDefaultAggregationCache.set(cacheKey, aggregation);
+    return aggregation;
+}
 function pivotBaseFieldOptions(selected) { const axes = [...Array.from(el('pivot-row-field').selectedOptions, option => ({ field: Number(option.value), label: option.text })), ...Array.from(el('pivot-column-field').selectedOptions, option => ({ field: Number(option.value), label: option.text }))], unique = axes.filter((item, index) => axes.findIndex(other => other.field === item.field) === index); return unique.map(item => `<option value="${item.field}"${item.field === selected ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join(''); }
 function pivotBaseItemOptions(field, selected) { const { a, b } = pivotSourceBounds(), values = pivotGroupedSourceValues(field, a, b), selectedLabel = selected && typeof selected === 'object' ? selected.label : undefined, hasSelected = selectedLabel !== undefined && values.some(value => (value ?? '') === selectedLabel), items = hasSelected ? values : [...(selectedLabel !== undefined ? [selectedLabel || null] : []), ...values], unique = [...new Map(items.map(value => [JSON.stringify(value), value])).values()]; return `<option value="previous"${selected === 'previous' ? ' selected' : ''}>Previous item</option><option value="next"${selected === 'next' ? ' selected' : ''}>Next item</option>${unique.map(value => { const label = value ?? '', token = `item:${encodeURIComponent(label)}`; return `<option value="${token}"${selectedLabel === label ? ' selected' : ''}>${escapeHtml(value ?? '(blank)')}</option>`; }).join('')}${selectedLabel !== undefined && !unique.some(value => (value ?? '') === selectedLabel) ? `<option value="item:${encodeURIComponent(selectedLabel)}" selected>${escapeHtml(selectedLabel || '(blank)')} (not present)</option>` : ''}`; }
-function readPivotBaseItem(value) { if (value.startsWith('item:'))
-    return { label: decodeURIComponent(value.slice(5)) }; return value === 'next' ? 'next' : 'previous'; }
-function fillPivotMeasureOptions() { const selected = Array.from(el('pivot-value-field').selectedOptions), host = el('pivot-measure-options'); host.innerHTML = selected.map((option, index) => { const field = option.value, aggregation = pivotMeasureAggregations.get(field) ?? defaultPivotAggregation(Number(field)), showAs = pivotMeasureShows.get(field) ?? 'normal', caption = escapeHtml(pivotMeasureCaptions.get(field) ?? ''); return `<label class="field-label" for="pivot-measure-${index}">${escapeHtml(option.text)} summarize by</label><select id="pivot-measure-${index}" class="context-select" data-pivot-field="${field}">${pivotAggregationOptions.map(([value, label]) => `<option value="${value}"${aggregation === value ? ' selected' : ''}>${label}</option>`).join('')}</select><label class="field-label" for="pivot-caption-${index}">Custom value name</label><input id="pivot-caption-${index}" class="scenario-input" maxlength="100" data-pivot-caption="${field}" value="${caption}"/><label class="field-label" for="pivot-show-as-${index}">Show values as</label><select id="pivot-show-as-${index}" class="context-select" data-pivot-show-field="${field}"><option value="normal"${showAs === 'normal' ? ' selected' : ''}>No calculation</option><option value="percentGrandTotal"${showAs === 'percentGrandTotal' ? ' selected' : ''}>% of grand total</option><option value="percentRowTotal"${showAs === 'percentRowTotal' ? ' selected' : ''}>% of row total</option><option value="percentColumnTotal"${showAs === 'percentColumnTotal' ? ' selected' : ''}>% of column total</option><option value="percentOf"${showAs === 'percentOf' ? ' selected' : ''}>% Of</option><option value="percentParentRow"${showAs === 'percentParentRow' ? ' selected' : ''}>% of parent row total</option><option value="percentParentColumn"${showAs === 'percentParentColumn' ? ' selected' : ''}>% of parent column total</option><option value="runningTotal"${showAs === 'runningTotal' ? ' selected' : ''}>Running total in</option><option value="percentRunningTotal"${showAs === 'percentRunningTotal' ? ' selected' : ''}>% running total in</option><option value="differenceFrom"${showAs === 'differenceFrom' ? ' selected' : ''}>Difference from</option><option value="percentDifferenceFrom"${showAs === 'percentDifferenceFrom' ? ' selected' : ''}>% difference from</option><option value="rankAscending"${showAs === 'rankAscending' ? ' selected' : ''}>Rank smallest to largest</option><option value="rankDescending"${showAs === 'rankDescending' ? ' selected' : ''}>Rank largest to smallest</option><option value="index"${showAs === 'index' ? ' selected' : ''}>Index</option></select>`; }).join(''); for (const show of Array.from(host.querySelectorAll('select[data-pivot-show-field]'))) {
-    const field = show.dataset.pivotShowField, base = document.createElement('select');
-    base.className = 'context-select';
-    base.setAttribute('aria-label', 'Base field for calculation');
-    base.dataset.pivotShowBaseField = field;
-    base.innerHTML = pivotBaseFieldOptions(pivotMeasureBaseFields.get(field));
-    base.hidden = !['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value);
-    show.insertAdjacentElement('afterend', base);
-    const item = document.createElement('select');
-    item.className = 'context-select';
-    item.setAttribute('aria-label', 'Base item for % Of or Difference From');
-    item.dataset.pivotShowBaseItem = field;
-    item.innerHTML = pivotBaseItemOptions(Number(base.value), pivotMeasureBaseItems.get(field));
-    item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value);
-    base.insertAdjacentElement('afterend', item);
-    item.addEventListener('change', () => pivotMeasureBaseItems.set(field, readPivotBaseItem(item.value)));
-    base.addEventListener('change', () => { pivotMeasureBaseFields.set(field, Number(base.value)); item.innerHTML = pivotBaseItemOptions(Number(base.value), pivotMeasureBaseItems.get(field)); });
-    show.addEventListener('change', () => { pivotMeasureShows.set(field, show.value); const needsBase = ['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value); base.hidden = !needsBase; item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value); if (needsBase && !pivotMeasureBaseFields.has(field) && base.value)
-        pivotMeasureBaseFields.set(field, Number(base.value)); if (item.hidden === false && !pivotMeasureBaseItems.has(field))
-        pivotMeasureBaseItems.set(field, 'previous'); });
-} for (const input of Array.from(host.querySelectorAll('input[data-pivot-caption]')))
-    input.addEventListener('input', () => { pivotMeasureCaptions.set(input.dataset.pivotCaption, input.value); fillPivotValueFilterMeasures(); }); for (const select of Array.from(host.querySelectorAll('select[data-pivot-field]')))
-    select.addEventListener('change', () => { pivotMeasureAggregations.set(select.dataset.pivotField, select.value); fillPivotValueFilterMeasures(); }); for (const select of Array.from(host.querySelectorAll('select[data-pivot-show-field]')))
-    select.addEventListener('change', () => pivotMeasureShows.set(select.dataset.pivotShowField, select.value)); }
-function fillPivotExtraMeasures() { const host = el('pivot-extra-measures'); try {
-    const { a, b } = pivotSourceBounds(), fields = Array.from({ length: b.col - a.col + 1 }, (_, index) => ({ value: index, label: display(book.getValue(`${colToName(a.col + index)}${a.row + 1}`)) || `Column ${index + 1}` }));
-    host.innerHTML = pivotAdditionalMeasures.map((measure, index) => `<div class="tool-group"><select class="context-select" aria-label="Additional value field" data-pivot-extra-field="${index}">${fields.map(field => `<option value="${field.value}"${field.value === measure.field ? ' selected' : ''}>${escapeHtml(field.label)}</option>`).join('')}</select><input class="scenario-input" aria-label="Additional value name" maxlength="100" data-pivot-extra-caption="${index}" value="${escapeHtml(measure.caption ?? '')}"/><select class="context-select" aria-label="Additional value calculation" data-pivot-extra-aggregation="${index}">${pivotAggregationOptions.map(([value, label]) => `<option value="${value}"${value === measure.aggregation ? ' selected' : ''}>${label}</option>`).join('')}</select><select class="context-select" aria-label="Additional show values as" data-pivot-extra-show="${index}"><option value="normal"${(measure.showAs ?? 'normal') === 'normal' ? ' selected' : ''}>No calculation</option><option value="percentGrandTotal"${measure.showAs === 'percentGrandTotal' ? ' selected' : ''}>% of grand total</option><option value="percentRowTotal"${measure.showAs === 'percentRowTotal' ? ' selected' : ''}>% of row total</option><option value="percentColumnTotal"${measure.showAs === 'percentColumnTotal' ? ' selected' : ''}>% of column total</option><option value="percentOf"${measure.showAs === 'percentOf' ? ' selected' : ''}>% Of</option><option value="percentParentRow"${measure.showAs === 'percentParentRow' ? ' selected' : ''}>% of parent row total</option><option value="percentParentColumn"${measure.showAs === 'percentParentColumn' ? ' selected' : ''}>% of parent column total</option><option value="runningTotal"${measure.showAs === 'runningTotal' ? ' selected' : ''}>Running total in</option><option value="percentRunningTotal"${measure.showAs === 'percentRunningTotal' ? ' selected' : ''}>% running total in</option><option value="differenceFrom"${measure.showAs === 'differenceFrom' ? ' selected' : ''}>Difference from</option><option value="percentDifferenceFrom"${measure.showAs === 'percentDifferenceFrom' ? ' selected' : ''}>% difference from</option><option value="rankAscending"${measure.showAs === 'rankAscending' ? ' selected' : ''}>Rank smallest to largest</option><option value="rankDescending"${measure.showAs === 'rankDescending' ? ' selected' : ''}>Rank largest to smallest</option><option value="index"${measure.showAs === 'index' ? ' selected' : ''}>Index</option></select><button type="button" class="secondary-button" data-pivot-extra-remove="${index}">Remove</button></div>`).join('');
-    for (const show of Array.from(host.querySelectorAll('select[data-pivot-extra-show]'))) {
-        const index = Number(show.dataset.pivotExtraShow), measure = pivotAdditionalMeasures[index], base = document.createElement('select');
+function readPivotBaseItem(value) {
+    if (value.startsWith('item:'))
+        return { label: decodeURIComponent(value.slice(5)) };
+    return value === 'next' ? 'next' : 'previous';
+}
+function fillPivotMeasureOptions() {
+    const selected = Array.from(el('pivot-value-field').selectedOptions), host = el('pivot-measure-options');
+    host.innerHTML = selected.map((option, index) => { const field = option.value, aggregation = pivotMeasureAggregations.get(field) ?? defaultPivotAggregation(Number(field)), showAs = pivotMeasureShows.get(field) ?? 'normal', caption = escapeHtml(pivotMeasureCaptions.get(field) ?? ''); return `<label class="field-label" for="pivot-measure-${index}">${escapeHtml(option.text)} summarize by</label><select id="pivot-measure-${index}" class="context-select" data-pivot-field="${field}">${pivotAggregationOptions.map(([value, label]) => `<option value="${value}"${aggregation === value ? ' selected' : ''}>${label}</option>`).join('')}</select><label class="field-label" for="pivot-caption-${index}">Custom value name</label><input id="pivot-caption-${index}" class="scenario-input" maxlength="100" data-pivot-caption="${field}" value="${caption}"/><label class="field-label" for="pivot-show-as-${index}">Show values as</label><select id="pivot-show-as-${index}" class="context-select" data-pivot-show-field="${field}"><option value="normal"${showAs === 'normal' ? ' selected' : ''}>No calculation</option><option value="percentGrandTotal"${showAs === 'percentGrandTotal' ? ' selected' : ''}>% of grand total</option><option value="percentRowTotal"${showAs === 'percentRowTotal' ? ' selected' : ''}>% of row total</option><option value="percentColumnTotal"${showAs === 'percentColumnTotal' ? ' selected' : ''}>% of column total</option><option value="percentOf"${showAs === 'percentOf' ? ' selected' : ''}>% Of</option><option value="percentParentRow"${showAs === 'percentParentRow' ? ' selected' : ''}>% of parent row total</option><option value="percentParentColumn"${showAs === 'percentParentColumn' ? ' selected' : ''}>% of parent column total</option><option value="runningTotal"${showAs === 'runningTotal' ? ' selected' : ''}>Running total in</option><option value="percentRunningTotal"${showAs === 'percentRunningTotal' ? ' selected' : ''}>% running total in</option><option value="differenceFrom"${showAs === 'differenceFrom' ? ' selected' : ''}>Difference from</option><option value="percentDifferenceFrom"${showAs === 'percentDifferenceFrom' ? ' selected' : ''}>% difference from</option><option value="rankAscending"${showAs === 'rankAscending' ? ' selected' : ''}>Rank smallest to largest</option><option value="rankDescending"${showAs === 'rankDescending' ? ' selected' : ''}>Rank largest to smallest</option><option value="index"${showAs === 'index' ? ' selected' : ''}>Index</option></select>`; }).join('');
+    for (const show of Array.from(host.querySelectorAll('select[data-pivot-show-field]'))) {
+        const field = show.dataset.pivotShowField, base = document.createElement('select');
         base.className = 'context-select';
         base.setAttribute('aria-label', 'Base field for calculation');
-        base.dataset.pivotExtraBase = String(index);
-        base.innerHTML = pivotBaseFieldOptions(measure.baseField);
+        base.dataset.pivotShowBaseField = field;
+        base.innerHTML = pivotBaseFieldOptions(pivotMeasureBaseFields.get(field));
         base.hidden = !['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value);
         show.insertAdjacentElement('afterend', base);
         const item = document.createElement('select');
         item.className = 'context-select';
         item.setAttribute('aria-label', 'Base item for % Of or Difference From');
-        item.dataset.pivotExtraBaseItem = String(index);
-        item.innerHTML = pivotBaseItemOptions(Number(base.value), measure.baseItem);
+        item.dataset.pivotShowBaseItem = field;
+        item.innerHTML = pivotBaseItemOptions(Number(base.value), pivotMeasureBaseItems.get(field));
         item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value);
         base.insertAdjacentElement('afterend', item);
-        item.addEventListener('change', () => pivotAdditionalMeasures[index].baseItem = readPivotBaseItem(item.value));
-        base.addEventListener('change', () => { pivotAdditionalMeasures[index].baseField = Number(base.value); item.innerHTML = pivotBaseItemOptions(Number(base.value), measure.baseItem); });
-        show.addEventListener('change', () => { measure.showAs = show.value; const needsBase = ['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value); base.hidden = !needsBase; item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value); if (needsBase && measure.baseField === undefined && base.value)
-            measure.baseField = Number(base.value); if (!item.hidden && measure.baseItem === undefined)
-            measure.baseItem = 'previous'; });
+        item.addEventListener('change', () => pivotMeasureBaseItems.set(field, readPivotBaseItem(item.value)));
+        base.addEventListener('change', () => { pivotMeasureBaseFields.set(field, Number(base.value)); item.innerHTML = pivotBaseItemOptions(Number(base.value), pivotMeasureBaseItems.get(field)); });
+        show.addEventListener('change', () => {
+            pivotMeasureShows.set(field, show.value);
+            const needsBase = ['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value);
+            base.hidden = !needsBase;
+            item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value);
+            if (needsBase && !pivotMeasureBaseFields.has(field) && base.value)
+                pivotMeasureBaseFields.set(field, Number(base.value));
+            if (item.hidden === false && !pivotMeasureBaseItems.has(field))
+                pivotMeasureBaseItems.set(field, 'previous');
+        });
     }
-    for (const input of Array.from(host.querySelectorAll('input[data-pivot-extra-caption]')))
-        input.addEventListener('input', () => { pivotAdditionalMeasures[Number(input.dataset.pivotExtraCaption)].caption = input.value; fillPivotValueFilterMeasures(); });
-    for (const select of Array.from(host.querySelectorAll('select[data-pivot-extra-field]')))
-        select.addEventListener('change', () => { pivotAdditionalMeasures[Number(select.dataset.pivotExtraField)].field = Number(select.value); fillPivotValueFilterMeasures(); });
-    for (const select of Array.from(host.querySelectorAll('select[data-pivot-extra-aggregation]')))
-        select.addEventListener('change', () => { pivotAdditionalMeasures[Number(select.dataset.pivotExtraAggregation)].aggregation = select.value; fillPivotValueFilterMeasures(); });
-    for (const select of Array.from(host.querySelectorAll('select[data-pivot-extra-show]')))
-        select.addEventListener('change', () => { pivotAdditionalMeasures[Number(select.dataset.pivotExtraShow)].showAs = select.value; fillPivotValueFilterMeasures(); });
-    for (const button of Array.from(host.querySelectorAll('button[data-pivot-extra-remove]')))
-        button.addEventListener('click', () => { pivotAdditionalMeasures.splice(Number(button.dataset.pivotExtraRemove), 1); fillPivotExtraMeasures(); });
-    fillPivotValueFilterMeasures();
+    for (const input of Array.from(host.querySelectorAll('input[data-pivot-caption]')))
+        input.addEventListener('input', () => { pivotMeasureCaptions.set(input.dataset.pivotCaption, input.value); fillPivotValueFilterMeasures(); });
+    for (const select of Array.from(host.querySelectorAll('select[data-pivot-field]')))
+        select.addEventListener('change', () => { pivotMeasureAggregations.set(select.dataset.pivotField, select.value); fillPivotValueFilterMeasures(); });
+    for (const select of Array.from(host.querySelectorAll('select[data-pivot-show-field]')))
+        select.addEventListener('change', () => pivotMeasureShows.set(select.dataset.pivotShowField, select.value));
 }
-catch {
-    host.innerHTML = '';
-} }
+function fillPivotExtraMeasures() {
+    const host = el('pivot-extra-measures');
+    try {
+        const { a, b } = pivotSourceBounds(), fields = Array.from({ length: b.col - a.col + 1 }, (_, index) => ({ value: index, label: display(book.getValue(`${colToName(a.col + index)}${a.row + 1}`)) || `Column ${index + 1}` }));
+        host.innerHTML = pivotAdditionalMeasures.map((measure, index) => `<div class="tool-group"><select class="context-select" aria-label="Additional value field" data-pivot-extra-field="${index}">${fields.map(field => `<option value="${field.value}"${field.value === measure.field ? ' selected' : ''}>${escapeHtml(field.label)}</option>`).join('')}</select><input class="scenario-input" aria-label="Additional value name" maxlength="100" data-pivot-extra-caption="${index}" value="${escapeHtml(measure.caption ?? '')}"/><select class="context-select" aria-label="Additional value calculation" data-pivot-extra-aggregation="${index}">${pivotAggregationOptions.map(([value, label]) => `<option value="${value}"${value === measure.aggregation ? ' selected' : ''}>${label}</option>`).join('')}</select><select class="context-select" aria-label="Additional show values as" data-pivot-extra-show="${index}"><option value="normal"${(measure.showAs ?? 'normal') === 'normal' ? ' selected' : ''}>No calculation</option><option value="percentGrandTotal"${measure.showAs === 'percentGrandTotal' ? ' selected' : ''}>% of grand total</option><option value="percentRowTotal"${measure.showAs === 'percentRowTotal' ? ' selected' : ''}>% of row total</option><option value="percentColumnTotal"${measure.showAs === 'percentColumnTotal' ? ' selected' : ''}>% of column total</option><option value="percentOf"${measure.showAs === 'percentOf' ? ' selected' : ''}>% Of</option><option value="percentParentRow"${measure.showAs === 'percentParentRow' ? ' selected' : ''}>% of parent row total</option><option value="percentParentColumn"${measure.showAs === 'percentParentColumn' ? ' selected' : ''}>% of parent column total</option><option value="runningTotal"${measure.showAs === 'runningTotal' ? ' selected' : ''}>Running total in</option><option value="percentRunningTotal"${measure.showAs === 'percentRunningTotal' ? ' selected' : ''}>% running total in</option><option value="differenceFrom"${measure.showAs === 'differenceFrom' ? ' selected' : ''}>Difference from</option><option value="percentDifferenceFrom"${measure.showAs === 'percentDifferenceFrom' ? ' selected' : ''}>% difference from</option><option value="rankAscending"${measure.showAs === 'rankAscending' ? ' selected' : ''}>Rank smallest to largest</option><option value="rankDescending"${measure.showAs === 'rankDescending' ? ' selected' : ''}>Rank largest to smallest</option><option value="index"${measure.showAs === 'index' ? ' selected' : ''}>Index</option></select><button type="button" class="secondary-button" data-pivot-extra-remove="${index}">Remove</button></div>`).join('');
+        for (const show of Array.from(host.querySelectorAll('select[data-pivot-extra-show]'))) {
+            const index = Number(show.dataset.pivotExtraShow), measure = pivotAdditionalMeasures[index], base = document.createElement('select');
+            base.className = 'context-select';
+            base.setAttribute('aria-label', 'Base field for calculation');
+            base.dataset.pivotExtraBase = String(index);
+            base.innerHTML = pivotBaseFieldOptions(measure.baseField);
+            base.hidden = !['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value);
+            show.insertAdjacentElement('afterend', base);
+            const item = document.createElement('select');
+            item.className = 'context-select';
+            item.setAttribute('aria-label', 'Base item for % Of or Difference From');
+            item.dataset.pivotExtraBaseItem = String(index);
+            item.innerHTML = pivotBaseItemOptions(Number(base.value), measure.baseItem);
+            item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value);
+            base.insertAdjacentElement('afterend', item);
+            item.addEventListener('change', () => pivotAdditionalMeasures[index].baseItem = readPivotBaseItem(item.value));
+            base.addEventListener('change', () => { pivotAdditionalMeasures[index].baseField = Number(base.value); item.innerHTML = pivotBaseItemOptions(Number(base.value), measure.baseItem); });
+            show.addEventListener('change', () => {
+                measure.showAs = show.value;
+                const needsBase = ['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(show.value);
+                base.hidden = !needsBase;
+                item.hidden = !['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(show.value);
+                if (needsBase && measure.baseField === undefined && base.value)
+                    measure.baseField = Number(base.value);
+                if (!item.hidden && measure.baseItem === undefined)
+                    measure.baseItem = 'previous';
+            });
+        }
+        for (const input of Array.from(host.querySelectorAll('input[data-pivot-extra-caption]')))
+            input.addEventListener('input', () => { pivotAdditionalMeasures[Number(input.dataset.pivotExtraCaption)].caption = input.value; fillPivotValueFilterMeasures(); });
+        for (const select of Array.from(host.querySelectorAll('select[data-pivot-extra-field]')))
+            select.addEventListener('change', () => { pivotAdditionalMeasures[Number(select.dataset.pivotExtraField)].field = Number(select.value); fillPivotValueFilterMeasures(); });
+        for (const select of Array.from(host.querySelectorAll('select[data-pivot-extra-aggregation]')))
+            select.addEventListener('change', () => { pivotAdditionalMeasures[Number(select.dataset.pivotExtraAggregation)].aggregation = select.value; fillPivotValueFilterMeasures(); });
+        for (const select of Array.from(host.querySelectorAll('select[data-pivot-extra-show]')))
+            select.addEventListener('change', () => { pivotAdditionalMeasures[Number(select.dataset.pivotExtraShow)].showAs = select.value; fillPivotValueFilterMeasures(); });
+        for (const button of Array.from(host.querySelectorAll('button[data-pivot-extra-remove]')))
+            button.addEventListener('click', () => { pivotAdditionalMeasures.splice(Number(button.dataset.pivotExtraRemove), 1); fillPivotExtraMeasures(); });
+        fillPivotValueFilterMeasures();
+    }
+    catch {
+        host.innerHTML = '';
+    }
+}
 function pivotSourceBook() { const selected = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()); return selected?.book ?? book; }
-function pivotSourceBounds() { const raw = el('pivot-source-range').value.trim().replace(/\$/g, '').toUpperCase(), parts = raw.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? ''); if (parts.length > 2 || !a || !b || a.row >= b.row || b.row >= pivotSourceBook().rows || a.col > b.col || b.col >= pivotSourceBook().cols || (b.row - a.row + 1) * (b.col - a.col + 1) > MAX_PIVOT_SOURCE_CELLS)
-    throw Error('Enter a headered rectangle with at least one data row, such as A1:C100.'); return { a, b, range: `${colToName(a.col)}${a.row + 1}:${colToName(b.col)}${b.row + 1}` }; }
+function pivotSourceBounds() {
+    const raw = el('pivot-source-range').value.trim().replace(/\$/g, '').toUpperCase(), parts = raw.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? '');
+    if (parts.length > 2 || !a || !b || a.row >= b.row || b.row >= pivotSourceBook().rows || a.col > b.col || b.col >= pivotSourceBook().cols || (b.row - a.row + 1) * (b.col - a.col + 1) > MAX_PIVOT_SOURCE_CELLS)
+        throw Error('Enter a headered rectangle with at least one data row, such as A1:C100.');
+    return { a, b, range: `${colToName(a.col)}${a.row + 1}:${colToName(b.col)}${b.row + 1}` };
+}
 const pivotFilterValues = new Map();
 const pivotItemFilterValues = new Map();
 const pivotFilterSearch = new Map();
 const pivotItemFilterSearch = new Map();
 const pivotValueCache = new Map(), pivotGroupedValueCache = new Map();
-function pivotSourceValues(field, a, b) { const key = `${el('pivot-source-sheet').value.toLocaleLowerCase()}:${a.col}:${b.col}:${a.row}:${b.row}:${field}`, cached = pivotValueCache.get(key); if (cached)
-    return cached; const seen = new Set(), values = []; for (let row = a.row + 1; row <= b.row; row++) {
-    const value = display(pivotSourceBook().getValue(`${colToName(a.col + field)}${row + 1}`)), item = value === '' ? null : value, identity = JSON.stringify(item).toLocaleLowerCase();
-    if (!seen.has(identity)) {
-        seen.add(identity);
-        values.push(item);
+function pivotSourceValues(field, a, b) {
+    const key = `${el('pivot-source-sheet').value.toLocaleLowerCase()}:${a.col}:${b.col}:${a.row}:${b.row}:${field}`, cached = pivotValueCache.get(key);
+    if (cached)
+        return cached;
+    const seen = new Set(), values = [];
+    for (let row = a.row + 1; row <= b.row; row++) {
+        const value = display(pivotSourceBook().getValue(`${colToName(a.col + field)}${row + 1}`)), item = value === '' ? null : value, identity = JSON.stringify(item).toLocaleLowerCase();
+        if (!seen.has(identity)) {
+            seen.add(identity);
+            values.push(item);
+        }
     }
-} if (pivotValueCache.size > 64)
-    pivotValueCache.clear(); pivotValueCache.set(key, values); return values; }
+    if (pivotValueCache.size > 64)
+        pivotValueCache.clear();
+    pivotValueCache.set(key, values);
+    return values;
+}
 function pivotGroupedSourceValues(field, a, b) {
     const unit = pivotDateGroupChoices.get(field), interval = Number(pivotNumberGroupChoices.get(field)), manualText = pivotManualGroupChoices.get(field) ?? '', manualGroup = manualText.trim() ? parsePivotManualGroupText(field, manualText) : undefined;
     if ((!unit || unit === 'none') && !(interval > 0) && !manualGroup)
@@ -5753,147 +6969,203 @@ function pivotGroupedSourceValues(field, a, b) {
     return [...values];
 }
 function pivotChoiceHtml(kind, field, label, allValues) { const selected = kind === 'report' ? pivotFilterValues.get(field) ?? [] : pivotItemFilterValues.get(field) ?? [], hasFilter = kind === 'item' ? pivotItemFilterValues.has(field) : selected.length > 0, search = kind === 'report' ? pivotFilterSearch : pivotItemFilterSearch, query = (search.get(field) ?? '').trim().toLocaleLowerCase(), filtered = query ? allValues.filter(value => (value ?? '(blank)').toLocaleLowerCase().includes(query)) : allValues, visible = filtered.slice(0, 250), selectId = (kind === 'report' ? 'pivot-filter-value-' : 'pivot-item-filter-value-') + field, searchId = (kind === 'report' ? 'pivot-filter-search-' : 'pivot-item-filter-search-') + field; return `<label class="field-label" for="${searchId}">${escapeHtml(label)} search items</label><input id="${searchId}" class="scenario-input" type="search" data-pivot-search="${kind}" data-pivot-search-field="${field}" value="${escapeHtml(search.get(field) ?? '')}" placeholder="Search ${escapeHtml(label)}"><label class="field-label" for="${selectId}">${kind === 'report' ? 'Report filter' : 'Visible'} items</label><select id="${selectId}" class="context-select" multiple size="5" data-pivot-choice="${kind}" data-pivot-choice-field="${field}"><option value="__all"${!hasFilter ? ' selected' : ''}>All items</option>${visible.map((value, index) => { const encoded = JSON.stringify(value), text = value === null ? '(blank)' : value; return `<option value="${index}" data-filter-value="${escapeHtml(encoded)}"${selected.some(item => JSON.stringify(item) === encoded) ? ' selected' : ''}>${escapeHtml(text)}</option>`; }).join('')}</select><button type="button" class="secondary-button" data-pivot-clear="${kind}" data-pivot-clear-field="${field}">Clear filter</button><span class="chart-hint">Select items to keep; choose All items to clear the filter, or deselect every item to show no items.</span>${filtered.length > visible.length ? `<span class="chart-hint">Showing 250 matches. Refine the search to find other items.</span>` : ''}`; }
-function updatePivotChoice(select) { const kind = select.dataset.pivotChoice, field = Number(select.dataset.pivotChoiceField), target = kind === 'report' ? pivotFilterValues : pivotItemFilterValues, options = Array.from(select.options), selected = options.slice(1).filter(option => option.selected); if (options[0]?.selected && !selected.length) {
-    target.delete(field);
-    return;
-} if (!selected.length) {
-    target.set(field, []);
-    return;
-} if (options[0])
-    options[0].selected = false; const visible = options.slice(1).map(option => JSON.parse(option.dataset.filterValue ?? 'null')), visibleKeys = new Set(visible.map(value => JSON.stringify(value))), prior = target.get(field) ?? [], preserved = prior.filter(value => !visibleKeys.has(JSON.stringify(value))), chosen = selected.map(option => JSON.parse(option.dataset.filterValue ?? 'null')), merged = [...new Map([...preserved, ...chosen].map(value => [JSON.stringify(value), value])).values()]; target.set(field, merged); }
-function preservePivotSearch(input, search, render) { const id = input.id, value = input.value, caret = input.selectionStart ?? value.length; search.set(Number(input.dataset.pivotSearchField), value); render(); const next = document.getElementById(id); if (next instanceof HTMLInputElement) {
-    next.focus();
-    next.setSelectionRange(caret, caret);
-} }
-function fillPivotFilterValues() { const field = el('pivot-filter-field'), host = el('pivot-filter-options'); try {
-    const { a, b } = pivotSourceBounds(), selected = Array.from(field.selectedOptions);
-    host.innerHTML = selected.map(option => pivotChoiceHtml('report', Number(option.value), option.text, pivotSourceValues(Number(option.value), a, b))).join('');
-    for (const input of Array.from(host.querySelectorAll('input[data-pivot-search]')))
-        input.addEventListener('input', () => preservePivotSearch(input, pivotFilterSearch, fillPivotFilterValues));
-    for (const button of Array.from(host.querySelectorAll('button[data-pivot-clear]')))
-        button.addEventListener('click', () => { pivotFilterValues.set(Number(button.dataset.pivotClearField), []); fillPivotFilterValues(); });
-    for (const select of Array.from(host.querySelectorAll('select[data-pivot-choice]')))
-        select.addEventListener('change', () => updatePivotChoice(select));
-}
-catch {
-    host.innerHTML = '';
-} }
-function fillPivotItemFilterValues() { const field = el('pivot-item-filter-field'), host = el('pivot-item-filter-options'); try {
-    const { a, b } = pivotSourceBounds(), selected = Array.from(field.selectedOptions);
-    host.innerHTML = selected.map(option => pivotChoiceHtml('item', Number(option.value), option.text, pivotGroupedSourceValues(Number(option.value), a, b))).join('');
-    for (const input of Array.from(host.querySelectorAll('input[data-pivot-search]')))
-        input.addEventListener('input', () => preservePivotSearch(input, pivotItemFilterSearch, fillPivotItemFilterValues));
-    for (const button of Array.from(host.querySelectorAll('button[data-pivot-clear]')))
-        button.addEventListener('click', () => { pivotItemFilterValues.delete(Number(button.dataset.pivotClearField)); fillPivotItemFilterValues(); });
-    for (const select of Array.from(host.querySelectorAll('select[data-pivot-choice]')))
-        select.addEventListener('change', () => updatePivotChoice(select));
-}
-catch {
-    host.innerHTML = '';
-} }
-function fillPivotSourceTableOptions() { const select = el('pivot-source-table'), source = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()), range = el('pivot-source-range').value.trim().replace(/\$/g, '').toUpperCase(), prior = select.value, tables = source?.tools.tables ?? []; select.innerHTML = '<option value="">Cell range</option>' + tables.map(table => `<option value="${escapeHtml(table.name)}">${escapeHtml(table.name)} (${escapeHtml(table.range)})</option>`).join(''); select.value = tables.some(table => table.name === prior) ? prior : tables.find(table => table.range.replace(/\$/g, '').toUpperCase() === range)?.name ?? ''; }
-function fillPivotFields() { fillPivotSourceTableOptions(); try {
-    const { a, b } = pivotSourceBounds(), fields = pivotSourceFieldHeaders(pivotSourceBook(), `${colToName(a.col)}${a.row + 1}:${colToName(b.col)}${a.row + 1}`).map((label, i) => ({ label, value: String(i) }));
-    for (const id of ['pivot-row-field', 'pivot-value-field']) {
-        const select = el(id), prior = id === 'pivot-value-field' ? new Set(Array.from(select.selectedOptions, option => option.value)) : new Set(), priorRows = id === 'pivot-row-field' ? new Set(Array.from(select.selectedOptions, option => option.value)) : new Set();
-        select.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
-        if (id === 'pivot-row-field' || id === 'pivot-value-field') {
-            fields.forEach((field, index) => { const keep = id === 'pivot-row-field' ? priorRows.has(field.value) : prior.has(field.value); select.options[index].selected = keep || (priorRows.size === 0 && prior.size === 0 && index === 0); });
-            if (id === 'pivot-value-field' && prior.size === 0) {
-                const rows = el('pivot-row-field'), rowValues = new Set(Array.from(rows.selectedOptions, option => option.value)), fallback = fields.findIndex(field => !rowValues.has(field.value));
-                Array.from(select.options).forEach(option => option.selected = false);
-                select.options[fallback < 0 ? 0 : fallback].selected = true;
-            }
-        }
-    }
-    const col = el('pivot-column-field'), priorCols = new Set(Array.from(col.selectedOptions, option => option.value));
-    col.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
-    fields.forEach((field, index) => { col.options[index].selected = priorCols.has(field.value); });
-    const filter = el('pivot-filter-field'), priorFilters = new Set(Array.from(filter.selectedOptions, option => option.value));
-    filter.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
-    fields.forEach((field, index) => { filter.options[index].selected = priorFilters.has(field.value); });
-    const itemFilter = el('pivot-item-filter-field'), priorItemFilters = new Set(Array.from(itemFilter.selectedOptions, option => option.value));
-    itemFilter.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
-    fields.forEach((field, index) => { itemFilter.options[index].selected = priorItemFilters.has(field.value); });
-    fillPivotFilterValues();
-    fillPivotItemFilterValues();
-    fillPivotMeasureOptions();
-    fillPivotExtraMeasures();
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-    renderPivotFieldOrder('value');
-}
-catch {
-    el('pivot-row-field').innerHTML = '';
-    el('pivot-value-field').innerHTML = '';
-    el('pivot-column-field').innerHTML = '<option value="">No column field</option>';
-    el('pivot-filter-field').innerHTML = '';
-    el('pivot-item-filter-field').innerHTML = '';
-    fillPivotFilterValues();
-    fillPivotItemFilterValues();
-    fillPivotMeasureOptions();
-    fillPivotExtraMeasures();
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-    renderPivotFieldOrder('value');
-} }
-function pivotSerialDateInput(serial) { return pivotSerialDateIso(serial) ?? ''; }
-function pivotInputDateSerial(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value) ? pivotDateSerial(value) : null; }
-function fillPivotDateFilterField(preferred) { const select = el('pivot-date-filter-field'), prior = preferred ?? (select.value ? Number(select.value) : undefined), grouped = new Set([...pivotDateGroupChoices].filter(([, unit]) => unit !== 'none').map(([field]) => field)); for (const [field, interval] of pivotNumberGroupChoices)
-    if (Number(interval) > 0)
-        grouped.add(field); for (const [field, text] of pivotManualGroupChoices)
-    if (text.trim())
-        grouped.add(field); const fields = [...Array.from(el('pivot-row-field').selectedOptions, option => ({ field: Number(option.value), label: option.text })), ...Array.from(el('pivot-column-field').selectedOptions, option => ({ field: Number(option.value), label: option.text }))].filter(item => !grouped.has(item.field)); select.innerHTML = '<option value="">Off</option>' + fields.map(item => `<option value="${item.field}">${escapeHtml(item.label)}</option>`).join(''); select.value = prior !== undefined && fields.some(item => item.field === prior) ? String(prior) : ''; }
-function fillPivotValueFilterFields(_preferred) { renderPivotValueFilterEditors(); fillPivotDateFilterField(); }
-function currentPivotUiMeasures() { const selected = new Set(Array.from(el('pivot-value-field').selectedOptions, option => Number(option.value))), primary = pivotValueFieldOrder.filter(field => selected.has(field)).map(field => ({ field, aggregation: pivotMeasureAggregations.get(String(field)) ?? defaultPivotAggregation(field), caption: pivotMeasureCaptions.get(String(field)), showAs: pivotMeasureShows.get(String(field)) ?? 'normal' })); return [...primary, ...pivotAdditionalMeasures.map(measure => ({ ...measure }))]; }
-function renderPivotValueFilterEditors() { const host = el('pivot-value-filter-editors'), add = el('btn-pivot-add-value-filter'), axisFields = [...Array.from(el('pivot-row-field').selectedOptions, option => ({ field: Number(option.value), label: option.text })), ...Array.from(el('pivot-column-field').selectedOptions, option => ({ field: Number(option.value), label: option.text }))].filter((item, index, items) => items.findIndex(other => other.field === item.field) === index), measures = currentPivotUiMeasures(), axes = new Set(axisFields.map(item => item.field)); pivotSavedValueFilters = pivotSavedValueFilters.flatMap((filter, index) => { if (!axes.has(filter.field) || !Number.isInteger(filter.count) || filter.count < 1 || filter.count > 255)
-    return []; let measureIndex = filter.measureIndex !== undefined && Number.isInteger(filter.measureIndex) && measures[filter.measureIndex]?.field === filter.measureField ? filter.measureIndex : measures.findIndex(measure => measure.field === filter.measureField); if (measureIndex < 0 && measures.length)
-    measureIndex = 0; if (measureIndex < 0)
-    return []; const normalized = { ...filter, measureIndex, measureField: measures[measureIndex].field }; return pivotSavedValueFilters.findIndex(item => item.field === filter.field) === index ? [normalized] : []; }).sort((left, right) => axisFields.findIndex(item => item.field === left.field) - axisFields.findIndex(item => item.field === right.field)); const used = new Set(pivotSavedValueFilters.map(filter => filter.field)), fieldOptions = (selected, currentIndex) => axisFields.filter(item => !pivotSavedValueFilters.some((other, index) => index !== currentIndex && other.field === item.field)).map(item => `<option value="${item.field}"${item.field === selected ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join(''), measureOptions = (selected) => measures.map((measure, index) => { const bounds = pivotSourceBounds(), label = measure.caption?.trim() || `${measure.aggregation} of ${display(pivotSourceBook().getValue(`${colToName(bounds.a.col + measure.field)}${bounds.a.row + 1}`)) || `Column ${measure.field + 1}`}`; return `<option value="${index}"${index === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`; }).join(''); host.innerHTML = pivotSavedValueFilters.map((filter, index) => `<div class="tool-group pivot-value-filter-row"><select class="context-select" data-pivot-vf-field="${index}" aria-label="Filter field">${fieldOptions(filter.field, index)}</select><select class="context-select" data-pivot-vf-measure="${index}" aria-label="Rank by calculation">${measureOptions(filter.measureIndex ?? 0)}</select><select class="context-select" data-pivot-vf-direction="${index}" aria-label="Top or Bottom"><option value="top"${filter.direction === 'top' ? ' selected' : ''}>Top</option><option value="bottom"${filter.direction === 'bottom' ? ' selected' : ''}>Bottom</option></select><input type="number" min="1" max="255" step="1" class="scenario-input" data-pivot-vf-count="${index}" aria-label="Item count" value="${filter.count}"/><button type="button" class="secondary-button" data-pivot-vf-remove="${index}">Remove</button></div>`).join(''); add.disabled = !axisFields.some(item => !used.has(item.field)) || !measures.length; add.title = add.disabled ? 'Select an unused row or column field and at least one Values calculation.' : ''; }
-function fillPivotValueFilterMeasures(_preferred) { renderPivotValueFilterEditors(); }
-function updatePivotChartRanges(spec, outputRange = spec.lastOutputRange) { for (const chart of doc.active.tools.charts)
-    if (chart.pivotId === spec.id) {
-        try {
-            const range = pivotChartRange(spec, outputRange);
-            chartRange(range, book.rows, book.cols);
-            chart.range = range;
-        }
-        catch {
-            toast(`Chart “${chart.title}” could not follow the refreshed Pivot Summary because its range is too large.`);
-        }
-    } }
-function replacePivotExpandControls(pivotId, controls) { for (const [ref, items] of pivotExpandControls) {
-    const remaining = items.filter(item => item.pivotId !== pivotId);
-    if (remaining.length)
-        pivotExpandControls.set(ref, remaining);
-    else
-        pivotExpandControls.delete(ref);
-} for (const item of controls) {
-    const current = pivotExpandControls.get(item.ref) ?? [];
-    current.push({ pivotId, path: item.path, collapsed: item.collapsed, axis: item.axis });
-    pivotExpandControls.set(item.ref, current);
-} }
-async function togglePivotRowGroup(control) { if (busyPivotGroupIds.has(control.pivotId))
-    return; const pivot = doc.active.tools.pivotTables.find(item => item.id === control.pivotId); if (!pivot)
-    return; const key = control.axis === 'column' ? 'collapsedColumns' : 'collapsedRows', previous = pivot[key]?.map(path => [...path]), pathKey = (path) => JSON.stringify(path.map(label => label.toLocaleLowerCase())), selectedKey = pathKey(control.path), next = control.collapsed ? (pivot[key] ?? []).filter(path => pathKey(path) !== selectedKey) : [...(pivot[key] ?? []).filter(path => pathKey(path) !== selectedKey), [...control.path]]; busyPivotGroupIds.add(pivot.id); if (next.length)
-    pivot[key] = next;
-else
-    delete pivot[key]; try {
-    if (await refreshAllPivotSummaries(undefined, new Set([pivot.id])) !== 1) {
-        if (previous?.length)
-            pivot[key] = previous;
-        else
-            delete pivot[key];
-        await refreshAllPivotSummaries(undefined, new Set([pivot.id]));
-        toast('The PivotTable group could not be changed; its previous state was restored.');
+function updatePivotChoice(select) {
+    const kind = select.dataset.pivotChoice, field = Number(select.dataset.pivotChoiceField), target = kind === 'report' ? pivotFilterValues : pivotItemFilterValues, options = Array.from(select.options), selected = options.slice(1).filter(option => option.selected);
+    if (options[0]?.selected && !selected.length) {
+        target.delete(field);
         return;
     }
-    save();
-    refresh();
+    if (!selected.length) {
+        target.set(field, []);
+        return;
+    }
+    if (options[0])
+        options[0].selected = false;
+    const visible = options.slice(1).map(option => JSON.parse(option.dataset.filterValue ?? 'null')), visibleKeys = new Set(visible.map(value => JSON.stringify(value))), prior = target.get(field) ?? [], preserved = prior.filter(value => !visibleKeys.has(JSON.stringify(value))), chosen = selected.map(option => JSON.parse(option.dataset.filterValue ?? 'null')), merged = [...new Map([...preserved, ...chosen].map(value => [JSON.stringify(value), value])).values()];
+    target.set(field, merged);
 }
-finally {
-    busyPivotGroupIds.delete(pivot.id);
-} }
+function preservePivotSearch(input, search, render) {
+    const id = input.id, value = input.value, caret = input.selectionStart ?? value.length;
+    search.set(Number(input.dataset.pivotSearchField), value);
+    render();
+    const next = document.getElementById(id);
+    if (next instanceof HTMLInputElement) {
+        next.focus();
+        next.setSelectionRange(caret, caret);
+    }
+}
+function fillPivotFilterValues() {
+    const field = el('pivot-filter-field'), host = el('pivot-filter-options');
+    try {
+        const { a, b } = pivotSourceBounds(), selected = Array.from(field.selectedOptions);
+        host.innerHTML = selected.map(option => pivotChoiceHtml('report', Number(option.value), option.text, pivotSourceValues(Number(option.value), a, b))).join('');
+        for (const input of Array.from(host.querySelectorAll('input[data-pivot-search]')))
+            input.addEventListener('input', () => preservePivotSearch(input, pivotFilterSearch, fillPivotFilterValues));
+        for (const button of Array.from(host.querySelectorAll('button[data-pivot-clear]')))
+            button.addEventListener('click', () => { pivotFilterValues.set(Number(button.dataset.pivotClearField), []); fillPivotFilterValues(); });
+        for (const select of Array.from(host.querySelectorAll('select[data-pivot-choice]')))
+            select.addEventListener('change', () => updatePivotChoice(select));
+    }
+    catch {
+        host.innerHTML = '';
+    }
+}
+function fillPivotItemFilterValues() {
+    const field = el('pivot-item-filter-field'), host = el('pivot-item-filter-options');
+    try {
+        const { a, b } = pivotSourceBounds(), selected = Array.from(field.selectedOptions);
+        host.innerHTML = selected.map(option => pivotChoiceHtml('item', Number(option.value), option.text, pivotGroupedSourceValues(Number(option.value), a, b))).join('');
+        for (const input of Array.from(host.querySelectorAll('input[data-pivot-search]')))
+            input.addEventListener('input', () => preservePivotSearch(input, pivotItemFilterSearch, fillPivotItemFilterValues));
+        for (const button of Array.from(host.querySelectorAll('button[data-pivot-clear]')))
+            button.addEventListener('click', () => { pivotItemFilterValues.delete(Number(button.dataset.pivotClearField)); fillPivotItemFilterValues(); });
+        for (const select of Array.from(host.querySelectorAll('select[data-pivot-choice]')))
+            select.addEventListener('change', () => updatePivotChoice(select));
+    }
+    catch {
+        host.innerHTML = '';
+    }
+}
+function fillPivotSourceTableOptions() { const select = el('pivot-source-table'), source = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()), range = el('pivot-source-range').value.trim().replace(/\$/g, '').toUpperCase(), prior = select.value, tables = source?.tools.tables ?? []; select.innerHTML = '<option value="">Cell range</option>' + tables.map(table => `<option value="${escapeHtml(table.name)}">${escapeHtml(table.name)} (${escapeHtml(table.range)})</option>`).join(''); select.value = tables.some(table => table.name === prior) ? prior : tables.find(table => table.range.replace(/\$/g, '').toUpperCase() === range)?.name ?? ''; }
+function fillPivotFields() {
+    fillPivotSourceTableOptions();
+    try {
+        const { a, b } = pivotSourceBounds(), fields = pivotSourceFieldHeaders(pivotSourceBook(), `${colToName(a.col)}${a.row + 1}:${colToName(b.col)}${a.row + 1}`).map((label, i) => ({ label, value: String(i) }));
+        for (const id of ['pivot-row-field', 'pivot-value-field']) {
+            const select = el(id), prior = id === 'pivot-value-field' ? new Set(Array.from(select.selectedOptions, option => option.value)) : new Set(), priorRows = id === 'pivot-row-field' ? new Set(Array.from(select.selectedOptions, option => option.value)) : new Set();
+            select.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
+            if (id === 'pivot-row-field' || id === 'pivot-value-field') {
+                fields.forEach((field, index) => { const keep = id === 'pivot-row-field' ? priorRows.has(field.value) : prior.has(field.value); select.options[index].selected = keep || (priorRows.size === 0 && prior.size === 0 && index === 0); });
+                if (id === 'pivot-value-field' && prior.size === 0) {
+                    const rows = el('pivot-row-field'), rowValues = new Set(Array.from(rows.selectedOptions, option => option.value)), fallback = fields.findIndex(field => !rowValues.has(field.value));
+                    Array.from(select.options).forEach(option => option.selected = false);
+                    select.options[fallback < 0 ? 0 : fallback].selected = true;
+                }
+            }
+        }
+        const col = el('pivot-column-field'), priorCols = new Set(Array.from(col.selectedOptions, option => option.value));
+        col.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
+        fields.forEach((field, index) => { col.options[index].selected = priorCols.has(field.value); });
+        const filter = el('pivot-filter-field'), priorFilters = new Set(Array.from(filter.selectedOptions, option => option.value));
+        filter.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
+        fields.forEach((field, index) => { filter.options[index].selected = priorFilters.has(field.value); });
+        const itemFilter = el('pivot-item-filter-field'), priorItemFilters = new Set(Array.from(itemFilter.selectedOptions, option => option.value));
+        itemFilter.innerHTML = fields.map(f => `<option value="${f.value}">${escapeHtml(f.label)}</option>`).join('');
+        fields.forEach((field, index) => { itemFilter.options[index].selected = priorItemFilters.has(field.value); });
+        fillPivotFilterValues();
+        fillPivotItemFilterValues();
+        fillPivotMeasureOptions();
+        fillPivotExtraMeasures();
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+        renderPivotFieldOrder('value');
+    }
+    catch {
+        el('pivot-row-field').innerHTML = '';
+        el('pivot-value-field').innerHTML = '';
+        el('pivot-column-field').innerHTML = '<option value="">No column field</option>';
+        el('pivot-filter-field').innerHTML = '';
+        el('pivot-item-filter-field').innerHTML = '';
+        fillPivotFilterValues();
+        fillPivotItemFilterValues();
+        fillPivotMeasureOptions();
+        fillPivotExtraMeasures();
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+        renderPivotFieldOrder('value');
+    }
+}
+function pivotSerialDateInput(serial) { return pivotSerialDateIso(serial) ?? ''; }
+function pivotInputDateSerial(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value) ? pivotDateSerial(value) : null; }
+function fillPivotDateFilterField(preferred) {
+    const select = el('pivot-date-filter-field'), prior = preferred ?? (select.value ? Number(select.value) : undefined), grouped = new Set([...pivotDateGroupChoices].filter(([, unit]) => unit !== 'none').map(([field]) => field));
+    for (const [field, interval] of pivotNumberGroupChoices)
+        if (Number(interval) > 0)
+            grouped.add(field);
+    for (const [field, text] of pivotManualGroupChoices)
+        if (text.trim())
+            grouped.add(field);
+    const fields = [...Array.from(el('pivot-row-field').selectedOptions, option => ({ field: Number(option.value), label: option.text })), ...Array.from(el('pivot-column-field').selectedOptions, option => ({ field: Number(option.value), label: option.text }))].filter(item => !grouped.has(item.field));
+    select.innerHTML = '<option value="">Off</option>' + fields.map(item => `<option value="${item.field}">${escapeHtml(item.label)}</option>`).join('');
+    select.value = prior !== undefined && fields.some(item => item.field === prior) ? String(prior) : '';
+}
+function fillPivotValueFilterFields(_preferred) { renderPivotValueFilterEditors(); fillPivotDateFilterField(); }
+function currentPivotUiMeasures() { const selected = new Set(Array.from(el('pivot-value-field').selectedOptions, option => Number(option.value))), primary = pivotValueFieldOrder.filter(field => selected.has(field)).map(field => ({ field, aggregation: pivotMeasureAggregations.get(String(field)) ?? defaultPivotAggregation(field), caption: pivotMeasureCaptions.get(String(field)), showAs: pivotMeasureShows.get(String(field)) ?? 'normal' })); return [...primary, ...pivotAdditionalMeasures.map(measure => ({ ...measure }))]; }
+function renderPivotValueFilterEditors() {
+    const host = el('pivot-value-filter-editors'), add = el('btn-pivot-add-value-filter'), axisFields = [...Array.from(el('pivot-row-field').selectedOptions, option => ({ field: Number(option.value), label: option.text })), ...Array.from(el('pivot-column-field').selectedOptions, option => ({ field: Number(option.value), label: option.text }))].filter((item, index, items) => items.findIndex(other => other.field === item.field) === index), measures = currentPivotUiMeasures(), axes = new Set(axisFields.map(item => item.field));
+    pivotSavedValueFilters = pivotSavedValueFilters.flatMap((filter, index) => {
+        if (!axes.has(filter.field) || !Number.isInteger(filter.count) || filter.count < 1 || filter.count > 255)
+            return [];
+        let measureIndex = filter.measureIndex !== undefined && Number.isInteger(filter.measureIndex) && measures[filter.measureIndex]?.field === filter.measureField ? filter.measureIndex : measures.findIndex(measure => measure.field === filter.measureField);
+        if (measureIndex < 0 && measures.length)
+            measureIndex = 0;
+        if (measureIndex < 0)
+            return [];
+        const normalized = { ...filter, measureIndex, measureField: measures[measureIndex].field };
+        return pivotSavedValueFilters.findIndex(item => item.field === filter.field) === index ? [normalized] : [];
+    }).sort((left, right) => axisFields.findIndex(item => item.field === left.field) - axisFields.findIndex(item => item.field === right.field));
+    const used = new Set(pivotSavedValueFilters.map(filter => filter.field)), fieldOptions = (selected, currentIndex) => axisFields.filter(item => !pivotSavedValueFilters.some((other, index) => index !== currentIndex && other.field === item.field)).map(item => `<option value="${item.field}"${item.field === selected ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join(''), measureOptions = (selected) => measures.map((measure, index) => { const bounds = pivotSourceBounds(), label = measure.caption?.trim() || `${measure.aggregation} of ${display(pivotSourceBook().getValue(`${colToName(bounds.a.col + measure.field)}${bounds.a.row + 1}`)) || `Column ${measure.field + 1}`}`; return `<option value="${index}"${index === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`; }).join('');
+    host.innerHTML = pivotSavedValueFilters.map((filter, index) => `<div class="tool-group pivot-value-filter-row"><select class="context-select" data-pivot-vf-field="${index}" aria-label="Filter field">${fieldOptions(filter.field, index)}</select><select class="context-select" data-pivot-vf-measure="${index}" aria-label="Rank by calculation">${measureOptions(filter.measureIndex ?? 0)}</select><select class="context-select" data-pivot-vf-direction="${index}" aria-label="Top or Bottom"><option value="top"${filter.direction === 'top' ? ' selected' : ''}>Top</option><option value="bottom"${filter.direction === 'bottom' ? ' selected' : ''}>Bottom</option></select><input type="number" min="1" max="255" step="1" class="scenario-input" data-pivot-vf-count="${index}" aria-label="Item count" value="${filter.count}"/><button type="button" class="secondary-button" data-pivot-vf-remove="${index}">Remove</button></div>`).join('');
+    add.disabled = !axisFields.some(item => !used.has(item.field)) || !measures.length;
+    add.title = add.disabled ? 'Select an unused row or column field and at least one Values calculation.' : '';
+}
+function fillPivotValueFilterMeasures(_preferred) { renderPivotValueFilterEditors(); }
+function updatePivotChartRanges(spec, outputRange = spec.lastOutputRange) {
+    for (const chart of doc.active.tools.charts)
+        if (chart.pivotId === spec.id) {
+            try {
+                const range = pivotChartRange(spec, outputRange);
+                chartRange(range, book.rows, book.cols);
+                chart.range = range;
+            }
+            catch {
+                toast(`Chart “${chart.title}” could not follow the refreshed Pivot Summary because its range is too large.`);
+            }
+        }
+}
+function replacePivotExpandControls(pivotId, controls) {
+    for (const [ref, items] of pivotExpandControls) {
+        const remaining = items.filter(item => item.pivotId !== pivotId);
+        if (remaining.length)
+            pivotExpandControls.set(ref, remaining);
+        else
+            pivotExpandControls.delete(ref);
+    }
+    for (const item of controls) {
+        const current = pivotExpandControls.get(item.ref) ?? [];
+        current.push({ pivotId, path: item.path, collapsed: item.collapsed, axis: item.axis });
+        pivotExpandControls.set(item.ref, current);
+    }
+}
+async function togglePivotRowGroup(control) {
+    if (busyPivotGroupIds.has(control.pivotId))
+        return;
+    const pivot = doc.active.tools.pivotTables.find(item => item.id === control.pivotId);
+    if (!pivot)
+        return;
+    const key = control.axis === 'column' ? 'collapsedColumns' : 'collapsedRows', previous = pivot[key]?.map(path => [...path]), pathKey = (path) => JSON.stringify(path.map(label => label.toLocaleLowerCase())), selectedKey = pathKey(control.path), next = control.collapsed ? (pivot[key] ?? []).filter(path => pathKey(path) !== selectedKey) : [...(pivot[key] ?? []).filter(path => pathKey(path) !== selectedKey), [...control.path]];
+    busyPivotGroupIds.add(pivot.id);
+    if (next.length)
+        pivot[key] = next;
+    else
+        delete pivot[key];
+    try {
+        if (await refreshAllPivotSummaries(undefined, new Set([pivot.id])) !== 1) {
+            if (previous?.length)
+                pivot[key] = previous;
+            else
+                delete pivot[key];
+            await refreshAllPivotSummaries(undefined, new Set([pivot.id]));
+            toast('The PivotTable group could not be changed; its previous state was restored.');
+            return;
+        }
+        save();
+        refresh();
+    }
+    finally {
+        busyPivotGroupIds.delete(pivot.id);
+    }
+}
 function extendPivotSourcesForTableGrowth(growth) {
     for (const change of growth) {
         const prior = change.before.replace(/\$/g, '').toUpperCase();
@@ -6004,19 +7276,31 @@ function renderPivotFieldOrder(axis) {
         input.addEventListener('change', () => { pivotShowEmptyItemChoices.set(Number(input.dataset.pivotShowEmpty), input.checked); });
     for (const input of Array.from(host.querySelectorAll('textarea[data-pivot-manual-group]'))) {
         input.addEventListener('input', () => pivotManualGroupChoices.set(Number(input.dataset.pivotManualGroup), input.value));
-        input.addEventListener('change', () => { const field = Number(input.dataset.pivotManualGroup); try {
-            if (input.value.trim())
-                parsePivotManualGroupText(field, input.value);
-        }
-        catch {
-            return;
-        } refreshPivotManualOrder(field); });
+        input.addEventListener('change', () => {
+            const field = Number(input.dataset.pivotManualGroup);
+            try {
+                if (input.value.trim())
+                    parsePivotManualGroupText(field, input.value);
+            }
+            catch {
+                return;
+            }
+            refreshPivotManualOrder(field);
+        });
     }
     for (const select of Array.from(host.querySelectorAll('select[data-pivot-manual-order-list]')))
         select.addEventListener('change', () => pivotManualItemSelectedChoices.set(Number(select.dataset.pivotManualOrderList), Number(select.value)));
     for (const button of Array.from(host.querySelectorAll('button[data-pivot-manual-order-move]')))
-        button.addEventListener('click', () => { const [direction, fieldText = ''] = (button.dataset.pivotManualOrderMove ?? '').split(':'), field = Number(fieldText), items = pivotManualItemOrderChoices.get(field) ?? pivotSourceManualItems(field), index = pivotManualItemSelectedChoices.get(field) ?? 0, next = index + (direction === 'up' ? -1 : 1); if (index < 0 || next < 0 || next >= items.length)
-            return; const [item] = items.splice(index, 1); items.splice(next, 0, item ?? null); pivotManualItemOrderChoices.set(field, items); pivotManualItemSelectedChoices.set(field, next); renderPivotFieldOrder(pivotRowFieldOrder.includes(field) ? 'row' : 'column'); });
+        button.addEventListener('click', () => {
+            const [direction, fieldText = ''] = (button.dataset.pivotManualOrderMove ?? '').split(':'), field = Number(fieldText), items = pivotManualItemOrderChoices.get(field) ?? pivotSourceManualItems(field), index = pivotManualItemSelectedChoices.get(field) ?? 0, next = index + (direction === 'up' ? -1 : 1);
+            if (index < 0 || next < 0 || next >= items.length)
+                return;
+            const [item] = items.splice(index, 1);
+            items.splice(next, 0, item ?? null);
+            pivotManualItemOrderChoices.set(field, items);
+            pivotManualItemSelectedChoices.set(field, next);
+            renderPivotFieldOrder(pivotRowFieldOrder.includes(field) ? 'row' : 'column');
+        });
     for (const button of Array.from(host.querySelectorAll('button[data-pivot-order]')))
         button.addEventListener('click', () => {
             const [direction = 'up', fieldText = ''] = (button.dataset.pivotOrder ?? '').split(':'), field = Number(fieldText), list = axis === 'row' ? pivotRowFieldOrder : axis === 'column' ? pivotColumnFieldOrder : pivotValueFieldOrder, index = list.indexOf(field), next = index + (direction === 'up' ? -1 : 1);
@@ -6141,495 +7425,692 @@ function scheduleExternalPivotRefresh(changes) {
         pendingPivotSourceChanges.clear();
         if (!refreshAll && !sourceChanges.length)
             return;
-        externalPivotRefreshQueue = externalPivotRefreshQueue.then(async () => { const count = await refreshAllPivotSummaries(refreshAll ? undefined : sourceChanges); flushPendingPivotRefreshes(); if (count) {
-            save();
-            refresh();
-        } }).catch(error => { toast(error instanceof Error ? error.message : 'Unable to refresh PivotTables after a workbook change.'); });
+        externalPivotRefreshQueue = externalPivotRefreshQueue.then(async () => {
+            const count = await refreshAllPivotSummaries(refreshAll ? undefined : sourceChanges);
+            flushPendingPivotRefreshes();
+            if (count) {
+                save();
+                refresh();
+            }
+        }).catch(error => { toast(error instanceof Error ? error.message : 'Unable to refresh PivotTables after a workbook change.'); });
     }, 25);
 }
 function pivotRangesOverlap(left, right) { const boundsOf = (range) => { const parts = range.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? ''); return a && b ? { r1: a.row, r2: b.row, c1: a.col, c2: b.col } : null; }, a = boundsOf(left), b = boundsOf(right); return !!a && !!b && !(a.r2 < b.r1 || b.r2 < a.r1 || a.c2 < b.c1 || b.c2 < a.c1); }
 function queryRangeContains(range, ref) { const parts = range.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? ''), p = parseRef(ref); return !!a && !!b && !!p && p.row >= a.row && p.row <= b.row && p.col >= a.col && p.col <= b.col; }
 function syncPivotSubtotalMaster() { const rows = Array.from(el('pivot-row-field').selectedOptions, option => Number(option.value)), enabled = rows.filter(field => pivotSubtotalChoices.get(field) ?? true).length, master = el('pivot-subtotals'); master.checked = enabled > 0; master.indeterminate = enabled > 0 && enabled < rows.length; }
-function renderPivotSubtotalOptions() { const select = el('pivot-row-field'), host = el('pivot-subtotal-options'), rows = Array.from(select.selectedOptions, option => ({ field: Number(option.value), label: option.text })); host.innerHTML = rows.map(({ field, label }) => `<label><input type="checkbox" data-pivot-subtotal-field="${field}"${(pivotSubtotalChoices.get(field) ?? el('pivot-subtotals').checked) ? ' checked' : ''}/> ${escapeHtml(label)}</label>`).join(''); for (const input of Array.from(host.querySelectorAll('input[data-pivot-subtotal-field]')))
-    input.addEventListener('change', () => { pivotSubtotalChoices.set(Number(input.dataset.pivotSubtotalField), input.checked); syncPivotSubtotalMaster(); }); syncPivotSubtotalMaster(); }
+function renderPivotSubtotalOptions() {
+    const select = el('pivot-row-field'), host = el('pivot-subtotal-options'), rows = Array.from(select.selectedOptions, option => ({ field: Number(option.value), label: option.text }));
+    host.innerHTML = rows.map(({ field, label }) => `<label><input type="checkbox" data-pivot-subtotal-field="${field}"${(pivotSubtotalChoices.get(field) ?? el('pivot-subtotals').checked) ? ' checked' : ''}/> ${escapeHtml(label)}</label>`).join('');
+    for (const input of Array.from(host.querySelectorAll('input[data-pivot-subtotal-field]')))
+        input.addEventListener('change', () => { pivotSubtotalChoices.set(Number(input.dataset.pivotSubtotalField), input.checked); syncPivotSubtotalMaster(); });
+    syncPivotSubtotalMaster();
+}
 function syncPivotColumnSubtotalMaster() { const fields = Array.from(el('pivot-column-field').selectedOptions, option => Number(option.value)), enabled = fields.filter(field => pivotColumnSubtotalChoices.get(field) ?? true).length, master = el('pivot-column-subtotals'); master.checked = enabled > 0; master.indeterminate = enabled > 0 && enabled < fields.length; }
-function renderPivotColumnSubtotalOptions() { const select = el('pivot-column-field'), host = el('pivot-column-subtotal-options'), fields = Array.from(select.selectedOptions, option => ({ field: Number(option.value), label: option.text })); host.innerHTML = fields.map(({ field, label }) => `<label><input type="checkbox" data-pivot-column-subtotal-field="${field}"${(pivotColumnSubtotalChoices.get(field) ?? el('pivot-column-subtotals').checked) ? ' checked' : ''}/> ${escapeHtml(label)}</label>`).join(''); for (const input of Array.from(host.querySelectorAll('input[data-pivot-column-subtotal-field]')))
-    input.addEventListener('change', () => { pivotColumnSubtotalChoices.set(Number(input.dataset.pivotColumnSubtotalField), input.checked); syncPivotColumnSubtotalMaster(); }); syncPivotColumnSubtotalMaster(); }
-function fillPivotSlicerConnections(pivot, field) { const select = el('pivot-slicer-connections'); if (!pivot || field === undefined) {
-    select.innerHTML = '';
-    select.disabled = true;
-    return;
-} const sourceKey = (item) => `${(item.sourceSheet ?? doc.active.name).toLocaleLowerCase()}|${item.sourceRange.replace(/\$/g, '').toUpperCase()}`, eligible = (item) => { const axes = [...(item.rowFields ?? [item.rowField]), ...(item.columnFields ?? (item.columnField === undefined ? [] : [item.columnField]))], grouped = [...(item.dateGroups ?? []).map(group => group.field), ...(item.numberGroups ?? []).map(group => group.field), ...(item.manualGroups ?? []).map(group => group.field)]; return axes.includes(field) && !grouped.includes(field) && sourceKey(item) === sourceKey(pivot) && !doc.active.tools.pivotSlicers.some(slicer => slicer.field === field && [slicer.pivotId, ...(slicer.pivotIds ?? [])].includes(item.id)); }, compatible = doc.active.tools.pivotTables.filter(item => eligible(item) || item.id === pivot.id), chosen = new Set([pivot.id]); select.innerHTML = compatible.map(item => `<option value="${escapeHtml(item.id)}"${chosen.has(item.id) ? ' selected' : ''}>${escapeHtml(item.id === pivot.id ? 'This Pivot Summary' : `Pivot Summary ${item.id}`)}</option>`).join(''); select.disabled = false; }
-function fillPivotSlicerFields(pivot) { const select = el('pivot-slicer-field'); if (!pivot) {
-    select.innerHTML = '<option value="">Save the Pivot Summary first</option>';
-    select.disabled = true;
-    el('btn-pivot-add-slicer').disabled = true;
-    fillPivotSlicerConnections(undefined, undefined);
-    return;
-} const source = pivotSlicerSource(pivot), [start] = pivot.sourceRange.split(':'), bounds = parseRef(start ?? ''), axes = [...(pivot.rowFields ?? [pivot.rowField]), ...(pivot.columnFields ?? (pivot.columnField === undefined ? [] : [pivot.columnField]))], grouped = new Set([...(pivot.dateGroups ?? []).map(group => group.field), ...(pivot.numberGroups ?? []).map(group => group.field), ...(pivot.manualGroups ?? []).map(group => group.field)]), existing = new Set(doc.active.tools.pivotSlicers.filter(item => [item.pivotId, ...(item.pivotIds ?? [])].includes(pivot.id)).map(item => item.field)), options = axes.filter((field, index) => axes.indexOf(field) === index && !grouped.has(field) && !existing.has(field)).map(field => { const caption = source && bounds ? display(source.getValue(`${colToName(bounds.col + field)}${bounds.row + 1}`)) || `Field ${field + 1}` : `Field ${field + 1}`; return `<option value="${field}">${escapeHtml(caption)}</option>`; }); select.innerHTML = options.join('') || '<option value="">No eligible row or column fields</option>'; select.disabled = !options.length; el('btn-pivot-add-slicer').disabled = !options.length; fillPivotSlicerConnections(pivot, options.length ? Number(select.value) : undefined); }
-function openPivotSummary() { pivotDialogJobSequence++; const createButton = el('create-pivot-summary'); createButton.disabled = false; createButton.textContent = 'Create summary'; pivotDefaultAggregationCache.clear(); const { start, end, bounds } = selectionRange(), selected = doc.active.tools.pivotTables.find(spec => !!spec.lastOutputRange && pivotRangesOverlap(spec.lastOutputRange, `${start}:${end}`)), sourceSheetSelect = el('pivot-source-sheet'); sourceSheetSelect.innerHTML = doc.sheets.map(sheet => `<option value="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</option>`).join(''); sourceSheetSelect.value = selected?.sourceSheet ?? doc.active.name; editingPivotId = selected?.id ?? null; pivotShowEmptyItemChoices.clear(); pivotManualGroupChoices.clear(); pivotManualItemOrderChoices.clear(); pivotManualItemSelectedChoices.clear(); if (selected) {
-    for (const order of selected.manualItemOrders ?? [])
-        pivotManualItemOrderChoices.set(order.field, [...order.items]);
-    pivotSavedValueFilters = (selected.valueFilters ?? (selected.valueFilter ? [selected.valueFilter] : [])).map(filter => ({ ...filter }));
-    for (const group of selected.manualGroups ?? [])
-        pivotManualGroupChoices.set(group.field, group.groups.map(item => `${item.label} = ${item.values.map(value => value ?? '(blank)').join(' | ')}`).join('`n'));
-    const selectedAxes = [...(selected.rowFields ?? [selected.rowField]), ...(selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]))], showFields = new Set(selected.showEmptyItemsFields ?? (selected.showEmptyItems ? selectedAxes : []));
-    for (const field of selectedAxes)
-        pivotShowEmptyItemChoices.set(field, showFields.has(field));
-} const selectedSourceTable = selected?.sourceTable ? doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === sourceSheetSelect.value.toLocaleLowerCase())?.tools.tables.find(table => table.name.toLocaleLowerCase() === selected.sourceTable.toLocaleLowerCase()) : undefined, source = selectedSourceTable?.range.replace(/\$/g, '').toUpperCase() ?? selected?.sourceRange ?? `${start}:${end}`; el('pivot-source-range').value = source; el('pivot-summary-error').textContent = ''; fillPivotFields(); if (selected) {
-    el('delete-pivot-summary').hidden = false;
-    el('pivot-refresh').hidden = false;
-    el('pivot-collapse-all').hidden = false;
-    el('pivot-expand-all').hidden = false;
-    el('pivot-chart').hidden = false;
-    const selectValues = (id, values) => { const select = el(id), set = new Set(values.map(String)); Array.from(select.options).forEach(option => option.selected = set.has(option.value)); };
-    selectValues('pivot-row-field', selected.rowFields ?? [selected.rowField]);
-    pivotRowFieldOrder = [...(selected.rowFields ?? [selected.rowField])];
-    renderPivotFieldOrder('row');
-    pivotSubtotalChoices.clear();
-    for (const field of selected.rowFields ?? [selected.rowField])
-        pivotSubtotalChoices.set(field, selected.subtotalFields !== undefined ? selected.subtotalFields.includes(field) : selected.subtotals ?? true);
-    selectValues('pivot-column-field', selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]));
-    pivotColumnFieldOrder = [...(selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]))];
-    renderPivotFieldOrder('column');
-    pivotColumnSubtotalChoices.clear();
-    for (const field of selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]))
-        pivotColumnSubtotalChoices.set(field, selected.columnSubtotalFields !== undefined ? selected.columnSubtotalFields.includes(field) : selected.columnSubtotals ?? false);
-    fillPivotDateFilterField(selected.dateFilters?.[0]?.field);
-    const savedDateFilter = selected.dateFilters?.[0];
-    el('pivot-date-filter-start').value = savedDateFilter ? pivotSerialDateInput(savedDateFilter.start) : '';
-    el('pivot-date-filter-end').value = savedDateFilter ? pivotSerialDateInput(savedDateFilter.end) : '';
-    const savedMeasures = selected.measures ?? (selected.valueFields ?? [selected.valueField]).map(field => ({ field, aggregation: selected.aggregation })), baseMeasures = savedMeasures.filter((measure, index) => savedMeasures.findIndex(item => item.field === measure.field) === index);
-    selectValues('pivot-value-field', baseMeasures.map(measure => measure.field));
-    pivotValueFieldOrder = baseMeasures.map(measure => measure.field);
-    renderPivotFieldOrder('value');
-    const filters = selected.filters ?? (selected.filterField === undefined ? [] : [{ field: selected.filterField, value: selected.filterValue }]);
-    selectValues('pivot-filter-field', filters.map(filter => filter.field));
-    const itemFilters = selected.itemFilters ?? [];
-    selectValues('pivot-item-filter-field', itemFilters.map(filter => filter.field));
-    for (const filter of itemFilters)
-        pivotItemFilterValues.set(filter.field, filter.values);
-    fillPivotItemFilterValues();
-    for (const filter of filters) {
-        const values = filter.values ?? (filter.value === undefined ? [] : [filter.value]);
-        pivotFilterValues.set(filter.field, values);
+function renderPivotColumnSubtotalOptions() {
+    const select = el('pivot-column-field'), host = el('pivot-column-subtotal-options'), fields = Array.from(select.selectedOptions, option => ({ field: Number(option.value), label: option.text }));
+    host.innerHTML = fields.map(({ field, label }) => `<label><input type="checkbox" data-pivot-column-subtotal-field="${field}"${(pivotColumnSubtotalChoices.get(field) ?? el('pivot-column-subtotals').checked) ? ' checked' : ''}/> ${escapeHtml(label)}</label>`).join('');
+    for (const input of Array.from(host.querySelectorAll('input[data-pivot-column-subtotal-field]')))
+        input.addEventListener('change', () => { pivotColumnSubtotalChoices.set(Number(input.dataset.pivotColumnSubtotalField), input.checked); syncPivotColumnSubtotalMaster(); });
+    syncPivotColumnSubtotalMaster();
+}
+function fillPivotSlicerConnections(pivot, field) {
+    const select = el('pivot-slicer-connections');
+    if (!pivot || field === undefined) {
+        select.innerHTML = '';
+        select.disabled = true;
+        return;
     }
-    pivotMeasureAggregations.clear();
-    pivotMeasureCaptions.clear();
-    pivotMeasureShows.clear();
-    pivotMeasureBaseFields.clear();
-    pivotMeasureBaseItems.clear();
-    pivotAdditionalMeasures = [];
-    const seenMeasureFields = new Set();
-    for (const measure of savedMeasures) {
-        if (seenMeasureFields.has(measure.field))
-            pivotAdditionalMeasures.push({ ...measure });
-        else {
-            seenMeasureFields.add(measure.field);
-            pivotMeasureAggregations.set(String(measure.field), measure.aggregation);
-            if (measure.caption !== undefined)
-                pivotMeasureCaptions.set(String(measure.field), measure.caption);
-            if (measure.showAs)
-                pivotMeasureShows.set(String(measure.field), measure.showAs);
-            if (measure.baseField !== undefined)
-                pivotMeasureBaseFields.set(String(measure.field), measure.baseField);
-            if (measure.baseItem !== undefined)
-                pivotMeasureBaseItems.set(String(measure.field), measure.baseItem);
+    const sourceKey = (item) => `${(item.sourceSheet ?? doc.active.name).toLocaleLowerCase()}|${item.sourceRange.replace(/\$/g, '').toUpperCase()}`, eligible = (item) => { const axes = [...(item.rowFields ?? [item.rowField]), ...(item.columnFields ?? (item.columnField === undefined ? [] : [item.columnField]))], grouped = [...(item.dateGroups ?? []).map(group => group.field), ...(item.numberGroups ?? []).map(group => group.field), ...(item.manualGroups ?? []).map(group => group.field)]; return axes.includes(field) && !grouped.includes(field) && sourceKey(item) === sourceKey(pivot) && !doc.active.tools.pivotSlicers.some(slicer => slicer.field === field && [slicer.pivotId, ...(slicer.pivotIds ?? [])].includes(item.id)); }, compatible = doc.active.tools.pivotTables.filter(item => eligible(item) || item.id === pivot.id), chosen = new Set([pivot.id]);
+    select.innerHTML = compatible.map(item => `<option value="${escapeHtml(item.id)}"${chosen.has(item.id) ? ' selected' : ''}>${escapeHtml(item.id === pivot.id ? 'This Pivot Summary' : `Pivot Summary ${item.id}`)}</option>`).join('');
+    select.disabled = false;
+}
+function fillPivotSlicerFields(pivot) {
+    const select = el('pivot-slicer-field');
+    if (!pivot) {
+        select.innerHTML = '<option value="">Save the Pivot Summary first</option>';
+        select.disabled = true;
+        el('btn-pivot-add-slicer').disabled = true;
+        fillPivotSlicerConnections(undefined, undefined);
+        return;
+    }
+    const source = pivotSlicerSource(pivot), [start] = pivot.sourceRange.split(':'), bounds = parseRef(start ?? ''), axes = [...(pivot.rowFields ?? [pivot.rowField]), ...(pivot.columnFields ?? (pivot.columnField === undefined ? [] : [pivot.columnField]))], grouped = new Set([...(pivot.dateGroups ?? []).map(group => group.field), ...(pivot.numberGroups ?? []).map(group => group.field), ...(pivot.manualGroups ?? []).map(group => group.field)]), existing = new Set(doc.active.tools.pivotSlicers.filter(item => [item.pivotId, ...(item.pivotIds ?? [])].includes(pivot.id)).map(item => item.field)), options = axes.filter((field, index) => axes.indexOf(field) === index && !grouped.has(field) && !existing.has(field)).map(field => { const caption = source && bounds ? display(source.getValue(`${colToName(bounds.col + field)}${bounds.row + 1}`)) || `Field ${field + 1}` : `Field ${field + 1}`; return `<option value="${field}">${escapeHtml(caption)}</option>`; });
+    select.innerHTML = options.join('') || '<option value="">No eligible row or column fields</option>';
+    select.disabled = !options.length;
+    el('btn-pivot-add-slicer').disabled = !options.length;
+    fillPivotSlicerConnections(pivot, options.length ? Number(select.value) : undefined);
+}
+function openPivotSummary() {
+    pivotDialogJobSequence++;
+    const createButton = el('create-pivot-summary');
+    createButton.disabled = false;
+    createButton.textContent = 'Create summary';
+    pivotDefaultAggregationCache.clear();
+    const { start, end, bounds } = selectionRange(), selected = doc.active.tools.pivotTables.find(spec => !!spec.lastOutputRange && pivotRangesOverlap(spec.lastOutputRange, `${start}:${end}`)), sourceSheetSelect = el('pivot-source-sheet');
+    sourceSheetSelect.innerHTML = doc.sheets.map(sheet => `<option value="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</option>`).join('');
+    sourceSheetSelect.value = selected?.sourceSheet ?? doc.active.name;
+    editingPivotId = selected?.id ?? null;
+    pivotShowEmptyItemChoices.clear();
+    pivotManualGroupChoices.clear();
+    pivotManualItemOrderChoices.clear();
+    pivotManualItemSelectedChoices.clear();
+    if (selected) {
+        for (const order of selected.manualItemOrders ?? [])
+            pivotManualItemOrderChoices.set(order.field, [...order.items]);
+        pivotSavedValueFilters = (selected.valueFilters ?? (selected.valueFilter ? [selected.valueFilter] : [])).map(filter => ({ ...filter }));
+        for (const group of selected.manualGroups ?? [])
+            pivotManualGroupChoices.set(group.field, group.groups.map(item => `${item.label} = ${item.values.map(value => value ?? '(blank)').join(' | ')}`).join('`n'));
+        const selectedAxes = [...(selected.rowFields ?? [selected.rowField]), ...(selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]))], showFields = new Set(selected.showEmptyItemsFields ?? (selected.showEmptyItems ? selectedAxes : []));
+        for (const field of selectedAxes)
+            pivotShowEmptyItemChoices.set(field, showFields.has(field));
+    }
+    const selectedSourceTable = selected?.sourceTable ? doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === sourceSheetSelect.value.toLocaleLowerCase())?.tools.tables.find(table => table.name.toLocaleLowerCase() === selected.sourceTable.toLocaleLowerCase()) : undefined, source = selectedSourceTable?.range.replace(/\$/g, '').toUpperCase() ?? selected?.sourceRange ?? `${start}:${end}`;
+    el('pivot-source-range').value = source;
+    el('pivot-summary-error').textContent = '';
+    fillPivotFields();
+    if (selected) {
+        el('delete-pivot-summary').hidden = false;
+        el('pivot-refresh').hidden = false;
+        el('pivot-collapse-all').hidden = false;
+        el('pivot-expand-all').hidden = false;
+        el('pivot-chart').hidden = false;
+        const selectValues = (id, values) => { const select = el(id), set = new Set(values.map(String)); Array.from(select.options).forEach(option => option.selected = set.has(option.value)); };
+        selectValues('pivot-row-field', selected.rowFields ?? [selected.rowField]);
+        pivotRowFieldOrder = [...(selected.rowFields ?? [selected.rowField])];
+        renderPivotFieldOrder('row');
+        pivotSubtotalChoices.clear();
+        for (const field of selected.rowFields ?? [selected.rowField])
+            pivotSubtotalChoices.set(field, selected.subtotalFields !== undefined ? selected.subtotalFields.includes(field) : selected.subtotals ?? true);
+        selectValues('pivot-column-field', selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]));
+        pivotColumnFieldOrder = [...(selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]))];
+        renderPivotFieldOrder('column');
+        pivotColumnSubtotalChoices.clear();
+        for (const field of selected.columnFields ?? (selected.columnField === undefined ? [] : [selected.columnField]))
+            pivotColumnSubtotalChoices.set(field, selected.columnSubtotalFields !== undefined ? selected.columnSubtotalFields.includes(field) : selected.columnSubtotals ?? false);
+        fillPivotDateFilterField(selected.dateFilters?.[0]?.field);
+        const savedDateFilter = selected.dateFilters?.[0];
+        el('pivot-date-filter-start').value = savedDateFilter ? pivotSerialDateInput(savedDateFilter.start) : '';
+        el('pivot-date-filter-end').value = savedDateFilter ? pivotSerialDateInput(savedDateFilter.end) : '';
+        const savedMeasures = selected.measures ?? (selected.valueFields ?? [selected.valueField]).map(field => ({ field, aggregation: selected.aggregation })), baseMeasures = savedMeasures.filter((measure, index) => savedMeasures.findIndex(item => item.field === measure.field) === index);
+        selectValues('pivot-value-field', baseMeasures.map(measure => measure.field));
+        pivotValueFieldOrder = baseMeasures.map(measure => measure.field);
+        renderPivotFieldOrder('value');
+        const filters = selected.filters ?? (selected.filterField === undefined ? [] : [{ field: selected.filterField, value: selected.filterValue }]);
+        selectValues('pivot-filter-field', filters.map(filter => filter.field));
+        const itemFilters = selected.itemFilters ?? [];
+        selectValues('pivot-item-filter-field', itemFilters.map(filter => filter.field));
+        for (const filter of itemFilters)
+            pivotItemFilterValues.set(filter.field, filter.values);
+        fillPivotItemFilterValues();
+        for (const filter of filters) {
+            const values = filter.values ?? (filter.value === undefined ? [] : [filter.value]);
+            pivotFilterValues.set(filter.field, values);
         }
+        pivotMeasureAggregations.clear();
+        pivotMeasureCaptions.clear();
+        pivotMeasureShows.clear();
+        pivotMeasureBaseFields.clear();
+        pivotMeasureBaseItems.clear();
+        pivotAdditionalMeasures = [];
+        const seenMeasureFields = new Set();
+        for (const measure of savedMeasures) {
+            if (seenMeasureFields.has(measure.field))
+                pivotAdditionalMeasures.push({ ...measure });
+            else {
+                seenMeasureFields.add(measure.field);
+                pivotMeasureAggregations.set(String(measure.field), measure.aggregation);
+                if (measure.caption !== undefined)
+                    pivotMeasureCaptions.set(String(measure.field), measure.caption);
+                if (measure.showAs)
+                    pivotMeasureShows.set(String(measure.field), measure.showAs);
+                if (measure.baseField !== undefined)
+                    pivotMeasureBaseFields.set(String(measure.field), measure.baseField);
+                if (measure.baseItem !== undefined)
+                    pivotMeasureBaseItems.set(String(measure.field), measure.baseItem);
+            }
+        }
+        fillPivotFilterValues();
+        fillPivotMeasureOptions();
+        fillPivotExtraMeasures();
+        el('pivot-sort-order').value = selected.sortOrder ?? 'ascending';
+        pivotFieldSortChoices.clear();
+        for (const [field, order] of Object.entries(selected.fieldSortOrders ?? {}))
+            pivotFieldSortChoices.set(Number(field), order);
+        pivotLabelFilterChoices.clear();
+        for (const filter of selected.labelFilters ?? [])
+            pivotLabelFilterChoices.set(filter.field, { operator: filter.operator, value: filter.value, ...(filter.value2 === undefined ? {} : { value2: filter.value2 }) });
+        pivotSortMeasureChoices.clear();
+        for (const sort of selected.valueSorts ?? (selected.valueSort ? [selected.valueSort] : []))
+            pivotSortMeasureChoices.set(sort.field, sort.measureIndex ?? 0);
+        pivotDateGroupChoices.clear();
+        for (const group of selected.dateGroups ?? [])
+            pivotDateGroupChoices.set(group.field, group.unit);
+        pivotNumberGroupChoices.clear();
+        pivotNumberGroupStarts.clear();
+        pivotNumberGroupEnds.clear();
+        pivotManualGroupChoices.clear();
+        for (const group of selected.numberGroups ?? []) {
+            pivotNumberGroupChoices.set(group.field, String(group.interval));
+            if (group.start !== undefined)
+                pivotNumberGroupStarts.set(group.field, String(group.start));
+            if (group.end !== undefined)
+                pivotNumberGroupEnds.set(group.field, String(group.end));
+        }
+        fillPivotDateFilterField(selected.dateFilters?.[0]?.field);
+        reconcileSelectedPivotManualItemOrders();
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+        el('pivot-layout').value = selected.layout ?? 'tabular';
+        el('pivot-subtotals').checked = selected.subtotals ?? true;
+        el('pivot-subtotals-top').checked = selected.subtotalPosition === 'top';
+        el('pivot-blank-rows').checked = selected.blankRows ?? false;
+        renderPivotSubtotalOptions();
+        el('pivot-row-grand-totals').checked = selected.rowGrandTotals ?? true;
+        el('pivot-column-subtotals').checked = selected.columnSubtotals ?? false;
+        renderPivotColumnSubtotalOptions();
+        el('pivot-column-grand-totals').checked = selected.columnGrandTotals ?? true;
+        el('pivot-destination').value = selected.destination;
+        el('create-pivot-summary').textContent = 'Update summary';
     }
-    fillPivotFilterValues();
-    fillPivotMeasureOptions();
-    fillPivotExtraMeasures();
-    el('pivot-sort-order').value = selected.sortOrder ?? 'ascending';
-    pivotFieldSortChoices.clear();
-    for (const [field, order] of Object.entries(selected.fieldSortOrders ?? {}))
-        pivotFieldSortChoices.set(Number(field), order);
-    pivotLabelFilterChoices.clear();
-    for (const filter of selected.labelFilters ?? [])
-        pivotLabelFilterChoices.set(filter.field, { operator: filter.operator, value: filter.value, ...(filter.value2 === undefined ? {} : { value2: filter.value2 }) });
-    pivotSortMeasureChoices.clear();
-    for (const sort of selected.valueSorts ?? (selected.valueSort ? [selected.valueSort] : []))
-        pivotSortMeasureChoices.set(sort.field, sort.measureIndex ?? 0);
-    pivotDateGroupChoices.clear();
-    for (const group of selected.dateGroups ?? [])
-        pivotDateGroupChoices.set(group.field, group.unit);
-    pivotNumberGroupChoices.clear();
-    pivotNumberGroupStarts.clear();
-    pivotNumberGroupEnds.clear();
-    pivotManualGroupChoices.clear();
-    for (const group of selected.numberGroups ?? []) {
-        pivotNumberGroupChoices.set(group.field, String(group.interval));
-        if (group.start !== undefined)
-            pivotNumberGroupStarts.set(group.field, String(group.start));
-        if (group.end !== undefined)
-            pivotNumberGroupEnds.set(group.field, String(group.end));
+    else {
+        pivotSavedValueFilters = [];
+        el('delete-pivot-summary').hidden = true;
+        el('pivot-refresh').hidden = true;
+        el('pivot-collapse-all').hidden = true;
+        el('pivot-expand-all').hidden = true;
+        el('pivot-chart').hidden = true;
+        pivotFilterValues.clear();
+        pivotItemFilterValues.clear();
+        el('pivot-date-filter-field').value = '';
+        el('pivot-date-filter-start').value = '';
+        el('pivot-date-filter-end').value = '';
+        pivotFieldSortChoices.clear();
+        pivotSortMeasureChoices.clear();
+        pivotLabelFilterChoices.clear();
+        pivotDateGroupChoices.clear();
+        pivotNumberGroupChoices.clear();
+        pivotNumberGroupStarts.clear();
+        pivotNumberGroupEnds.clear();
+        pivotManualGroupChoices.clear();
+        pivotMeasureAggregations.clear();
+        pivotMeasureCaptions.clear();
+        pivotMeasureShows.clear();
+        pivotMeasureBaseFields.clear();
+        pivotMeasureBaseItems.clear();
+        pivotAdditionalMeasures = [];
+        pivotFieldSortChoices.clear();
+        pivotSortMeasureChoices.clear();
+        pivotDateGroupChoices.clear();
+        pivotNumberGroupChoices.clear();
+        pivotNumberGroupStarts.clear();
+        pivotNumberGroupEnds.clear();
+        pivotManualGroupChoices.clear();
+        const rowSelect = el('pivot-row-field'), valueSelect = el('pivot-value-field');
+        Array.from(rowSelect.options).forEach(option => option.selected = false);
+        if (rowSelect.options.length)
+            rowSelect.options[0].selected = true;
+        pivotRowFieldOrder = rowSelect.selectedOptions.length ? [Number(rowSelect.selectedOptions[0].value)] : [];
+        pivotColumnFieldOrder = [];
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+        fillPivotDateFilterField();
+        pivotSubtotalChoices.clear();
+        pivotColumnSubtotalChoices.clear();
+        for (const option of Array.from(rowSelect.selectedOptions))
+            pivotSubtotalChoices.set(Number(option.value), true);
+        Array.from(valueSelect.options).forEach(option => option.selected = false);
+        const valueFallback = Array.from(valueSelect.options).find(option => option.value !== rowSelect.options[0]?.value);
+        if (valueFallback) {
+            valueFallback.selected = true;
+            pivotValueFieldOrder = [Number(valueFallback.value)];
+        }
+        else
+            pivotValueFieldOrder = [];
+        renderPivotFieldOrder('value');
+        for (const id of ['pivot-column-field', 'pivot-filter-field', 'pivot-item-filter-field'])
+            Array.from(el(id).options).forEach(option => option.selected = false);
+        fillPivotMeasureOptions();
+        fillPivotFilterValues();
+        fillPivotExtraMeasures();
+        el('pivot-sort-order').value = 'ascending';
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+        el('pivot-layout').value = 'tabular';
+        el('pivot-subtotals').checked = true;
+        el('pivot-subtotals-top').checked = false;
+        el('pivot-blank-rows').checked = false;
+        renderPivotSubtotalOptions();
+        el('pivot-row-grand-totals').checked = true;
+        el('pivot-column-subtotals').checked = false;
+        renderPivotColumnSubtotalOptions();
+        el('pivot-column-grand-totals').checked = true;
+        const defaultCol = bounds.c2 + 2 < book.cols ? bounds.c2 + 2 : bounds.c1, defaultRow = bounds.c2 + 2 < book.cols ? bounds.r1 : Math.min(book.rows - 1, bounds.r2 + 2);
+        el('pivot-destination').value = asRef(defaultRow, defaultCol);
+        el('create-pivot-summary').textContent = 'Create summary';
     }
-    fillPivotDateFilterField(selected.dateFilters?.[0]?.field);
-    reconcileSelectedPivotManualItemOrders();
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-    el('pivot-layout').value = selected.layout ?? 'tabular';
-    el('pivot-subtotals').checked = selected.subtotals ?? true;
-    el('pivot-subtotals-top').checked = selected.subtotalPosition === 'top';
-    el('pivot-blank-rows').checked = selected.blankRows ?? false;
-    renderPivotSubtotalOptions();
-    el('pivot-row-grand-totals').checked = selected.rowGrandTotals ?? true;
-    el('pivot-column-subtotals').checked = selected.columnSubtotals ?? false;
-    renderPivotColumnSubtotalOptions();
-    el('pivot-column-grand-totals').checked = selected.columnGrandTotals ?? true;
-    el('pivot-destination').value = selected.destination;
-    el('create-pivot-summary').textContent = 'Update summary';
+    if (!selected)
+        fillPivotValueFilterFields();
+    renderPivotValueFilterEditors();
+    fillPivotSlicerFields(selected);
+    el('pivot-missing-caption').value = selected?.missingCaption ?? '';
+    el('pivot-grand-total-caption').value = selected?.grandTotalCaption ?? '';
+    el('pivot-values-caption').value = selected?.valuesCaption ?? '';
+    el('pivot-row-header-caption').value = selected?.rowHeaderCaption ?? '';
+    pivotDialog.showModal();
 }
-else {
-    pivotSavedValueFilters = [];
-    el('delete-pivot-summary').hidden = true;
-    el('pivot-refresh').hidden = true;
-    el('pivot-collapse-all').hidden = true;
-    el('pivot-expand-all').hidden = true;
-    el('pivot-chart').hidden = true;
-    pivotFilterValues.clear();
-    pivotItemFilterValues.clear();
-    el('pivot-date-filter-field').value = '';
-    el('pivot-date-filter-start').value = '';
-    el('pivot-date-filter-end').value = '';
-    pivotFieldSortChoices.clear();
-    pivotSortMeasureChoices.clear();
-    pivotLabelFilterChoices.clear();
-    pivotDateGroupChoices.clear();
-    pivotNumberGroupChoices.clear();
-    pivotNumberGroupStarts.clear();
-    pivotNumberGroupEnds.clear();
-    pivotManualGroupChoices.clear();
-    pivotMeasureAggregations.clear();
-    pivotMeasureCaptions.clear();
-    pivotMeasureShows.clear();
-    pivotMeasureBaseFields.clear();
-    pivotMeasureBaseItems.clear();
-    pivotAdditionalMeasures = [];
-    pivotFieldSortChoices.clear();
-    pivotSortMeasureChoices.clear();
-    pivotDateGroupChoices.clear();
-    pivotNumberGroupChoices.clear();
-    pivotNumberGroupStarts.clear();
-    pivotNumberGroupEnds.clear();
-    pivotManualGroupChoices.clear();
-    const rowSelect = el('pivot-row-field'), valueSelect = el('pivot-value-field');
-    Array.from(rowSelect.options).forEach(option => option.selected = false);
-    if (rowSelect.options.length)
-        rowSelect.options[0].selected = true;
-    pivotRowFieldOrder = rowSelect.selectedOptions.length ? [Number(rowSelect.selectedOptions[0].value)] : [];
-    pivotColumnFieldOrder = [];
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-    fillPivotDateFilterField();
-    pivotSubtotalChoices.clear();
-    pivotColumnSubtotalChoices.clear();
-    for (const option of Array.from(rowSelect.selectedOptions))
-        pivotSubtotalChoices.set(Number(option.value), true);
-    Array.from(valueSelect.options).forEach(option => option.selected = false);
-    const valueFallback = Array.from(valueSelect.options).find(option => option.value !== rowSelect.options[0]?.value);
-    if (valueFallback) {
-        valueFallback.selected = true;
-        pivotValueFieldOrder = [Number(valueFallback.value)];
-    }
-    else
-        pivotValueFieldOrder = [];
-    renderPivotFieldOrder('value');
-    for (const id of ['pivot-column-field', 'pivot-filter-field', 'pivot-item-filter-field'])
-        Array.from(el(id).options).forEach(option => option.selected = false);
-    fillPivotMeasureOptions();
-    fillPivotFilterValues();
-    fillPivotExtraMeasures();
-    el('pivot-sort-order').value = 'ascending';
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-    el('pivot-layout').value = 'tabular';
-    el('pivot-subtotals').checked = true;
-    el('pivot-subtotals-top').checked = false;
-    el('pivot-blank-rows').checked = false;
-    renderPivotSubtotalOptions();
-    el('pivot-row-grand-totals').checked = true;
-    el('pivot-column-subtotals').checked = false;
-    renderPivotColumnSubtotalOptions();
-    el('pivot-column-grand-totals').checked = true;
-    const defaultCol = bounds.c2 + 2 < book.cols ? bounds.c2 + 2 : bounds.c1, defaultRow = bounds.c2 + 2 < book.cols ? bounds.r1 : Math.min(book.rows - 1, bounds.r2 + 2);
-    el('pivot-destination').value = asRef(defaultRow, defaultCol);
-    el('create-pivot-summary').textContent = 'Create summary';
-} if (!selected)
-    fillPivotValueFilterFields(); renderPivotValueFilterEditors(); fillPivotSlicerFields(selected); el('pivot-missing-caption').value = selected?.missingCaption ?? ''; el('pivot-grand-total-caption').value = selected?.grandTotalCaption ?? ''; el('pivot-values-caption').value = selected?.valuesCaption ?? ''; el('pivot-row-header-caption').value = selected?.rowHeaderCaption ?? ''; pivotDialog.showModal(); }
 el('btn-pivot-summary').addEventListener('click', openPivotSummary);
-el('btn-refresh-pivots').addEventListener('click', async () => { const button = el('btn-refresh-pivots'); if (button.disabled)
-    return; button.disabled = true; try {
-    const count = await refreshAllPivotSummaries();
-    save();
-    refresh();
-    toast(count ? `Refreshed ${count} pivot ${count === 1 ? 'summary' : 'summaries'} across the workbook.` : 'No saved pivot summaries in this workbook.');
-}
-catch (e) {
-    toast(e instanceof Error ? e.message : 'Unable to refresh pivot summaries.');
-}
-finally {
-    button.disabled = false;
-} });
+el('btn-refresh-pivots').addEventListener('click', async () => {
+    const button = el('btn-refresh-pivots');
+    if (button.disabled)
+        return;
+    button.disabled = true;
+    try {
+        const count = await refreshAllPivotSummaries();
+        save();
+        refresh();
+        toast(count ? `Refreshed ${count} pivot ${count === 1 ? 'summary' : 'summaries'} across the workbook.` : 'No saved pivot summaries in this workbook.');
+    }
+    catch (e) {
+        toast(e instanceof Error ? e.message : 'Unable to refresh pivot summaries.');
+    }
+    finally {
+        button.disabled = false;
+    }
+});
 pivotDialog.addEventListener('close', () => { pivotDialogJobSequence++; const button = el('create-pivot-summary'); button.disabled = false; button.textContent = editingPivotId ? 'Update summary' : 'Create summary'; });
 for (const id of ['close-pivot-summary', 'cancel-pivot-summary'])
     el(id).addEventListener('click', () => { pivotDialogJobSequence++; pivotDialog.close(); editingPivotId = null; el('create-pivot-summary').textContent = 'Create summary'; });
 el('pivot-source-range').addEventListener('input', fillPivotFields);
-el('pivot-source-range').addEventListener('change', () => { try {
-    reconcileSelectedPivotManualItemOrders();
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-}
-catch { /* Keep the current order while the source range is invalid. */ } });
-el('pivot-source-table').addEventListener('change', () => { const name = el('pivot-source-table').value, source = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()), table = source?.tools.tables.find(item => item.name === name); if (table) {
-    el('pivot-source-range').value = table.range.replace(/\$/g, '').toUpperCase();
-    fillPivotFields();
-    reconcileSelectedPivotManualItemOrders();
-    renderPivotFieldOrder('row');
-    renderPivotFieldOrder('column');
-} });
+el('pivot-source-range').addEventListener('change', () => {
+    try {
+        reconcileSelectedPivotManualItemOrders();
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+    }
+    catch { /* Keep the current order while the source range is invalid. */ }
+});
+el('pivot-source-table').addEventListener('change', () => {
+    const name = el('pivot-source-table').value, source = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()), table = source?.tools.tables.find(item => item.name === name);
+    if (table) {
+        el('pivot-source-range').value = table.range.replace(/\$/g, '').toUpperCase();
+        fillPivotFields();
+        reconcileSelectedPivotManualItemOrders();
+        renderPivotFieldOrder('row');
+        renderPivotFieldOrder('column');
+    }
+});
 el('pivot-source-sheet').addEventListener('change', () => { pivotValueCache.clear(); pivotGroupedValueCache.clear(); pivotDefaultAggregationCache.clear(); pivotFilterValues.clear(); pivotItemFilterValues.clear(); pivotFilterSearch.clear(); pivotItemFilterSearch.clear(); pivotLabelFilterChoices.clear(); pivotDateGroupChoices.clear(); pivotNumberGroupChoices.clear(); pivotNumberGroupStarts.clear(); pivotNumberGroupEnds.clear(); pivotManualGroupChoices.clear(); pivotManualItemOrderChoices.clear(); pivotManualItemSelectedChoices.clear(); el('pivot-date-filter-field').value = ''; el('pivot-date-filter-start').value = ''; el('pivot-date-filter-end').value = ''; fillPivotFields(); });
 el('pivot-value-field').addEventListener('change', () => { renderPivotFieldOrder('value'); fillPivotMeasureOptions(); fillPivotValueFilterMeasures(); });
 el('pivot-sort-order').addEventListener('change', () => { renderPivotFieldOrder('row'); renderPivotFieldOrder('column'); });
 el('pivot-filter-field').addEventListener('change', fillPivotFilterValues);
 el('pivot-item-filter-field').addEventListener('change', fillPivotItemFilterValues);
-el('btn-pivot-add-measure').addEventListener('click', () => { const primary = Array.from(el('pivot-value-field').selectedOptions), error = el('pivot-summary-error'); if (pivotAdditionalMeasures.length + primary.length >= doc.active.book.cols) {
-    error.textContent = `This worksheet supports at most ${doc.active.book.cols} value calculations.`;
-    return;
-} const option = primary[0]; if (!option) {
-    error.textContent = 'Select a value field before adding another calculation.';
-    return;
-} const current = pivotMeasureAggregations.get(option.value) ?? defaultPivotAggregation(Number(option.value)), alternative = current === 'sum' ? 'count' : 'sum'; pivotAdditionalMeasures.push({ field: Number(option.value), aggregation: alternative }); error.textContent = ''; fillPivotExtraMeasures(); });
+el('btn-pivot-add-measure').addEventListener('click', () => {
+    const primary = Array.from(el('pivot-value-field').selectedOptions), error = el('pivot-summary-error');
+    if (pivotAdditionalMeasures.length + primary.length >= doc.active.book.cols) {
+        error.textContent = `This worksheet supports at most ${doc.active.book.cols} value calculations.`;
+        return;
+    }
+    const option = primary[0];
+    if (!option) {
+        error.textContent = 'Select a value field before adding another calculation.';
+        return;
+    }
+    const current = pivotMeasureAggregations.get(option.value) ?? defaultPivotAggregation(Number(option.value)), alternative = current === 'sum' ? 'count' : 'sum';
+    pivotAdditionalMeasures.push({ field: Number(option.value), aggregation: alternative });
+    error.textContent = '';
+    fillPivotExtraMeasures();
+});
 el('pivot-slicer-field').addEventListener('change', () => { const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId), field = Number(el('pivot-slicer-field').value); fillPivotSlicerConnections(pivot, Number.isInteger(field) ? field : undefined); });
-el('btn-pivot-add-slicer').addEventListener('click', () => { const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId), field = Number(el('pivot-slicer-field').value); if (!pivot || !Number.isInteger(field))
-    return; try {
-    const source = pivotSlicerSource(pivot), [first, last = first] = pivot.sourceRange.split(':'), a = parseRef(first ?? ''), b = parseRef(last ?? '');
-    if (!source || !a || !b)
-        throw Error('The PivotTable source is unavailable.');
-    const header = display(source.getValue(`${colToName(a.col + field)}${a.row + 1}`)) || `Field ${field + 1}`, [, end] = pivot.lastOutputRange?.split(':') ?? [], endCell = parseRef(end ?? pivot.destination), startCell = parseRef(pivot.destination), selected = Array.from(el('pivot-slicer-connections').selectedOptions, option => option.value), pivotIds = selected.filter(id => id !== pivot.id), connectedIds = [pivot.id, ...pivotIds], priorFilters = connectedIds.map(pivotId => { const target = doc.active.tools.pivotTables.find(item => item.id === pivotId), existing = target?.itemFilters?.find(item => item.field === field); return { pivotId, values: existing ? [...existing.values] : null }; }), slicer = { id: `slicer-${Date.now().toString(36)}`, pivotId: pivot.id, ...(pivotIds.length ? { pivotIds } : {}), priorFilters, field, caption: header, x: Math.min(15000, HEAD_W + ((endCell?.col ?? startCell?.col ?? 0) + 2) * COL_W), y: Math.min(30000, HEAD_H + (startCell?.row ?? 0) * ROW_H), width: 250, height: 300 };
-    doc.active.tools.pivotSlicers = validateTools({ ...doc.active.tools, pivotSlicers: [...doc.active.tools.pivotSlicers, slicer] }, book.rows, book.cols).pivotSlicers;
-    save();
-    refresh();
-    fillPivotSlicerFields(pivot);
-    toast(`Added a ${header} slicer to ${1 + pivotIds.length} Pivot ${pivotIds.length ? 'Summaries' : 'Summary'}.`);
-}
-catch (error) {
-    el('pivot-summary-error').textContent = error instanceof Error ? error.message : 'Unable to add this slicer.';
-} });
-el('pivot-chart').addEventListener('click', () => { const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId); if (!pivot?.lastOutputRange)
-    return; try {
-    const range = pivotChartRange(pivot);
-    chartRange(range, book.rows, book.cols);
-    if (!extractChartData(book, range).series.some(series => series.values.some(value => value !== null)))
-        throw Error('This Pivot Summary has no numeric values to chart.');
-    pivotDialog.close();
-    openChartEditor('column', undefined, range, pivot.id);
-}
-catch (error) {
-    el('pivot-summary-error').textContent = error instanceof Error ? error.message : 'Unable to chart this Pivot Summary.';
-} });
-el('pivot-refresh').addEventListener('click', async () => { const id = editingPivotId; if (!id)
-    return; const button = el('pivot-refresh'); button.disabled = true; try {
-    const refreshed = await refreshAllPivotSummaries(undefined, new Set([id]));
-    if (refreshed) {
+el('btn-pivot-add-slicer').addEventListener('click', () => {
+    const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId), field = Number(el('pivot-slicer-field').value);
+    if (!pivot || !Number.isInteger(field))
+        return;
+    try {
+        const source = pivotSlicerSource(pivot), [first, last = first] = pivot.sourceRange.split(':'), a = parseRef(first ?? ''), b = parseRef(last ?? '');
+        if (!source || !a || !b)
+            throw Error('The PivotTable source is unavailable.');
+        const header = display(source.getValue(`${colToName(a.col + field)}${a.row + 1}`)) || `Field ${field + 1}`, [, end] = pivot.lastOutputRange?.split(':') ?? [], endCell = parseRef(end ?? pivot.destination), startCell = parseRef(pivot.destination), selected = Array.from(el('pivot-slicer-connections').selectedOptions, option => option.value), pivotIds = selected.filter(id => id !== pivot.id), connectedIds = [pivot.id, ...pivotIds], priorFilters = connectedIds.map(pivotId => { const target = doc.active.tools.pivotTables.find(item => item.id === pivotId), existing = target?.itemFilters?.find(item => item.field === field); return { pivotId, values: existing ? [...existing.values] : null }; }), slicer = { id: `slicer-${Date.now().toString(36)}`, pivotId: pivot.id, ...(pivotIds.length ? { pivotIds } : {}), priorFilters, field, caption: header, x: Math.min(15000, HEAD_W + ((endCell?.col ?? startCell?.col ?? 0) + 2) * COL_W), y: Math.min(30000, HEAD_H + (startCell?.row ?? 0) * ROW_H), width: 250, height: 300 };
+        doc.active.tools.pivotSlicers = validateTools({ ...doc.active.tools, pivotSlicers: [...doc.active.tools.pivotSlicers, slicer] }, book.rows, book.cols).pivotSlicers;
         save();
         refresh();
-        toast('Pivot Summary refreshed.');
+        fillPivotSlicerFields(pivot);
+        toast(`Added a ${header} slicer to ${1 + pivotIds.length} Pivot ${pivotIds.length ? 'Summaries' : 'Summary'}.`);
     }
-    else
-        toast('Pivot Summary could not be refreshed.');
-}
-finally {
-    button.disabled = false;
-} });
-async function setPivotGroupsExpanded(expanded) { const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId); if (!pivot)
-    return; const collapseButton = el('pivot-collapse-all'), expandButton = el('pivot-expand-all'), createButton = el('create-pivot-summary'); if (collapseButton.disabled || expandButton.disabled || createButton.disabled)
-    return; const operation = ++pivotDialogJobSequence; collapseButton.disabled = true; expandButton.disabled = true; createButton.disabled = true; const previousRows = pivot.collapsedRows?.map(path => [...path]), previousColumns = pivot.collapsedColumns?.map(path => [...path]), restore = () => { if (previousRows?.length)
-    pivot.collapsedRows = previousRows;
-else
-    delete pivot.collapsedRows; if (previousColumns?.length)
-    pivot.collapsedColumns = previousColumns;
-else
-    delete pivot.collapsedColumns; }; let changed = false; try {
-    if (expanded) {
-        delete pivot.collapsedRows;
-        delete pivot.collapsedColumns;
-        changed = true;
+    catch (error) {
+        el('pivot-summary-error').textContent = error instanceof Error ? error.message : 'Unable to add this slicer.';
     }
-    else {
-        const spec = { ...pivot };
-        delete spec.collapsedRows;
-        delete spec.collapsedColumns;
-        const result = await buildPivotSummaryInWorker(spec);
-        if (operation !== pivotDialogJobSequence || editingPivotId !== pivot.id || !pivotDialog.open)
-            return;
-        const rowPaths = [...new Map((result.expandControls ?? []).filter(control => control.axis === 'row' && !control.collapsed).map(control => [JSON.stringify(control.path.map(label => label.toLocaleLowerCase())), control.path])).values()], columnPaths = [...new Map((result.expandControls ?? []).filter(control => control.axis === 'column' && !control.collapsed).map(control => [JSON.stringify(control.path.map(label => label.toLocaleLowerCase())), control.path])).values()];
-        if (!rowPaths.length && !columnPaths.length) {
-            toast('This PivotTable has no expandable row or column groups.');
-            return;
+});
+el('pivot-chart').addEventListener('click', () => {
+    const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId);
+    if (!pivot?.lastOutputRange)
+        return;
+    try {
+        const range = pivotChartRange(pivot);
+        chartRange(range, book.rows, book.cols);
+        if (!extractChartData(book, range).series.some(series => series.values.some(value => value !== null)))
+            throw Error('This Pivot Summary has no numeric values to chart.');
+        pivotDialog.close();
+        openChartEditor('column', undefined, range, pivot.id);
+    }
+    catch (error) {
+        el('pivot-summary-error').textContent = error instanceof Error ? error.message : 'Unable to chart this Pivot Summary.';
+    }
+});
+el('pivot-refresh').addEventListener('click', async () => {
+    const id = editingPivotId;
+    if (!id)
+        return;
+    const button = el('pivot-refresh');
+    button.disabled = true;
+    try {
+        const refreshed = await refreshAllPivotSummaries(undefined, new Set([id]));
+        if (refreshed) {
+            save();
+            refresh();
+            toast('Pivot Summary refreshed.');
         }
-        if (rowPaths.length)
-            pivot.collapsedRows = rowPaths;
+        else
+            toast('Pivot Summary could not be refreshed.');
+    }
+    finally {
+        button.disabled = false;
+    }
+});
+async function setPivotGroupsExpanded(expanded) {
+    const pivot = doc.active.tools.pivotTables.find(item => item.id === editingPivotId);
+    if (!pivot)
+        return;
+    const collapseButton = el('pivot-collapse-all'), expandButton = el('pivot-expand-all'), createButton = el('create-pivot-summary');
+    if (collapseButton.disabled || expandButton.disabled || createButton.disabled)
+        return;
+    const operation = ++pivotDialogJobSequence;
+    collapseButton.disabled = true;
+    expandButton.disabled = true;
+    createButton.disabled = true;
+    const previousRows = pivot.collapsedRows?.map(path => [...path]), previousColumns = pivot.collapsedColumns?.map(path => [...path]), restore = () => {
+        if (previousRows?.length)
+            pivot.collapsedRows = previousRows;
         else
             delete pivot.collapsedRows;
-        if (columnPaths.length)
-            pivot.collapsedColumns = columnPaths;
+        if (previousColumns?.length)
+            pivot.collapsedColumns = previousColumns;
         else
             delete pivot.collapsedColumns;
-        changed = true;
+    };
+    let changed = false;
+    try {
+        if (expanded) {
+            delete pivot.collapsedRows;
+            delete pivot.collapsedColumns;
+            changed = true;
+        }
+        else {
+            const spec = { ...pivot };
+            delete spec.collapsedRows;
+            delete spec.collapsedColumns;
+            const result = await buildPivotSummaryInWorker(spec);
+            if (operation !== pivotDialogJobSequence || editingPivotId !== pivot.id || !pivotDialog.open)
+                return;
+            const rowPaths = [...new Map((result.expandControls ?? []).filter(control => control.axis === 'row' && !control.collapsed).map(control => [JSON.stringify(control.path.map(label => label.toLocaleLowerCase())), control.path])).values()], columnPaths = [...new Map((result.expandControls ?? []).filter(control => control.axis === 'column' && !control.collapsed).map(control => [JSON.stringify(control.path.map(label => label.toLocaleLowerCase())), control.path])).values()];
+            if (!rowPaths.length && !columnPaths.length) {
+                toast('This PivotTable has no expandable row or column groups.');
+                return;
+            }
+            if (rowPaths.length)
+                pivot.collapsedRows = rowPaths;
+            else
+                delete pivot.collapsedRows;
+            if (columnPaths.length)
+                pivot.collapsedColumns = columnPaths;
+            else
+                delete pivot.collapsedColumns;
+            changed = true;
+        }
+        if (await refreshAllPivotSummaries(undefined, new Set([pivot.id])) !== 1) {
+            restore();
+            changed = false;
+            await refreshAllPivotSummaries(undefined, new Set([pivot.id]));
+            toast('The PivotTable view could not be changed; its previous state was restored.');
+            return;
+        }
+        save();
+        refresh();
+        toast(expanded ? 'Expanded all PivotTable groups.' : 'Collapsed all PivotTable groups.');
     }
-    if (await refreshAllPivotSummaries(undefined, new Set([pivot.id])) !== 1) {
-        restore();
-        changed = false;
-        await refreshAllPivotSummaries(undefined, new Set([pivot.id]));
-        toast('The PivotTable view could not be changed; its previous state was restored.');
-        return;
+    catch (error) {
+        if (changed) {
+            restore();
+            await refreshAllPivotSummaries(undefined, new Set([pivot.id]));
+        }
+        toast(error instanceof Error ? error.message : 'Unable to change PivotTable groups.');
     }
-    save();
-    refresh();
-    toast(expanded ? 'Expanded all PivotTable groups.' : 'Collapsed all PivotTable groups.');
+    finally {
+        collapseButton.disabled = false;
+        expandButton.disabled = false;
+        if (pivotDialog.open)
+            createButton.disabled = false;
+    }
 }
-catch (error) {
-    if (changed) {
-        restore();
-        await refreshAllPivotSummaries(undefined, new Set([pivot.id]));
-    }
-    toast(error instanceof Error ? error.message : 'Unable to change PivotTable groups.');
-}
-finally {
-    collapseButton.disabled = false;
-    expandButton.disabled = false;
-    if (pivotDialog.open)
-        createButton.disabled = false;
-} }
 el('pivot-collapse-all').addEventListener('click', () => setPivotGroupsExpanded(false));
 el('pivot-expand-all').addEventListener('click', () => setPivotGroupsExpanded(true));
-el('delete-pivot-summary').addEventListener('click', () => { const spec = doc.active.tools.pivotTables.find(item => item.id === editingPivotId); if (!spec)
-    return; if (!window.confirm('Delete this pivot summary and clear its output cells?'))
-    return; const edits = []; if (spec.lastOutputRange) {
-    const parts = spec.lastOutputRange.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? '');
-    if (a && b)
-        for (let row = a.row; row <= b.row; row++)
-            for (let col = a.col; col <= b.col; col++)
-                edits.push({ ref: `${colToName(col)}${row + 1}`, raw: '' });
-} replacePivotExpandControls(spec.id, []); doc.active.tools.pivotTables = doc.active.tools.pivotTables.filter(item => item.id !== spec.id); doc.active.tools.pivotSlicers = doc.active.tools.pivotSlicers.flatMap(slicer => { if (slicer.pivotId === spec.id) {
-    const remaining = (slicer.pivotIds ?? []).filter(id => id !== spec.id);
-    return remaining.length ? [{ ...slicer, pivotId: remaining[0], pivotIds: remaining.slice(1), ...(slicer.priorFilters ? { priorFilters: slicer.priorFilters.filter(item => remaining.includes(item.pivotId)) } : {}) }] : [];
-} if (slicer.pivotIds?.includes(spec.id)) {
-    const pivotIds = slicer.pivotIds.filter(id => id !== spec.id);
-    return [{ ...slicer, ...(pivotIds.length ? { pivotIds } : { pivotIds: undefined }), ...(slicer.priorFilters ? { priorFilters: slicer.priorFilters.filter(item => item.pivotId !== spec.id) } : {}) }];
-} return [slicer]; }); for (const chart of doc.active.tools.charts)
-    if (chart.pivotId === spec.id)
-        chart.pivotId = undefined; if (edits.length)
-    book.applyEdits(edits, false); if (spec.lastPercentCells?.length) {
-    const styles = spec.lastPercentCells.flatMap(ref => { const current = book.getStyle(ref); if (current.numberFormat !== 'percent')
-        return []; const { numberFormat: _, ...style } = current; return [{ ref, style }]; });
-    if (styles.length)
-        book.applyStyles(styles, false);
-} save(); refresh(); pivotDialog.close(); editingPivotId = null; el('delete-pivot-summary').hidden = true; el('create-pivot-summary').textContent = 'Create summary'; toast('Deleted pivot summary.'); });
-el('btn-pivot-add-value-filter').addEventListener('click', () => { const axes = [...Array.from(el('pivot-row-field').selectedOptions, option => Number(option.value)), ...Array.from(el('pivot-column-field').selectedOptions, option => Number(option.value))], used = new Set(pivotSavedValueFilters.map(filter => filter.field)), field = axes.find(item => !used.has(item)), measures = currentPivotUiMeasures(); if (field === undefined || !measures.length)
-    return; pivotSavedValueFilters.push({ field, measureField: measures[0].field, measureIndex: 0, direction: 'top', count: 10 }); renderPivotValueFilterEditors(); });
-const pivotValueFilterHost = el('pivot-value-filter-editors');
-pivotValueFilterHost.addEventListener('change', event => { const target = event.target; if (!(target instanceof HTMLSelectElement || target instanceof HTMLInputElement))
-    return; const element = target, index = Number(element.dataset.pivotVfField ?? element.dataset.pivotVfMeasure ?? element.dataset.pivotVfDirection ?? element.dataset.pivotVfCount); if (!Number.isInteger(index) || !pivotSavedValueFilters[index])
-    return; const filter = pivotSavedValueFilters[index]; if (target instanceof HTMLSelectElement && element.dataset.pivotVfField !== undefined)
-    filter.field = Number(target.value);
-else if (target instanceof HTMLSelectElement && element.dataset.pivotVfMeasure !== undefined) {
-    filter.measureIndex = Number(target.value);
-    filter.measureField = currentPivotUiMeasures()[filter.measureIndex]?.field ?? -1;
-}
-else if (target instanceof HTMLSelectElement && element.dataset.pivotVfDirection !== undefined)
-    filter.direction = target.value;
-else if (target instanceof HTMLInputElement && element.dataset.pivotVfCount !== undefined)
-    filter.count = Number(target.value); renderPivotValueFilterEditors(); });
-pivotValueFilterHost.addEventListener('click', event => { const target = event.target; if (!(target instanceof HTMLElement))
-    return; const button = target.closest('button[data-pivot-vf-remove]'); if (!button)
-    return; pivotSavedValueFilters.splice(Number(button.dataset.pivotVfRemove), 1); renderPivotValueFilterEditors(); });
-el('pivot-row-field').addEventListener('change', () => { fillPivotValueFilterFields(); renderPivotFieldOrder('row'); const master = el('pivot-subtotals'); for (const option of Array.from(el('pivot-row-field').selectedOptions)) {
-    const field = Number(option.value);
-    if (!pivotSubtotalChoices.has(field))
-        pivotSubtotalChoices.set(field, master.checked);
-} renderPivotSubtotalOptions(); fillPivotMeasureOptions(); fillPivotExtraMeasures(); });
-el('pivot-subtotals').addEventListener('change', () => { const master = el('pivot-subtotals'); for (const option of Array.from(el('pivot-row-field').selectedOptions))
-    pivotSubtotalChoices.set(Number(option.value), master.checked); renderPivotSubtotalOptions(); });
-el('pivot-column-field').addEventListener('change', () => { fillPivotValueFilterFields(); renderPivotFieldOrder('column'); const master = el('pivot-column-subtotals'); for (const option of Array.from(el('pivot-column-field').selectedOptions)) {
-    const field = Number(option.value);
-    if (!pivotColumnSubtotalChoices.has(field))
-        pivotColumnSubtotalChoices.set(field, master.checked);
-} renderPivotColumnSubtotalOptions(); fillPivotMeasureOptions(); fillPivotExtraMeasures(); });
-el('pivot-column-subtotals').addEventListener('change', () => { const master = el('pivot-column-subtotals'); for (const option of Array.from(el('pivot-column-field').selectedOptions))
-    pivotColumnSubtotalChoices.set(Number(option.value), master.checked); renderPivotColumnSubtotalOptions(); });
-el('create-pivot-summary').addEventListener('click', async () => { const button = el('create-pivot-summary'), error = el('pivot-summary-error'); if (button.disabled)
-    return; const operation = ++pivotDialogJobSequence; button.disabled = true; button.textContent = 'Calculating…'; try {
-    const { a, b, range } = pivotSourceBounds(), dateFieldText = el('pivot-date-filter-field').value, dateStartSerial = pivotInputDateSerial(el('pivot-date-filter-start').value), dateEndSerial = pivotInputDateSerial(el('pivot-date-filter-end').value), dateFilters = dateFieldText ? [{ field: Number(dateFieldText), start: dateStartSerial ?? -1, end: dateEndSerial ?? -1 }] : [];
-    if (dateFieldText && (dateStartSerial === null || dateEndSerial === null))
-        throw Error('Choose both dates for the date range filter.');
-    const destination = el('pivot-destination').value.trim().replace(/\$/g, '').toUpperCase(), columns = pivotColumnFieldOrder.filter(field => Array.from(el('pivot-column-field').selectedOptions, option => Number(option.value)).includes(field)), filters = Array.from(el('pivot-filter-field').selectedOptions).map(option => { const field = Number(option.value), selected = Array.from(el(`pivot-filter-value-${field}`).selectedOptions).filter(choice => choice.value !== '__all').map(choice => JSON.parse(choice.dataset.filterValue ?? 'null')); return { field, values: selected }; }), itemFilters = Array.from(el('pivot-item-filter-field').selectedOptions).map(option => { const field = Number(option.value), values = Array.from(el(`pivot-item-filter-value-${field}`).selectedOptions).filter(choice => choice.value !== '__all').map(choice => JSON.parse(choice.dataset.filterValue ?? 'null')); return { field, values }; }), primaryMeasures = pivotValueFieldOrder.filter(field => Array.from(el('pivot-value-field').selectedOptions, option => Number(option.value)).includes(field)).map(field => ({ field, aggregation: pivotMeasureAggregations.get(String(field)) ?? defaultPivotAggregation(field), ...(pivotMeasureCaptions.get(String(field))?.trim() ? { caption: pivotMeasureCaptions.get(String(field)).trim() } : {}), ...(pivotMeasureShows.get(String(field)) && pivotMeasureShows.get(String(field)) !== 'normal' ? { showAs: pivotMeasureShows.get(String(field)) } : {}), ...(['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(pivotMeasureShows.get(String(field)) ?? '') && pivotMeasureBaseFields.has(String(field)) ? { baseField: pivotMeasureBaseFields.get(String(field)) } : {}), ...(['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(pivotMeasureShows.get(String(field)) ?? '') ? { baseItem: pivotMeasureBaseItems.get(String(field)) ?? 'previous' } : {}) })), allMeasures = [...primaryMeasures, ...pivotAdditionalMeasures], spec = validatePivotSummary({ id: editingPivotId ?? `pivot-${Date.now().toString(36)}`, sourceRange: range, ...(el('pivot-source-sheet').value !== doc.active.name ? { sourceSheet: el('pivot-source-sheet').value } : {}), destination, rowField: pivotRowFieldOrder[0] ?? -1, rowFields: pivotRowFieldOrder.filter(field => Array.from(el('pivot-row-field').selectedOptions, option => Number(option.value)).includes(field)), valueField: allMeasures[0]?.field ?? Number(el('pivot-value-field').selectedOptions[0]?.value ?? ''), valueFields: allMeasures.map(measure => measure.field), measures: allMeasures, ...(columns.length ? { columnField: columns[0], ...(columns.length > 1 ? { columnFields: columns } : {}) } : {}), ...(filters.length ? { filters } : {}), ...(itemFilters.length ? { itemFilters } : {}), ...(dateFilters.length ? { dateFilters } : {}), ...(Array.from(pivotLabelFilterChoices, ([field, filter]) => ({ field, ...filter })).filter(filter => (pivotRowFieldOrder.includes(filter.field) || columns.includes(filter.field)) && (!['between', 'notBetween'].includes(filter.operator) || filter.value2 !== undefined)).length ? { labelFilters: Array.from(pivotLabelFilterChoices, ([field, filter]) => ({ field, ...filter })).filter(filter => (pivotRowFieldOrder.includes(filter.field) || columns.includes(filter.field)) && (!['between', 'notBetween'].includes(filter.operator) || filter.value2 !== undefined)) } : {}), aggregation: pivotMeasureAggregations.get(el('pivot-value-field').selectedOptions[0]?.value ?? '') ?? defaultPivotAggregation(Number(el('pivot-value-field').selectedOptions[0]?.value ?? 0)), sortOrder: el('pivot-sort-order').value, fieldSortOrders: Object.fromEntries([...pivotRowFieldOrder, ...columns].map(field => [String(field), pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value])), manualItemOrders: [...pivotManualItemOrderChoices].filter(([field]) => (pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value) === 'manual').map(([field, items]) => ({ field, items: [...items] })), ...(pivotSavedValueFilters.length ? { valueFilters: pivotSavedValueFilters.map(filter => ({ ...filter })) } : {}), ...(() => { const valueSorts = [...new Set([...pivotRowFieldOrder, ...columns])].flatMap(field => { const order = pivotFieldSortChoices.get(field); if (order !== 'valueAscending' && order !== 'valueDescending')
-            return []; const measureIndex = pivotSortMeasureChoices.get(field) ?? 0, measure = allMeasures[measureIndex]; return measure ? [{ field, measureField: measure.field, measureIndex, order: order === 'valueAscending' ? 'ascending' : 'descending' }] : []; }); return valueSorts.length ? { valueSorts } : {}; })(), dateGroups: [...pivotRowFieldOrder, ...columns].flatMap(field => { const unit = pivotDateGroupChoices.get(field); return unit && unit !== 'none' ? [{ field, unit }] : []; }), numberGroups: [...pivotRowFieldOrder, ...columns].flatMap(field => { const interval = Number(pivotNumberGroupChoices.get(field)), startText = pivotNumberGroupStarts.get(field), endText = pivotNumberGroupEnds.get(field), start = startText === undefined ? undefined : Number(startText), end = endText === undefined ? undefined : Number(endText); return Number.isFinite(interval) && interval > 0 ? [{ field, interval, ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }) }] : []; }), manualGroups: [...new Set([...pivotRowFieldOrder, ...columns])].flatMap(field => { const text = pivotManualGroupChoices.get(field) ?? ''; return text.trim() ? [parsePivotManualGroupText(field, text)] : []; }), layout: el('pivot-layout').value, ...(() => { const missingCaption = el('pivot-missing-caption').value; return missingCaption ? { missingCaption } : {}; })(), ...(() => { const grandTotalCaption = el('pivot-grand-total-caption').value; return grandTotalCaption ? { grandTotalCaption } : {}; })(), ...(() => { const valuesCaption = el('pivot-values-caption').value; return valuesCaption ? { valuesCaption } : {}; })(), ...(() => { const rowHeaderCaption = el('pivot-row-header-caption').value; return rowHeaderCaption ? { rowHeaderCaption } : {}; })(), subtotalPosition: el('pivot-subtotals-top').checked ? 'top' : 'bottom', blankRows: el('pivot-blank-rows').checked, showEmptyItemsFields: [...pivotRowFieldOrder, ...columns].filter(field => pivotShowEmptyItemChoices.get(field)), subtotals: el('pivot-subtotals').checked, rowGrandTotals: el('pivot-row-grand-totals').checked, columnGrandTotals: el('pivot-column-grand-totals').checked }, pivotSourceBook().rows, pivotSourceBook().cols, book.rows, book.cols), dest = parseRef(spec.destination);
-    const sourceSheetForPivot = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()), matchingSourceTable = sourceSheetForPivot?.tools.tables.find(table => table.range.replace(/\$/g, '').toUpperCase() === spec.sourceRange);
-    if (matchingSourceTable)
-        spec.sourceTable = matchingSourceTable.name;
-    else
-        delete spec.sourceTable;
-    if (el('pivot-source-sheet').value === doc.active.name && dest.row <= b.row && dest.row >= a.row && dest.col <= b.col && dest.col >= a.col)
-        throw Error('Choose a destination outside the source range.');
-    const previous = doc.active.tools.pivotTables.find(existing => existing.id === spec.id), selectedRowFields = spec.rowFields ?? [spec.rowField], enabledSubtotalFields = selectedRowFields.filter(field => pivotSubtotalChoices.get(field) ?? el('pivot-subtotals').checked);
-    spec.subtotals = enabledSubtotalFields.length > 0;
-    if (enabledSubtotalFields.length > 0 && enabledSubtotalFields.length < selectedRowFields.length)
-        spec.subtotalFields = enabledSubtotalFields;
-    else
-        delete spec.subtotalFields;
-    const selectedColumnFields = spec.columnFields ?? (spec.columnField === undefined ? [] : [spec.columnField]), enabledColumnSubtotalFields = selectedColumnFields.filter(field => pivotColumnSubtotalChoices.get(field) ?? el('pivot-column-subtotals').checked);
-    spec.columnSubtotals = enabledColumnSubtotalFields.length > 0;
-    if (enabledColumnSubtotalFields.length > 0 && enabledColumnSubtotalFields.length < selectedColumnFields.length)
-        spec.columnSubtotalFields = enabledColumnSubtotalFields;
-    else
-        delete spec.columnSubtotalFields;
-    if (previous && JSON.stringify(previous.rowFields ?? [previous.rowField]) === JSON.stringify(spec.rowFields ?? [spec.rowField]) && previous.collapsedRows)
-        spec.collapsedRows = previous.collapsedRows.map(path => [...path]);
-    if (previous && JSON.stringify(previous.columnFields ?? (previous.columnField === undefined ? [] : [previous.columnField])) === JSON.stringify(spec.columnFields ?? (spec.columnField === undefined ? [] : [spec.columnField])) && previous.collapsedColumns)
-        spec.collapsedColumns = previous.collapsedColumns.map(path => [...path]);
-    if (previous?.lastOutputRange)
-        spec.lastOutputRange = previous.lastOutputRange;
-    if (previous?.lastPercentCells)
-        spec.lastPercentCells = previous.lastPercentCells;
-    const result = await buildPivotSummaryInWorker(spec);
-    if (operation !== pivotDialogJobSequence || !pivotDialog.open)
+el('delete-pivot-summary').addEventListener('click', () => {
+    const spec = doc.active.tools.pivotTables.find(item => item.id === editingPivotId);
+    if (!spec)
         return;
-    if (doc.active.tools.pivotTables.some(existing => existing.id !== spec.id && existing.lastOutputRange && pivotRangesOverlap(existing.lastOutputRange, result.outputRange)) || doc.active.tools.queries.some(query => query.lastOutputRange && pivotRangesOverlap(query.lastOutputRange, result.outputRange)))
-        throw Error('This destination overlaps another saved query or Pivot Summary.');
-    const overwrite = result.edits.some(edit => book.getRaw(edit.ref) !== '' && !(previous?.lastOutputRange && queryRangeContains(previous.lastOutputRange, edit.ref)));
-    if (overwrite && !window.confirm('The summary destination contains data. Replace it?'))
+    if (!window.confirm('Delete this pivot summary and clear its output cells?'))
         return;
-    spec.lastOutputRange = result.outputRange;
-    spec.lastPercentCells = result.percentCells;
-    replacePivotExpandControls(spec.id, result.expandControls ?? []);
-    const slicerFields = new Set([...(spec.rowFields ?? [spec.rowField]), ...(spec.columnFields ?? (spec.columnField === undefined ? [] : [spec.columnField]))].filter(field => !(spec.dateGroups ?? []).some(group => group.field === field) && !(spec.numberGroups ?? []).some(group => group.field === field) && !(spec.manualGroups ?? []).some(group => group.field === field)));
-    doc.active.tools.pivotSlicers = doc.active.tools.pivotSlicers.flatMap(slicer => { const connected = [slicer.pivotId, ...(slicer.pivotIds ?? [])]; if (!connected.includes(spec.id) || slicerFields.has(slicer.field) && (spec.sourceSheet ?? doc.active.name).toLocaleLowerCase() === (doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId)?.sourceSheet ?? doc.active.name).toLocaleLowerCase() && spec.sourceRange.replace(/\$/g, '').toUpperCase() === (doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId)?.sourceRange.replace(/\$/g, '').toUpperCase() ?? ''))
-        return [slicer]; const remaining = connected.filter(id => id !== spec.id); if (!remaining.length)
-        return []; return [{ ...slicer, pivotId: remaining[0], pivotIds: remaining.slice(1), ...(slicer.priorFilters ? { priorFilters: slicer.priorFilters.filter(item => remaining.includes(item.pivotId)) } : {}) }]; });
-    const next = validateTools({ ...doc.active.tools, pivotTables: [...doc.active.tools.pivotTables.filter(existing => existing.id !== spec.id), spec] }, book.rows, book.cols);
-    doc.active.tools.pivotTables = next.pivotTables;
-    updatePivotChartRanges(spec, result.outputRange);
-    book.applyEdits(result.edits, false);
-    book.applyStyles(result.styleEdits, false);
+    const edits = [];
+    if (spec.lastOutputRange) {
+        const parts = spec.lastOutputRange.split(':'), a = parseRef(parts[0] ?? ''), b = parseRef(parts[1] ?? parts[0] ?? '');
+        if (a && b)
+            for (let row = a.row; row <= b.row; row++)
+                for (let col = a.col; col <= b.col; col++)
+                    edits.push({ ref: `${colToName(col)}${row + 1}`, raw: '' });
+    }
+    replacePivotExpandControls(spec.id, []);
+    doc.active.tools.pivotTables = doc.active.tools.pivotTables.filter(item => item.id !== spec.id);
+    doc.active.tools.pivotSlicers = doc.active.tools.pivotSlicers.flatMap(slicer => {
+        if (slicer.pivotId === spec.id) {
+            const remaining = (slicer.pivotIds ?? []).filter(id => id !== spec.id);
+            return remaining.length ? [{ ...slicer, pivotId: remaining[0], pivotIds: remaining.slice(1), ...(slicer.priorFilters ? { priorFilters: slicer.priorFilters.filter(item => remaining.includes(item.pivotId)) } : {}) }] : [];
+        }
+        if (slicer.pivotIds?.includes(spec.id)) {
+            const pivotIds = slicer.pivotIds.filter(id => id !== spec.id);
+            return [{ ...slicer, ...(pivotIds.length ? { pivotIds } : { pivotIds: undefined }), ...(slicer.priorFilters ? { priorFilters: slicer.priorFilters.filter(item => item.pivotId !== spec.id) } : {}) }];
+        }
+        return [slicer];
+    });
+    for (const chart of doc.active.tools.charts)
+        if (chart.pivotId === spec.id)
+            chart.pivotId = undefined;
+    if (edits.length)
+        book.applyEdits(edits, false);
+    if (spec.lastPercentCells?.length) {
+        const styles = spec.lastPercentCells.flatMap(ref => {
+            const current = book.getStyle(ref);
+            if (current.numberFormat !== 'percent')
+                return [];
+            const { numberFormat: _, ...style } = current;
+            return [{ ref, style }];
+        });
+        if (styles.length)
+            book.applyStyles(styles, false);
+    }
     save();
     refresh();
     pivotDialog.close();
     editingPivotId = null;
-    el('create-pivot-summary').textContent = 'Create summary';
     el('delete-pivot-summary').hidden = true;
-    toast(`${previous ? 'Updated' : 'Created'} pivot summary with ${result.rowCount} output rows.`);
-}
-catch (e) {
-    error.textContent = e instanceof Error ? e.message : 'Unable to create pivot summary.';
-}
-finally {
-    if (operation === pivotDialogJobSequence) {
-        button.disabled = false;
-        button.textContent = editingPivotId ? 'Update summary' : 'Create summary';
+    el('create-pivot-summary').textContent = 'Create summary';
+    toast('Deleted pivot summary.');
+});
+el('btn-pivot-add-value-filter').addEventListener('click', () => {
+    const axes = [...Array.from(el('pivot-row-field').selectedOptions, option => Number(option.value)), ...Array.from(el('pivot-column-field').selectedOptions, option => Number(option.value))], used = new Set(pivotSavedValueFilters.map(filter => filter.field)), field = axes.find(item => !used.has(item)), measures = currentPivotUiMeasures();
+    if (field === undefined || !measures.length)
+        return;
+    pivotSavedValueFilters.push({ field, measureField: measures[0].field, measureIndex: 0, direction: 'top', count: 10 });
+    renderPivotValueFilterEditors();
+});
+const pivotValueFilterHost = el('pivot-value-filter-editors');
+pivotValueFilterHost.addEventListener('change', event => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement || target instanceof HTMLInputElement))
+        return;
+    const element = target, index = Number(element.dataset.pivotVfField ?? element.dataset.pivotVfMeasure ?? element.dataset.pivotVfDirection ?? element.dataset.pivotVfCount);
+    if (!Number.isInteger(index) || !pivotSavedValueFilters[index])
+        return;
+    const filter = pivotSavedValueFilters[index];
+    if (target instanceof HTMLSelectElement && element.dataset.pivotVfField !== undefined)
+        filter.field = Number(target.value);
+    else if (target instanceof HTMLSelectElement && element.dataset.pivotVfMeasure !== undefined) {
+        filter.measureIndex = Number(target.value);
+        filter.measureField = currentPivotUiMeasures()[filter.measureIndex]?.field ?? -1;
     }
-} });
+    else if (target instanceof HTMLSelectElement && element.dataset.pivotVfDirection !== undefined)
+        filter.direction = target.value;
+    else if (target instanceof HTMLInputElement && element.dataset.pivotVfCount !== undefined)
+        filter.count = Number(target.value);
+    renderPivotValueFilterEditors();
+});
+pivotValueFilterHost.addEventListener('click', event => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement))
+        return;
+    const button = target.closest('button[data-pivot-vf-remove]');
+    if (!button)
+        return;
+    pivotSavedValueFilters.splice(Number(button.dataset.pivotVfRemove), 1);
+    renderPivotValueFilterEditors();
+});
+el('pivot-row-field').addEventListener('change', () => {
+    fillPivotValueFilterFields();
+    renderPivotFieldOrder('row');
+    const master = el('pivot-subtotals');
+    for (const option of Array.from(el('pivot-row-field').selectedOptions)) {
+        const field = Number(option.value);
+        if (!pivotSubtotalChoices.has(field))
+            pivotSubtotalChoices.set(field, master.checked);
+    }
+    renderPivotSubtotalOptions();
+    fillPivotMeasureOptions();
+    fillPivotExtraMeasures();
+});
+el('pivot-subtotals').addEventListener('change', () => {
+    const master = el('pivot-subtotals');
+    for (const option of Array.from(el('pivot-row-field').selectedOptions))
+        pivotSubtotalChoices.set(Number(option.value), master.checked);
+    renderPivotSubtotalOptions();
+});
+el('pivot-column-field').addEventListener('change', () => {
+    fillPivotValueFilterFields();
+    renderPivotFieldOrder('column');
+    const master = el('pivot-column-subtotals');
+    for (const option of Array.from(el('pivot-column-field').selectedOptions)) {
+        const field = Number(option.value);
+        if (!pivotColumnSubtotalChoices.has(field))
+            pivotColumnSubtotalChoices.set(field, master.checked);
+    }
+    renderPivotColumnSubtotalOptions();
+    fillPivotMeasureOptions();
+    fillPivotExtraMeasures();
+});
+el('pivot-column-subtotals').addEventListener('change', () => {
+    const master = el('pivot-column-subtotals');
+    for (const option of Array.from(el('pivot-column-field').selectedOptions))
+        pivotColumnSubtotalChoices.set(Number(option.value), master.checked);
+    renderPivotColumnSubtotalOptions();
+});
+el('create-pivot-summary').addEventListener('click', async () => {
+    const button = el('create-pivot-summary'), error = el('pivot-summary-error');
+    if (button.disabled)
+        return;
+    const operation = ++pivotDialogJobSequence;
+    button.disabled = true;
+    button.textContent = 'Calculating…';
+    try {
+        const { a, b, range } = pivotSourceBounds(), dateFieldText = el('pivot-date-filter-field').value, dateStartSerial = pivotInputDateSerial(el('pivot-date-filter-start').value), dateEndSerial = pivotInputDateSerial(el('pivot-date-filter-end').value), dateFilters = dateFieldText ? [{ field: Number(dateFieldText), start: dateStartSerial ?? -1, end: dateEndSerial ?? -1 }] : [];
+        if (dateFieldText && (dateStartSerial === null || dateEndSerial === null))
+            throw Error('Choose both dates for the date range filter.');
+        const destination = el('pivot-destination').value.trim().replace(/\$/g, '').toUpperCase(), columns = pivotColumnFieldOrder.filter(field => Array.from(el('pivot-column-field').selectedOptions, option => Number(option.value)).includes(field)), filters = Array.from(el('pivot-filter-field').selectedOptions).map(option => { const field = Number(option.value), selected = Array.from(el(`pivot-filter-value-${field}`).selectedOptions).filter(choice => choice.value !== '__all').map(choice => JSON.parse(choice.dataset.filterValue ?? 'null')); return { field, values: selected }; }), itemFilters = Array.from(el('pivot-item-filter-field').selectedOptions).map(option => { const field = Number(option.value), values = Array.from(el(`pivot-item-filter-value-${field}`).selectedOptions).filter(choice => choice.value !== '__all').map(choice => JSON.parse(choice.dataset.filterValue ?? 'null')); return { field, values }; }), primaryMeasures = pivotValueFieldOrder.filter(field => Array.from(el('pivot-value-field').selectedOptions, option => Number(option.value)).includes(field)).map(field => ({ field, aggregation: pivotMeasureAggregations.get(String(field)) ?? defaultPivotAggregation(field), ...(pivotMeasureCaptions.get(String(field))?.trim() ? { caption: pivotMeasureCaptions.get(String(field)).trim() } : {}), ...(pivotMeasureShows.get(String(field)) && pivotMeasureShows.get(String(field)) !== 'normal' ? { showAs: pivotMeasureShows.get(String(field)) } : {}), ...(['percentOf', 'runningTotal', 'percentRunningTotal', 'differenceFrom', 'percentDifferenceFrom', 'rankAscending', 'rankDescending'].includes(pivotMeasureShows.get(String(field)) ?? '') && pivotMeasureBaseFields.has(String(field)) ? { baseField: pivotMeasureBaseFields.get(String(field)) } : {}), ...(['percentOf', 'differenceFrom', 'percentDifferenceFrom'].includes(pivotMeasureShows.get(String(field)) ?? '') ? { baseItem: pivotMeasureBaseItems.get(String(field)) ?? 'previous' } : {}) })), allMeasures = [...primaryMeasures, ...pivotAdditionalMeasures], spec = validatePivotSummary({ id: editingPivotId ?? `pivot-${Date.now().toString(36)}`, sourceRange: range, ...(el('pivot-source-sheet').value !== doc.active.name ? { sourceSheet: el('pivot-source-sheet').value } : {}), destination, rowField: pivotRowFieldOrder[0] ?? -1, rowFields: pivotRowFieldOrder.filter(field => Array.from(el('pivot-row-field').selectedOptions, option => Number(option.value)).includes(field)), valueField: allMeasures[0]?.field ?? Number(el('pivot-value-field').selectedOptions[0]?.value ?? ''), valueFields: allMeasures.map(measure => measure.field), measures: allMeasures, ...(columns.length ? { columnField: columns[0], ...(columns.length > 1 ? { columnFields: columns } : {}) } : {}), ...(filters.length ? { filters } : {}), ...(itemFilters.length ? { itemFilters } : {}), ...(dateFilters.length ? { dateFilters } : {}), ...(Array.from(pivotLabelFilterChoices, ([field, filter]) => ({ field, ...filter })).filter(filter => (pivotRowFieldOrder.includes(filter.field) || columns.includes(filter.field)) && (!['between', 'notBetween'].includes(filter.operator) || filter.value2 !== undefined)).length ? { labelFilters: Array.from(pivotLabelFilterChoices, ([field, filter]) => ({ field, ...filter })).filter(filter => (pivotRowFieldOrder.includes(filter.field) || columns.includes(filter.field)) && (!['between', 'notBetween'].includes(filter.operator) || filter.value2 !== undefined)) } : {}), aggregation: pivotMeasureAggregations.get(el('pivot-value-field').selectedOptions[0]?.value ?? '') ?? defaultPivotAggregation(Number(el('pivot-value-field').selectedOptions[0]?.value ?? 0)), sortOrder: el('pivot-sort-order').value, fieldSortOrders: Object.fromEntries([...pivotRowFieldOrder, ...columns].map(field => [String(field), pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value])), manualItemOrders: [...pivotManualItemOrderChoices].filter(([field]) => (pivotFieldSortChoices.get(field) ?? el('pivot-sort-order').value) === 'manual').map(([field, items]) => ({ field, items: [...items] })), ...(pivotSavedValueFilters.length ? { valueFilters: pivotSavedValueFilters.map(filter => ({ ...filter })) } : {}), ...(() => {
+                const valueSorts = [...new Set([...pivotRowFieldOrder, ...columns])].flatMap(field => {
+                    const order = pivotFieldSortChoices.get(field);
+                    if (order !== 'valueAscending' && order !== 'valueDescending')
+                        return [];
+                    const measureIndex = pivotSortMeasureChoices.get(field) ?? 0, measure = allMeasures[measureIndex];
+                    return measure ? [{ field, measureField: measure.field, measureIndex, order: order === 'valueAscending' ? 'ascending' : 'descending' }] : [];
+                });
+                return valueSorts.length ? { valueSorts } : {};
+            })(), dateGroups: [...pivotRowFieldOrder, ...columns].flatMap(field => { const unit = pivotDateGroupChoices.get(field); return unit && unit !== 'none' ? [{ field, unit }] : []; }), numberGroups: [...pivotRowFieldOrder, ...columns].flatMap(field => { const interval = Number(pivotNumberGroupChoices.get(field)), startText = pivotNumberGroupStarts.get(field), endText = pivotNumberGroupEnds.get(field), start = startText === undefined ? undefined : Number(startText), end = endText === undefined ? undefined : Number(endText); return Number.isFinite(interval) && interval > 0 ? [{ field, interval, ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }) }] : []; }), manualGroups: [...new Set([...pivotRowFieldOrder, ...columns])].flatMap(field => { const text = pivotManualGroupChoices.get(field) ?? ''; return text.trim() ? [parsePivotManualGroupText(field, text)] : []; }), layout: el('pivot-layout').value, ...(() => { const missingCaption = el('pivot-missing-caption').value; return missingCaption ? { missingCaption } : {}; })(), ...(() => { const grandTotalCaption = el('pivot-grand-total-caption').value; return grandTotalCaption ? { grandTotalCaption } : {}; })(), ...(() => { const valuesCaption = el('pivot-values-caption').value; return valuesCaption ? { valuesCaption } : {}; })(), ...(() => { const rowHeaderCaption = el('pivot-row-header-caption').value; return rowHeaderCaption ? { rowHeaderCaption } : {}; })(), subtotalPosition: el('pivot-subtotals-top').checked ? 'top' : 'bottom', blankRows: el('pivot-blank-rows').checked, showEmptyItemsFields: [...pivotRowFieldOrder, ...columns].filter(field => pivotShowEmptyItemChoices.get(field)), subtotals: el('pivot-subtotals').checked, rowGrandTotals: el('pivot-row-grand-totals').checked, columnGrandTotals: el('pivot-column-grand-totals').checked }, pivotSourceBook().rows, pivotSourceBook().cols, book.rows, book.cols), dest = parseRef(spec.destination);
+        const sourceSheetForPivot = doc.sheets.find(sheet => sheet.name.toLocaleLowerCase() === el('pivot-source-sheet').value.toLocaleLowerCase()), matchingSourceTable = sourceSheetForPivot?.tools.tables.find(table => table.range.replace(/\$/g, '').toUpperCase() === spec.sourceRange);
+        if (matchingSourceTable)
+            spec.sourceTable = matchingSourceTable.name;
+        else
+            delete spec.sourceTable;
+        if (el('pivot-source-sheet').value === doc.active.name && dest.row <= b.row && dest.row >= a.row && dest.col <= b.col && dest.col >= a.col)
+            throw Error('Choose a destination outside the source range.');
+        const previous = doc.active.tools.pivotTables.find(existing => existing.id === spec.id), selectedRowFields = spec.rowFields ?? [spec.rowField], enabledSubtotalFields = selectedRowFields.filter(field => pivotSubtotalChoices.get(field) ?? el('pivot-subtotals').checked);
+        spec.subtotals = enabledSubtotalFields.length > 0;
+        if (enabledSubtotalFields.length > 0 && enabledSubtotalFields.length < selectedRowFields.length)
+            spec.subtotalFields = enabledSubtotalFields;
+        else
+            delete spec.subtotalFields;
+        const selectedColumnFields = spec.columnFields ?? (spec.columnField === undefined ? [] : [spec.columnField]), enabledColumnSubtotalFields = selectedColumnFields.filter(field => pivotColumnSubtotalChoices.get(field) ?? el('pivot-column-subtotals').checked);
+        spec.columnSubtotals = enabledColumnSubtotalFields.length > 0;
+        if (enabledColumnSubtotalFields.length > 0 && enabledColumnSubtotalFields.length < selectedColumnFields.length)
+            spec.columnSubtotalFields = enabledColumnSubtotalFields;
+        else
+            delete spec.columnSubtotalFields;
+        if (previous && JSON.stringify(previous.rowFields ?? [previous.rowField]) === JSON.stringify(spec.rowFields ?? [spec.rowField]) && previous.collapsedRows)
+            spec.collapsedRows = previous.collapsedRows.map(path => [...path]);
+        if (previous && JSON.stringify(previous.columnFields ?? (previous.columnField === undefined ? [] : [previous.columnField])) === JSON.stringify(spec.columnFields ?? (spec.columnField === undefined ? [] : [spec.columnField])) && previous.collapsedColumns)
+            spec.collapsedColumns = previous.collapsedColumns.map(path => [...path]);
+        if (previous?.lastOutputRange)
+            spec.lastOutputRange = previous.lastOutputRange;
+        if (previous?.lastPercentCells)
+            spec.lastPercentCells = previous.lastPercentCells;
+        const result = await buildPivotSummaryInWorker(spec);
+        if (operation !== pivotDialogJobSequence || !pivotDialog.open)
+            return;
+        if (doc.active.tools.pivotTables.some(existing => existing.id !== spec.id && existing.lastOutputRange && pivotRangesOverlap(existing.lastOutputRange, result.outputRange)) || doc.active.tools.queries.some(query => query.lastOutputRange && pivotRangesOverlap(query.lastOutputRange, result.outputRange)))
+            throw Error('This destination overlaps another saved query or Pivot Summary.');
+        const overwrite = result.edits.some(edit => book.getRaw(edit.ref) !== '' && !(previous?.lastOutputRange && queryRangeContains(previous.lastOutputRange, edit.ref)));
+        if (overwrite && !window.confirm('The summary destination contains data. Replace it?'))
+            return;
+        spec.lastOutputRange = result.outputRange;
+        spec.lastPercentCells = result.percentCells;
+        replacePivotExpandControls(spec.id, result.expandControls ?? []);
+        const slicerFields = new Set([...(spec.rowFields ?? [spec.rowField]), ...(spec.columnFields ?? (spec.columnField === undefined ? [] : [spec.columnField]))].filter(field => !(spec.dateGroups ?? []).some(group => group.field === field) && !(spec.numberGroups ?? []).some(group => group.field === field) && !(spec.manualGroups ?? []).some(group => group.field === field)));
+        doc.active.tools.pivotSlicers = doc.active.tools.pivotSlicers.flatMap(slicer => {
+            const connected = [slicer.pivotId, ...(slicer.pivotIds ?? [])];
+            if (!connected.includes(spec.id) || slicerFields.has(slicer.field) && (spec.sourceSheet ?? doc.active.name).toLocaleLowerCase() === (doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId)?.sourceSheet ?? doc.active.name).toLocaleLowerCase() && spec.sourceRange.replace(/\$/g, '').toUpperCase() === (doc.active.tools.pivotTables.find(item => item.id === slicer.pivotId)?.sourceRange.replace(/\$/g, '').toUpperCase() ?? ''))
+                return [slicer];
+            const remaining = connected.filter(id => id !== spec.id);
+            if (!remaining.length)
+                return [];
+            return [{ ...slicer, pivotId: remaining[0], pivotIds: remaining.slice(1), ...(slicer.priorFilters ? { priorFilters: slicer.priorFilters.filter(item => remaining.includes(item.pivotId)) } : {}) }];
+        });
+        const next = validateTools({ ...doc.active.tools, pivotTables: [...doc.active.tools.pivotTables.filter(existing => existing.id !== spec.id), spec] }, book.rows, book.cols);
+        doc.active.tools.pivotTables = next.pivotTables;
+        updatePivotChartRanges(spec, result.outputRange);
+        book.applyEdits(result.edits, false);
+        book.applyStyles(result.styleEdits, false);
+        save();
+        refresh();
+        pivotDialog.close();
+        editingPivotId = null;
+        el('create-pivot-summary').textContent = 'Create summary';
+        el('delete-pivot-summary').hidden = true;
+        toast(`${previous ? 'Updated' : 'Created'} pivot summary with ${result.rowCount} output rows.`);
+    }
+    catch (e) {
+        error.textContent = e instanceof Error ? e.message : 'Unable to create pivot summary.';
+    }
+    finally {
+        if (operation === pivotDialogJobSequence) {
+            button.disabled = false;
+            button.textContent = editingPivotId ? 'Update summary' : 'Create summary';
+        }
+    }
+});
 const queryDialog = el('query-dialog');
 function setQuerySourceMode() { const kind = el('query-source-kind').value, external = kind !== 'worksheet'; el('query-range-source').classList.toggle('ribbon-hidden', external); el('query-url-source').classList.toggle('ribbon-hidden', !external); el('query-json-pointer').classList.toggle('ribbon-hidden', kind !== 'json-url'); }
 el('query-source-kind').addEventListener('change', setQuerySourceMode);
@@ -6637,30 +8118,35 @@ function openQueryDialog() { const { start, end, bounds } = selectionRange(); el
 el('btn-query').addEventListener('click', openQueryDialog);
 for (const id of ['close-query', 'cancel-query'])
     el(id).addEventListener('click', () => queryDialog.close());
-el('create-query').addEventListener('click', async () => { const button = el('create-query'), message = el('query-error'); button.disabled = true; message.textContent = ''; try {
-    const sourceKind = el('query-source-kind').value, source = el('query-source').value.trim().replace(/\$/g, '').toUpperCase(), url = el('query-source-url').value.trim(), jsonPointer = el('query-json-pointer-input').value.trim(), name = el('query-name').value.trim(), destination = el('query-destination').value.trim().replace(/\$/g, '').toUpperCase(), steps = Array.from(el('query-steps').selectedOptions, option => option.value), base = { id: `query-${Date.now().toString(36)}`, name, sourceKind, destination, steps, ...(sourceKind === 'json-url' && jsonPointer ? { jsonPointer } : {}) }, spec = sourceKind === 'worksheet' ? { ...base, sourceRange: source } : { ...base, sourceUrl: url }, result = sourceKind === 'worksheet' ? buildQueryRefresh(book, spec) : await buildExternalQueryRefresh(book, spec, progress => { message.textContent = progress; });
-    if (doc.active.tools.queries.some(query => query.lastOutputRange && pivotRangesOverlap(query.lastOutputRange, result.outputRange)) || doc.active.tools.pivotTables.some(pivot => pivot.lastOutputRange && pivotRangesOverlap(pivot.lastOutputRange, result.outputRange)))
-        throw Error('Query output overlaps another saved query or Pivot Summary.');
-    if (result.edits.some(edit => book.getRaw(edit.ref) !== '') && !window.confirm('The query destination contains data. Replace it?'))
-        return;
-    const saved = { ...spec, lastOutputRange: result.outputRange, ...(result.cachedData ? { cachedData: result.cachedData } : {}) }, validated = validateTools({ ...doc.active.tools, queries: [...doc.active.tools.queries, saved] }, book.rows, book.cols);
-    doc.active.tools.queries = validated.queries;
-    pivotValueCache.clear();
-    pivotGroupedValueCache.clear();
-    book.applyEdits(result.edits, false);
-    scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: result.edits.map(edit => edit.ref) }]);
-    flushPendingPivotRefreshes();
-    save();
-    refresh();
-    queryDialog.close();
-    toast(sourceKind === 'worksheet' ? `Created refreshable worksheet query “${name}”.` : `Created external refresh query “${name}”.`);
-}
-catch (e) {
-    message.textContent = e instanceof Error ? e.message : 'Unable to create query.';
-}
-finally {
-    button.disabled = false;
-} });
+el('create-query').addEventListener('click', async () => {
+    const button = el('create-query'), message = el('query-error');
+    button.disabled = true;
+    message.textContent = '';
+    try {
+        const sourceKind = el('query-source-kind').value, source = el('query-source').value.trim().replace(/\$/g, '').toUpperCase(), url = el('query-source-url').value.trim(), jsonPointer = el('query-json-pointer-input').value.trim(), name = el('query-name').value.trim(), destination = el('query-destination').value.trim().replace(/\$/g, '').toUpperCase(), steps = Array.from(el('query-steps').selectedOptions, option => option.value), base = { id: `query-${Date.now().toString(36)}`, name, sourceKind, destination, steps, ...(sourceKind === 'json-url' && jsonPointer ? { jsonPointer } : {}) }, spec = sourceKind === 'worksheet' ? { ...base, sourceRange: source } : { ...base, sourceUrl: url }, result = sourceKind === 'worksheet' ? buildQueryRefresh(book, spec) : await buildExternalQueryRefresh(book, spec, progress => { message.textContent = progress; });
+        if (doc.active.tools.queries.some(query => query.lastOutputRange && pivotRangesOverlap(query.lastOutputRange, result.outputRange)) || doc.active.tools.pivotTables.some(pivot => pivot.lastOutputRange && pivotRangesOverlap(pivot.lastOutputRange, result.outputRange)))
+            throw Error('Query output overlaps another saved query or Pivot Summary.');
+        if (result.edits.some(edit => book.getRaw(edit.ref) !== '') && !window.confirm('The query destination contains data. Replace it?'))
+            return;
+        const saved = { ...spec, lastOutputRange: result.outputRange, ...(result.cachedData ? { cachedData: result.cachedData } : {}) }, validated = validateTools({ ...doc.active.tools, queries: [...doc.active.tools.queries, saved] }, book.rows, book.cols);
+        doc.active.tools.queries = validated.queries;
+        pivotValueCache.clear();
+        pivotGroupedValueCache.clear();
+        book.applyEdits(result.edits, false);
+        scheduleExternalPivotRefresh([{ sheetName: doc.active.name, refs: result.edits.map(edit => edit.ref) }]);
+        flushPendingPivotRefreshes();
+        save();
+        refresh();
+        queryDialog.close();
+        toast(sourceKind === 'worksheet' ? `Created refreshable worksheet query “${name}”.` : `Created external refresh query “${name}”.`);
+    }
+    catch (e) {
+        message.textContent = e instanceof Error ? e.message : 'Unable to create query.';
+    }
+    finally {
+        button.disabled = false;
+    }
+});
 el('btn-refresh-queries').addEventListener('click', async () => {
     const queryJobs = doc.sheets.flatMap(sheet => sheet.tools.queries.map((query, index) => ({ sheet, query, index }))), hasPivots = doc.sheets.some(sheet => sheet.tools.pivotTables.length > 0);
     if (!queryJobs.length && !hasPivots) {
@@ -6715,20 +8201,41 @@ el('page-area').before(pageOrderLabel, pageOrderSelect);
 function addPageSetupCheck(id, text) { const label = document.createElement('label'), input = document.createElement('input'); label.append(input, document.createTextNode(text)); input.type = 'checkbox'; input.id = id; pageSetupDialog.querySelector('.page-setup-checks').append(label); return input; }
 const centerHorizontallyCheck = addPageSetupCheck('page-center-horizontal', 'Center horizontally'), centerVerticallyCheck = addPageSetupCheck('page-center-vertical', 'Center vertically');
 function syncPageLayoutControls() { const p = doc.active.tools.pageSetup; el('page-layout-orientation').value = p.orientation; el('page-layout-paper').value = p.paper; pageOrderSelect.value = p.pageOrder; centerHorizontallyCheck.checked = p.centerHorizontally; centerVerticallyCheck.checked = p.centerVertically; const button = el('page-break-preview'); button.setAttribute('aria-pressed', String(pageBreakPreview)); button.classList.toggle('active', pageBreakPreview); }
-function updatePageSetup(changes, message) { try {
-    const validated = validateTools({ ...doc.active.tools, pageSetup: { ...doc.active.tools.pageSetup, ...changes } }, book.rows, book.cols);
-    doc.active.tools.pageSetup = validated.pageSetup;
-    syncPageLayoutControls();
-    save();
-    renderPageBreakPreview();
-    toast(message);
+function updatePageSetup(changes, message) {
+    try {
+        const validated = validateTools({ ...doc.active.tools, pageSetup: { ...doc.active.tools.pageSetup, ...changes } }, book.rows, book.cols);
+        doc.active.tools.pageSetup = validated.pageSetup;
+        syncPageLayoutControls();
+        save();
+        renderPageBreakPreview();
+        toast(message);
+    }
+    catch (error) {
+        toast(error instanceof Error ? error.message : 'Invalid page setup.');
+    }
 }
-catch (error) {
-    toast(error instanceof Error ? error.message : 'Invalid page setup.');
-} }
-function openPageSetup() { const p = doc.active.tools.pageSetup; syncPageLayoutControls(); el('page-orientation').value = p.orientation; el('page-paper').value = p.paper; pageOrderSelect.value = p.pageOrder; centerHorizontallyCheck.checked = p.centerHorizontally; centerVerticallyCheck.checked = p.centerVertically; el('page-area').value = p.printArea ?? ''; el('page-repeat-rows').value = p.repeatRows ?? ''; el('page-repeat-columns').value = p.repeatColumns ?? ''; el('page-fit-width').value = String(p.fitWidth); el('page-fit-height').value = String(p.fitHeight); el('page-gridlines').checked = p.printGridlines; el('page-headings').checked = p.printHeadings; for (const [id, value] of [['page-margin-top', p.marginTop], ['page-margin-bottom', p.marginBottom], ['page-margin-left', p.marginLeft], ['page-margin-right', p.marginRight]])
-    el(id).value = String(value); for (const [id, key] of [['page-header-left', 'headerLeft'], ['page-header-center', 'headerCenter'], ['page-header-right', 'headerRight'], ['page-footer-left', 'footerLeft'], ['page-footer-center', 'footerCenter'], ['page-footer-right', 'footerRight']])
-    el(id).value = p[key] ?? ''; el('page-setup-error').textContent = ''; pageSetupDialog.showModal(); }
+function openPageSetup() {
+    const p = doc.active.tools.pageSetup;
+    syncPageLayoutControls();
+    el('page-orientation').value = p.orientation;
+    el('page-paper').value = p.paper;
+    pageOrderSelect.value = p.pageOrder;
+    centerHorizontallyCheck.checked = p.centerHorizontally;
+    centerVerticallyCheck.checked = p.centerVertically;
+    el('page-area').value = p.printArea ?? '';
+    el('page-repeat-rows').value = p.repeatRows ?? '';
+    el('page-repeat-columns').value = p.repeatColumns ?? '';
+    el('page-fit-width').value = String(p.fitWidth);
+    el('page-fit-height').value = String(p.fitHeight);
+    el('page-gridlines').checked = p.printGridlines;
+    el('page-headings').checked = p.printHeadings;
+    for (const [id, value] of [['page-margin-top', p.marginTop], ['page-margin-bottom', p.marginBottom], ['page-margin-left', p.marginLeft], ['page-margin-right', p.marginRight]])
+        el(id).value = String(value);
+    for (const [id, key] of [['page-header-left', 'headerLeft'], ['page-header-center', 'headerCenter'], ['page-header-right', 'headerRight'], ['page-footer-left', 'footerLeft'], ['page-footer-center', 'footerCenter'], ['page-footer-right', 'footerRight']])
+        el(id).value = p[key] ?? '';
+    el('page-setup-error').textContent = '';
+    pageSetupDialog.showModal();
+}
 el('btn-page-setup').addEventListener('click', openPageSetup);
 el('page-layout-orientation').addEventListener('change', event => updatePageSetup({ orientation: event.currentTarget.value }, 'Page orientation updated.'));
 el('page-layout-paper').addEventListener('change', event => updatePageSetup({ paper: event.currentTarget.value }, 'Paper size updated.'));
@@ -6737,66 +8244,90 @@ for (const [id, margins, label] of [['page-margins-normal', { marginTop: .75, ma
 el('page-set-print-area').addEventListener('click', () => { const b = sel(); updatePageSetup({ printArea: `${colToName(b.c1)}${b.r1 + 1}:${colToName(b.c2)}${b.r2 + 1}` }, `Print area set to ${colToName(b.c1)}${b.r1 + 1}:${colToName(b.c2)}${b.r2 + 1}.`); });
 el('page-clear-print-area').addEventListener('click', () => updatePageSetup({ printArea: undefined }, 'Print area cleared.'));
 el('page-break-preview').addEventListener('click', event => { pageBreakPreview = !pageBreakPreview; const button = event.currentTarget; button.setAttribute('aria-pressed', String(pageBreakPreview)); button.classList.toggle('active', pageBreakPreview); renderPageBreakPreview(); toast(pageBreakPreview ? 'Page break preview shown.' : 'Normal worksheet view restored.'); });
-function changeManualPageBreak(remove = false) { const axis = el('page-break-axis').value === 'column' ? 'column' : 'row', boundary = axis === 'row' ? active.r : active.c; if (boundary < 1) {
-    toast(`Select a ${axis} after the first ${axis}; a break cannot precede the first worksheet ${axis}.`);
-    return;
-} const page = doc.active.tools.pageSetup, existing = axis === 'row' ? [...(page.rowBreaks ?? [])] : [...(page.columnBreaks ?? [])], present = existing.includes(boundary); if (remove && !present) {
-    toast(`There is no manual break before the selected ${axis}.`);
-    return;
-} if (!remove && present) {
-    toast(`A manual break already appears before this ${axis}.`);
-    return;
-} const next = remove ? existing.filter(item => item !== boundary) : [...existing, boundary].sort((a, b) => a - b); if (axis === 'row')
-    updatePageSetup({ rowBreaks: next }, remove ? 'Manual row break removed.' : `Manual page break inserted before row ${boundary + 1}.`);
-else
-    updatePageSetup({ columnBreaks: next }, remove ? 'Manual column break removed.' : `Manual page break inserted before column ${colToName(boundary)}.`); }
+function changeManualPageBreak(remove = false) {
+    const axis = el('page-break-axis').value === 'column' ? 'column' : 'row', boundary = axis === 'row' ? active.r : active.c;
+    if (boundary < 1) {
+        toast(`Select a ${axis} after the first ${axis}; a break cannot precede the first worksheet ${axis}.`);
+        return;
+    }
+    const page = doc.active.tools.pageSetup, existing = axis === 'row' ? [...(page.rowBreaks ?? [])] : [...(page.columnBreaks ?? [])], present = existing.includes(boundary);
+    if (remove && !present) {
+        toast(`There is no manual break before the selected ${axis}.`);
+        return;
+    }
+    if (!remove && present) {
+        toast(`A manual break already appears before this ${axis}.`);
+        return;
+    }
+    const next = remove ? existing.filter(item => item !== boundary) : [...existing, boundary].sort((a, b) => a - b);
+    if (axis === 'row')
+        updatePageSetup({ rowBreaks: next }, remove ? 'Manual row break removed.' : `Manual page break inserted before row ${boundary + 1}.`);
+    else
+        updatePageSetup({ columnBreaks: next }, remove ? 'Manual column break removed.' : `Manual page break inserted before column ${colToName(boundary)}.`);
+}
 el('page-break-insert').addEventListener('click', () => changeManualPageBreak());
 el('page-break-remove').addEventListener('click', () => changeManualPageBreak(true));
-el('page-break-clear').addEventListener('click', () => { const page = doc.active.tools.pageSetup; if (!(page.rowBreaks?.length || page.columnBreaks?.length)) {
-    toast('This worksheet has no manual page breaks.');
-    return;
-} updatePageSetup({ rowBreaks: [], columnBreaks: [] }, 'All manual page breaks cleared.'); });
+el('page-break-clear').addEventListener('click', () => {
+    const page = doc.active.tools.pageSetup;
+    if (!(page.rowBreaks?.length || page.columnBreaks?.length)) {
+        toast('This worksheet has no manual page breaks.');
+        return;
+    }
+    updatePageSetup({ rowBreaks: [], columnBreaks: [] }, 'All manual page breaks cleared.');
+});
 for (const id of ['close-page-setup', 'cancel-page-setup'])
     el(id).addEventListener('click', () => pageSetupDialog.close());
-el('save-page-setup').addEventListener('click', () => { try {
-    const area = el('page-area').value.trim(), repeatRows = el('page-repeat-rows').value.trim(), repeatColumns = el('page-repeat-columns').value.trim(), pageSetup = { orientation: el('page-orientation').value, paper: el('page-paper').value, pageOrder: pageOrderSelect.value, centerHorizontally: centerHorizontallyCheck.checked, centerVertically: centerVerticallyCheck.checked, printArea: area || undefined, repeatRows: repeatRows || undefined, repeatColumns: repeatColumns || undefined, rowBreaks: doc.active.tools.pageSetup.rowBreaks ?? [], columnBreaks: doc.active.tools.pageSetup.columnBreaks ?? [], fitWidth: Number(el('page-fit-width').value), fitHeight: Number(el('page-fit-height').value), printGridlines: el('page-gridlines').checked, printHeadings: el('page-headings').checked, marginTop: Number(el('page-margin-top').value), marginBottom: Number(el('page-margin-bottom').value), marginLeft: Number(el('page-margin-left').value), marginRight: Number(el('page-margin-right').value), headerLeft: el('page-header-left').value, headerCenter: el('page-header-center').value, headerRight: el('page-header-right').value, footerLeft: el('page-footer-left').value, footerCenter: el('page-footer-center').value, footerRight: el('page-footer-right').value }, validated = validateTools({ ...doc.active.tools, pageSetup }, book.rows, book.cols);
-    doc.active.tools.pageSetup = validated.pageSetup;
-    syncPageLayoutControls();
-    save();
-    refresh();
-    pageSetupDialog.close();
-    toast('Worksheet page setup saved.');
-}
-catch (e) {
-    el('page-setup-error').textContent = e instanceof Error ? e.message : 'Invalid page setup.';
-} });
-el('btn-print-sheet').addEventListener('click', () => { let frame; try {
-    const html = buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name);
-    frame = document.createElement('iframe');
-    frame.title = 'GridForge print preview';
-    frame.setAttribute('aria-hidden', 'true');
-    frame.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none';
-    const cleanup = () => { window.setTimeout(() => frame?.remove(), 250); };
-    frame.addEventListener('load', () => { const printWindow = frame?.contentWindow; if (!printWindow) {
-        cleanup();
-        toast('The system print dialog could not be opened.');
-        return;
-    } printWindow.addEventListener('afterprint', cleanup, { once: true }); window.setTimeout(() => { try {
-        printWindow.focus();
-        printWindow.print();
+el('save-page-setup').addEventListener('click', () => {
+    try {
+        const area = el('page-area').value.trim(), repeatRows = el('page-repeat-rows').value.trim(), repeatColumns = el('page-repeat-columns').value.trim(), pageSetup = { orientation: el('page-orientation').value, paper: el('page-paper').value, pageOrder: pageOrderSelect.value, centerHorizontally: centerHorizontallyCheck.checked, centerVertically: centerVerticallyCheck.checked, printArea: area || undefined, repeatRows: repeatRows || undefined, repeatColumns: repeatColumns || undefined, rowBreaks: doc.active.tools.pageSetup.rowBreaks ?? [], columnBreaks: doc.active.tools.pageSetup.columnBreaks ?? [], fitWidth: Number(el('page-fit-width').value), fitHeight: Number(el('page-fit-height').value), printGridlines: el('page-gridlines').checked, printHeadings: el('page-headings').checked, marginTop: Number(el('page-margin-top').value), marginBottom: Number(el('page-margin-bottom').value), marginLeft: Number(el('page-margin-left').value), marginRight: Number(el('page-margin-right').value), headerLeft: el('page-header-left').value, headerCenter: el('page-header-center').value, headerRight: el('page-header-right').value, footerLeft: el('page-footer-left').value, footerCenter: el('page-footer-center').value, footerRight: el('page-footer-right').value }, validated = validateTools({ ...doc.active.tools, pageSetup }, book.rows, book.cols);
+        doc.active.tools.pageSetup = validated.pageSetup;
+        syncPageLayoutControls();
+        save();
+        refresh();
+        pageSetupDialog.close();
+        toast('Worksheet page setup saved.');
     }
-    catch {
-        cleanup();
-        toast('The system print dialog could not be opened.');
-    } }, 150); }, { once: true });
-    document.body.append(frame);
-    frame.srcdoc = html;
-    toast('Opening your system printer dialog. Choose a connected printer or Microsoft Print to PDF.');
-}
-catch (e) {
-    frame?.remove();
-    toast(e instanceof Error ? e.message : 'Unable to prepare worksheet for printing.');
-} });
+    catch (e) {
+        el('page-setup-error').textContent = e instanceof Error ? e.message : 'Invalid page setup.';
+    }
+});
+el('btn-print-sheet').addEventListener('click', () => {
+    let frame;
+    try {
+        const html = buildPrintHtml(book, doc.active.tools.pageSetup, doc.active.name);
+        frame = document.createElement('iframe');
+        frame.title = 'GridForge print preview';
+        frame.setAttribute('aria-hidden', 'true');
+        frame.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none';
+        const cleanup = () => { window.setTimeout(() => frame?.remove(), 250); };
+        frame.addEventListener('load', () => {
+            const printWindow = frame?.contentWindow;
+            if (!printWindow) {
+                cleanup();
+                toast('The system print dialog could not be opened.');
+                return;
+            }
+            printWindow.addEventListener('afterprint', cleanup, { once: true });
+            window.setTimeout(() => {
+                try {
+                    printWindow.focus();
+                    printWindow.print();
+                }
+                catch {
+                    cleanup();
+                    toast('The system print dialog could not be opened.');
+                }
+            }, 150);
+        }, { once: true });
+        document.body.append(frame);
+        frame.srcdoc = html;
+        toast('Opening your system printer dialog. Choose a connected printer or Microsoft Print to PDF.');
+    }
+    catch (e) {
+        frame?.remove();
+        toast(e instanceof Error ? e.message : 'Unable to prepare worksheet for printing.');
+    }
+});
 const goalSeekDialog = el('goal-seek-dialog');
 let goalSeekPreview = null, goalSeekDocumentSnapshot = '';
 function openGoalSeek() { const selected = parseRef(currentRef()), target = currentRef(), changing = asRef(selected.row, Math.min(book.cols - 1, selected.col + (selected.col + 1 < book.cols ? 1 : -1))); el('goal-seek-target-cell').value = target; el('goal-seek-changing-cell').value = changing; el('goal-seek-target-value').value = ''; el('goal-seek-result').textContent = ''; el('apply-goal-seek').disabled = true; goalSeekPreview = null; goalSeekDocumentSnapshot = ''; goalSeekDialog.showModal(); }
@@ -6804,69 +8335,104 @@ el('btn-goal-seek').addEventListener('click', openGoalSeek);
 el('close-goal-seek').addEventListener('click', () => goalSeekDialog.close());
 for (const id of ['goal-seek-target-cell', 'goal-seek-target-value', 'goal-seek-changing-cell'])
     el(id).addEventListener('input', () => { goalSeekPreview = null; el('apply-goal-seek').disabled = true; });
-el('preview-goal-seek').addEventListener('click', () => { const message = el('goal-seek-result'); try {
-    const targetCell = el('goal-seek-target-cell').value.trim().replace(/\$/g, '').toUpperCase(), changingCell = el('goal-seek-changing-cell').value.trim().replace(/\$/g, '').toUpperCase(), targetInput = el('goal-seek-target-value').value;
-    if (!targetInput.trim())
-        throw Error('Enter the target value.');
-    const targetValue = Number(targetInput);
-    goalSeekPreview = solveGoalSeek(doc, { sheetId: doc.activeId, targetCell, targetValue, changingCell });
-    goalSeekDocumentSnapshot = JSON.stringify(doc.toJSON());
-    message.textContent = `Set ${changingCell} to ${goalSeekPreview.changingValue}; ${targetCell} reaches ${goalSeekPreview.achievedValue} after ${goalSeekPreview.iterations} iterations.`;
-    el('apply-goal-seek').disabled = false;
-}
-catch (e) {
+el('preview-goal-seek').addEventListener('click', () => {
+    const message = el('goal-seek-result');
+    try {
+        const targetCell = el('goal-seek-target-cell').value.trim().replace(/\$/g, '').toUpperCase(), changingCell = el('goal-seek-changing-cell').value.trim().replace(/\$/g, '').toUpperCase(), targetInput = el('goal-seek-target-value').value;
+        if (!targetInput.trim())
+            throw Error('Enter the target value.');
+        const targetValue = Number(targetInput);
+        goalSeekPreview = solveGoalSeek(doc, { sheetId: doc.activeId, targetCell, targetValue, changingCell });
+        goalSeekDocumentSnapshot = JSON.stringify(doc.toJSON());
+        message.textContent = `Set ${changingCell} to ${goalSeekPreview.changingValue}; ${targetCell} reaches ${goalSeekPreview.achievedValue} after ${goalSeekPreview.iterations} iterations.`;
+        el('apply-goal-seek').disabled = false;
+    }
+    catch (e) {
+        goalSeekPreview = null;
+        el('apply-goal-seek').disabled = true;
+        message.textContent = e instanceof Error ? e.message : 'Unable to find a solution.';
+    }
+});
+el('apply-goal-seek').addEventListener('click', () => {
+    if (!goalSeekPreview)
+        return;
+    if (JSON.stringify(doc.toJSON()) !== goalSeekDocumentSnapshot) {
+        goalSeekPreview = null;
+        el('apply-goal-seek').disabled = true;
+        el('goal-seek-result').textContent = 'Workbook changed since the preview. Find the solution again before applying.';
+        return;
+    }
+    const ref = el('goal-seek-changing-cell').value.trim().replace(/\$/g, '').toUpperCase();
+    apply([{ ref, raw: String(goalSeekPreview.changingValue) }]);
+    goalSeekDialog.close();
     goalSeekPreview = null;
-    el('apply-goal-seek').disabled = true;
-    message.textContent = e instanceof Error ? e.message : 'Unable to find a solution.';
-} });
-el('apply-goal-seek').addEventListener('click', () => { if (!goalSeekPreview)
-    return; if (JSON.stringify(doc.toJSON()) !== goalSeekDocumentSnapshot) {
-    goalSeekPreview = null;
-    el('apply-goal-seek').disabled = true;
-    el('goal-seek-result').textContent = 'Workbook changed since the preview. Find the solution again before applying.';
-    return;
-} const ref = el('goal-seek-changing-cell').value.trim().replace(/\$/g, '').toUpperCase(); apply([{ ref, raw: String(goalSeekPreview.changingValue) }]); goalSeekDialog.close(); goalSeekPreview = null; toast('Goal Seek input applied.'); });
-el('rule-preset').addEventListener('change', () => { const preset = el('rule-preset').value; if (preset !== 'custom')
-    el('rule-color').value = preset; });
+    toast('Goal Seek input applied.');
+});
+el('rule-preset').addEventListener('change', () => {
+    const preset = el('rule-preset').value;
+    if (preset !== 'custom')
+        el('rule-color').value = preset;
+});
 el('rule-color').addEventListener('input', () => { el('rule-preset').value = 'custom'; });
 const conditionalOperator = el('rule-op'), updateConditionalFormulaVisibility = () => { el('rule-formula-row').hidden = conditionalOperator.value !== 'formula'; el('rule-icon-row').hidden = conditionalOperator.value !== 'iconSet'; el('rule-scale-thresholds').hidden = conditionalOperator.value !== 'scale'; el('rule-bar-thresholds').hidden = conditionalOperator.value !== 'dataBar'; el('rule-scale-mid-row').hidden = !el('rule-use-mid-color').checked; };
 conditionalOperator.addEventListener('change', updateConditionalFormulaVisibility);
 el('rule-use-mid-color').addEventListener('change', updateConditionalFormulaVisibility);
 updateConditionalFormulaVisibility();
-const iconSetSelect = el('rule-icon-set'), updateIconThresholdEditor = () => { const container = el('rule-icon-thresholds'), count = Number(iconSetSelect.value[0]); container.replaceChildren(); for (let index = 1; index < count; index++) {
-    const row = document.createElement('div'), label = document.createElement('label'), select = document.createElement('select'), input = document.createElement('input');
-    row.className = 'conditional-icon-threshold';
-    label.className = 'field-label';
-    label.textContent = `Icon ${index + 1} cutoff`;
-    select.className = 'context-select';
-    for (const [value, title] of [['percent', 'Percent'], ['percentile', 'Percentile'], ['num', 'Number'], ['formula', 'Formula']]) {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = title;
-        select.append(option);
+const iconSetSelect = el('rule-icon-set'), updateIconThresholdEditor = () => {
+    const container = el('rule-icon-thresholds'), count = Number(iconSetSelect.value[0]);
+    container.replaceChildren();
+    for (let index = 1; index < count; index++) {
+        const row = document.createElement('div'), label = document.createElement('label'), select = document.createElement('select'), input = document.createElement('input');
+        row.className = 'conditional-icon-threshold';
+        label.className = 'field-label';
+        label.textContent = `Icon ${index + 1} cutoff`;
+        select.className = 'context-select';
+        for (const [value, title] of [['percent', 'Percent'], ['percentile', 'Percentile'], ['num', 'Number'], ['formula', 'Formula']]) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = title;
+            select.append(option);
+        }
+        select.value = 'percent';
+        input.type = 'text';
+        input.className = 'scenario-input';
+        input.setAttribute('aria-label', `Icon ${index + 1} cutoff value`);
+        input.value = String(Math.round(index * 100 / count));
+        input.placeholder = 'Number or formula';
+        row.append(label, select, input);
+        container.append(row);
     }
-    select.value = 'percent';
-    input.type = 'text';
-    input.className = 'scenario-input';
-    input.setAttribute('aria-label', `Icon ${index + 1} cutoff value`);
-    input.value = String(Math.round(index * 100 / count));
-    input.placeholder = 'Number or formula';
-    row.append(label, select, input);
-    container.append(row);
-} };
+};
 iconSetSelect.addEventListener('change', updateIconThresholdEditor);
 updateIconThresholdEditor();
-const renderConditionalRuleList = () => { const list = el('conditional-rule-list'); list.replaceChildren(); const rules = doc.active.tools.conditional; if (!rules.length) {
-    const empty = document.createElement('p');
-    empty.className = 'conditional-rules-empty';
-    empty.textContent = 'No conditional formatting rules on this sheet.';
-    list.append(empty);
-    return;
-} const names = { gt: 'Greater than', gte: 'At least', lt: 'Less than', lte: 'At most', eq: 'Equal to', ne: 'Not equal to', between: 'Between', notBetween: 'Outside range', scale: 'Color scale', dataBar: 'Data bar', formula: 'Formula', iconSet: 'Icon set' }; rules.forEach((rule, index) => { const row = document.createElement('div'), description = document.createElement('span'), remove = document.createElement('button'); row.className = 'conditional-rule-row'; description.className = 'conditional-rule-description'; description.textContent = `${rule.start === rule.end ? rule.start : `${rule.start}:${rule.end}`} · ${names[rule.operator]}${rule.iconSet ? ` (${rule.iconSet})` : ''} · Priority ${rule.priority ?? index + 1}`; remove.type = 'button'; remove.className = 'secondary-button'; remove.textContent = 'Remove'; remove.setAttribute('aria-label', `Remove ${names[rule.operator]} rule for ${rule.start}:${rule.end}`); remove.dataset.ruleIndex = String(index); row.append(description, remove); list.append(row); }); };
+const renderConditionalRuleList = () => {
+    const list = el('conditional-rule-list');
+    list.replaceChildren();
+    const rules = doc.active.tools.conditional;
+    if (!rules.length) {
+        const empty = document.createElement('p');
+        empty.className = 'conditional-rules-empty';
+        empty.textContent = 'No conditional formatting rules on this sheet.';
+        list.append(empty);
+        return;
+    }
+    const names = { gt: 'Greater than', gte: 'At least', lt: 'Less than', lte: 'At most', eq: 'Equal to', ne: 'Not equal to', between: 'Between', notBetween: 'Outside range', scale: 'Color scale', dataBar: 'Data bar', formula: 'Formula', iconSet: 'Icon set' };
+    rules.forEach((rule, index) => { const row = document.createElement('div'), description = document.createElement('span'), remove = document.createElement('button'); row.className = 'conditional-rule-row'; description.className = 'conditional-rule-description'; description.textContent = `${rule.start === rule.end ? rule.start : `${rule.start}:${rule.end}`} · ${names[rule.operator]}${rule.iconSet ? ` (${rule.iconSet})` : ''} · Priority ${rule.priority ?? index + 1}`; remove.type = 'button'; remove.className = 'secondary-button'; remove.textContent = 'Remove'; remove.setAttribute('aria-label', `Remove ${names[rule.operator]} rule for ${rule.start}:${rule.end}`); remove.dataset.ruleIndex = String(index); row.append(description, remove); list.append(row); });
+};
 el('btn-conditional').addEventListener('click', () => { renderConditionalRuleList(); conditionalDialog.showModal(); });
-el('conditional-rule-list').addEventListener('click', event => { const button = event.target.closest('button[data-rule-index]'); if (!button)
-    return; const index = Number(button.dataset.ruleIndex); if (!Number.isInteger(index) || index < 0 || index >= doc.active.tools.conditional.length)
-    return; doc.active.tools.conditional.splice(index, 1); save(); refresh(); renderConditionalRuleList(); toast('Conditional formatting rule removed'); });
+el('conditional-rule-list').addEventListener('click', event => {
+    const button = event.target.closest('button[data-rule-index]');
+    if (!button)
+        return;
+    const index = Number(button.dataset.ruleIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= doc.active.tools.conditional.length)
+        return;
+    doc.active.tools.conditional.splice(index, 1);
+    save();
+    refresh();
+    renderConditionalRuleList();
+    toast('Conditional formatting rule removed');
+});
 el('close-conditional').addEventListener('click', () => conditionalDialog.close());
 el('apply-conditional').addEventListener('click', () => {
     const operator = el('rule-op').value, formula = el('rule-formula').value.trim(), threshold = Number(el('rule-threshold').value), b = sel();
@@ -6878,10 +8444,15 @@ el('apply-conditional').addEventListener('click', () => {
         toast('Maximum 30 rules per sheet');
         return;
     }
-    const upper = Number(el('rule-threshold2').value), readScaleStop = (typeId, valueId) => { const type = el(typeId).value, raw = el(valueId).value.trim(); if (type === 'min' || type === 'max')
-        return { type }; if (type === 'formula')
-        return { type, value: raw.startsWith('=') ? raw : `=${raw}` }; return { type, value: raw === '' ? Number.NaN : Number(raw) }; }, scaleThresholds = operator === 'scale' ? [readScaleStop('rule-scale-low-type', 'rule-scale-low-value'), ...(el('rule-use-mid-color').checked ? [readScaleStop('rule-scale-mid-type', 'rule-scale-mid-value')] : []), readScaleStop('rule-scale-high-type', 'rule-scale-high-value')] : undefined, barLowerThreshold = operator === 'dataBar' ? readScaleStop('rule-bar-low-type', 'rule-bar-low-value') : undefined, barUpperThreshold = operator === 'dataBar' ? readScaleStop('rule-bar-high-type', 'rule-bar-high-value') : undefined, iconThresholds = operator === 'iconSet' ? [{ type: 'min' }, ...Array.from(el('rule-icon-thresholds').querySelectorAll('.conditional-icon-threshold'), row => { const select = row.querySelector('select'), input = row.querySelector('input'), type = select.value, raw = input.value.trim(); return type === 'formula' ? { type, value: raw.startsWith('=') ? raw : `=${raw}` } : { type, value: raw === '' ? Number.NaN : Number(raw) }; })] : undefined;
-    const rule = { start: asRef(b.r1, b.c1), end: asRef(b.r2, b.c2), operator, threshold: operator === 'formula' || operator === 'iconSet' ? 0 : threshold, priority: nextConditionalPriority(doc.active.tools.conditional), ...(operator === 'formula' ? { formula } : {}), ...(operator === 'iconSet' ? { iconSet: el('rule-icon-set').value, iconThresholds, iconsOnly: el('rule-icons-only').checked } : {}), ...(operator === 'between' || operator === 'notBetween' ? { threshold2: upper } : {}), color: el('rule-color').value, ...(operator === 'scale' ? { startColor: el('rule-start-color').value, scaleThresholds, ...(el('rule-use-mid-color').checked ? { midColor: el('rule-mid-color').value } : {}) } : {}), ...(operator === 'dataBar' ? { barStyle: el('rule-bar-style').value, negativeColor: el('rule-negative-color').value, showValue: el('rule-show-value').checked, barAxis: el('rule-bar-axis').value, barAxisColor: el('rule-axis-color').value, barMinLength: Number(el('rule-bar-min-length').value), barMaxLength: Number(el('rule-bar-max-length').value), barLowerThreshold, barUpperThreshold } : {}) };
+    const upper = Number(el('rule-threshold2').value), readScaleStop = (typeId, valueId) => {
+        const type = el(typeId).value, raw = el(valueId).value.trim();
+        if (type === 'min' || type === 'max')
+            return { type };
+        if (type === 'formula')
+            return { type, value: raw.startsWith('=') ? raw : `=${raw}` };
+        return { type, value: raw === '' ? Number.NaN : Number(raw) };
+    }, scaleThresholds = operator === 'scale' ? [readScaleStop('rule-scale-low-type', 'rule-scale-low-value'), ...(el('rule-use-mid-color').checked ? [readScaleStop('rule-scale-mid-type', 'rule-scale-mid-value')] : []), readScaleStop('rule-scale-high-type', 'rule-scale-high-value')] : undefined, barLowerThreshold = operator === 'dataBar' ? readScaleStop('rule-bar-low-type', 'rule-bar-low-value') : undefined, barUpperThreshold = operator === 'dataBar' ? readScaleStop('rule-bar-high-type', 'rule-bar-high-value') : undefined, iconThresholds = operator === 'iconSet' ? [{ type: 'min' }, ...Array.from(el('rule-icon-thresholds').querySelectorAll('.conditional-icon-threshold'), row => { const select = row.querySelector('select'), input = row.querySelector('input'), type = select.value, raw = input.value.trim(); return type === 'formula' ? { type, value: raw.startsWith('=') ? raw : `=${raw}` } : { type, value: raw === '' ? Number.NaN : Number(raw) }; })] : undefined;
+    const rule = { start: asRef(b.r1, b.c1), end: asRef(b.r2, b.c2), operator, threshold: operator === 'formula' || operator === 'iconSet' ? 0 : threshold, priority: nextConditionalPriority(doc.active.tools.conditional), ...(operator === 'formula' ? { formula } : {}), ...(operator === 'iconSet' ? { iconSet: el('rule-icon-set').value, iconThresholds, iconsOnly: el('rule-icons-only').checked, reverseIcons: el('rule-reverse-icons').checked } : {}), ...(operator === 'between' || operator === 'notBetween' ? { threshold2: upper } : {}), color: el('rule-color').value, ...(operator === 'scale' ? { startColor: el('rule-start-color').value, scaleThresholds, ...(el('rule-use-mid-color').checked ? { midColor: el('rule-mid-color').value } : {}) } : {}), ...(operator === 'dataBar' ? { barStyle: el('rule-bar-style').value, negativeColor: el('rule-negative-color').value, showValue: el('rule-show-value').checked, barAxis: el('rule-bar-axis').value, barAxisColor: el('rule-axis-color').value, barMinLength: Number(el('rule-bar-min-length').value), barMaxLength: Number(el('rule-bar-max-length').value), barLowerThreshold, barUpperThreshold } : {}) };
     try {
         validateTools({ ...doc.active.tools, conditional: [...doc.active.tools.conditional, rule] }, book.rows, book.cols);
     }

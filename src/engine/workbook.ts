@@ -1303,12 +1303,13 @@ export class Workbook {
         if(n.args.length!==2)error('#ARG!','IFERROR(value, fallback) takes exactly 2 arguments.');
         try{return this.replaceArrayErrors(this.evaluate(n.args[0]!,visiting),n.args[1]!,visiting);}catch(e){if(e instanceof SheetError||e instanceof FormulaSyntaxError)return this.evaluate(n.args[1]!,visiting);throw e;}
       }
-      if(n.name==='XLOOKUP' && n.args.length===4) {
-        const firstThree=n.args.slice(0,3).map(arg=>this.evaluate(arg,visiting));
-        try{return f.run(firstThree);}catch(e){
-          if(e instanceof SheetError && e.code==='#N/A')return this.evaluate(n.args[3]!,visiting);
-          throw e;
-        }
+      if(n.name==='XLOOKUP' && n.args.length>=4&&n.args.length<=6) {
+        const deferredFallback=Symbol('XLOOKUP fallback') as unknown as Datum,lookupArgs:Datum[]=[...n.args.slice(0,3).map(arg=>this.evaluate(arg,visiting)),deferredFallback];
+        // Match and search modes are real inputs, while the optional fallback
+        // remains lazy just as Excel does: a bad fallback must not invalidate
+        // a successful lookup.
+        for(const arg of n.args.slice(4))lookupArgs.push(this.evaluate(arg,visiting));
+        const result=f.run(lookupArgs);return result===deferredFallback?this.evaluate(n.args[3]!,visiting):result;
       }
       if(['ISERR','ISERROR','ISNA'].includes(n.name)) {
         if(n.args.length!==1)error('#ARG!',`${n.name} takes one argument.`);

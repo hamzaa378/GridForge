@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Workbook} from '../dist/engine/workbook.js';
 import {SpreadsheetDocument} from '../dist/engine/document.js';
-import {chartRange,chartSvg,extractChartData,validateChart,CHART_KINDS} from '../dist/engine/charts.js';
+import {chartRange,chartSvg,extractChartData,validateChart,CHART_KINDS,applySeriesPointColorEdits} from '../dist/engine/charts.js';
 import {exportXlsx} from '../dist/engine/xlsx.js';
 import {zipRead} from '../dist/engine/zip.js';
 const book=()=>{const w=new Workbook(100,16);w.applyEdits(Object.entries({A1:'Region',B1:'Sales',C1:'Costs',A2:'North',B2:'100',C2:'40',A3:'South',B3:'=50*3',C3:'80',A4:'West',B4:'-50',C4:'0'}).map(([ref,raw])=>({ref,raw})));return w;};
@@ -16,7 +16,7 @@ test('Chart source capacity expands to 10,000 plotted points while bounding seri
  assert.deepEqual(chartRange('A1:B10001',large.rows,large.cols),{r1:0,r2:10_000,c1:0,c2:1});
  assert.doesNotThrow(()=>validateChart(wide,large.rows,large.cols));
  assert.throws(()=>chartRange('A1:B10002',large.rows,large.cols),/10,000 plotted points/);
- assert.throws(()=>chartRange('A1:Z2',large.rows,large.cols),/10,000 plotted points/);
+ assert.throws(()=>chartRange('A1:Y418',large.rows,large.cols),/10,000 plotted points/);
  const cells=[];for(let col=0;col<25;col++){const letter=String.fromCharCode(65+col);cells.push({ref:`${letter}1`,raw:col===0?'Category':`S${col}`});cells.push({ref:`${letter}2`,raw:col===0?'Row 1':'1'});}
  large.applyEdits(cells,false);assert.equal(extractChartData(large,'A1:Y2').series.length,24);
  large.setCell('A2','1');assert.throws(()=>extractChartData(large,'A1:Y2'),/up to 24 series/);
@@ -75,10 +75,30 @@ test('Pie and doughnut per-point colors use the full bounded 10,000-point chart 
  assert.equal(validateChart({...spec('pie'),dataPointColors:colors},100,16).dataPointColors.length,10_000);
  assert.throws(()=>validateChart({...spec('doughnut'),dataPointColors:Array.from({length:10_001},()=>'#2563eb')},100,16),/10,000 six-digit hexadecimal colors/);
 });
+test('Per-series point colors validate independently and reject malformed palettes',()=>{
+ const first=['#123456','#abcdef','#774411'],second=['#e04040','#40a080','#4040e0'],chart={...spec('line'),seriesOptions:[{dataPointColors:first},{dataPointColors:second}]};
+ const validated=validateChart(chart,100,16);assert.deepEqual(validated.seriesOptions?.map(options=>options.dataPointColors),[first,second]);
+ assert.throws(()=>validateChart({...spec('line'),seriesOptions:[{dataPointColors:['red']}]},100,16),/six-digit hexadecimal colors/);
+ assert.throws(()=>validateChart({...spec('line'),seriesOptions:[{dataPointColors:Array.from({length:10_001},()=>'#2563eb')}]},100,16),/10,000 six-digit hexadecimal colors/);
+});
+test('Chart editor point-color edits preserve per-series settings and validate indexes',()=>{
+ const original=[{color:'#123456',dataPointColors:['#abcdef','#fedcba']},{color:'#e04040'}],edits=[{seriesIndex:0,pointIndex:3,color:'#102030'},{seriesIndex:1,pointIndex:1,color:'#405060'}],result=applySeriesPointColorEdits(original,5,edits,['#4472c4','#ed7d31']);
+ assert.deepEqual(result[0].dataPointColors,['#abcdef','#fedcba','#123456','#102030','#123456']);assert.deepEqual(result[1].dataPointColors,['#e04040','#405060','#e04040','#e04040','#e04040']);assert.deepEqual(original[0].dataPointColors,['#abcdef','#fedcba']);
+ assert.throws(()=>applySeriesPointColorEdits(original,5,[{seriesIndex:2,pointIndex:0,color:'#ffffff'}],['#4472c4','#ed7d31']),/Invalid chart point-color edit/);assert.throws(()=>applySeriesPointColorEdits(original,5,[{seriesIndex:0,pointIndex:5,color:'#ffffff'}],['#4472c4','#ed7d31']),/Invalid chart point-color edit/);assert.throws(()=>applySeriesPointColorEdits(original,5,[{seriesIndex:0,pointIndex:0,color:'red'}],['#4472c4','#ed7d31']),/Invalid chart point-color edit/);
+});
 test('Pie chart SVG legends use the same custom colors as their slices',()=>{
  const svg=chartSvg(book(),{...spec('pie'),dataPointColors:['#123456','#abcdef','#774411']});
  assert.ok((svg.match(/fill="#123456"/g)??[]).length>=2,'first-slice color appears on both its slice and legend key');
  assert.ok((svg.match(/fill="#abcdef"/g)??[]).length>=2,'second-slice color appears on both its slice and legend key');
+});
+test('Column charts render custom colors by category and validate their point-color range',()=>{
+ const colors=['#123456','#abcdef','#774411'],svg=chartSvg(book(),{...spec('column'),dataPointColors:colors});
+ for(const color of colors)assert.match(svg,new RegExp(`fill="${color}"`));
+ assert.deepEqual(validateChart({...spec('bar'),dataPointColors:colors},100,16).dataPointColors,colors);
+ assert.deepEqual(validateChart({...spec('line'),dataPointColors:colors},100,16).dataPointColors,colors);
+ const markerSvg=chartSvg(book(),{...spec('line'),dataPointColors:colors});for(const color of colors)assert.match(markerSvg,new RegExp(`fill="${color}"`));
+ assert.throws(()=>validateChart({...spec('waterfall'),dataPointColors:colors},100,16),/supported chart type/);
+ assert.throws(()=>validateChart({...spec('area'),dataPointColors:colors},100,16),/supported chart type/);
 });
 test('Pie chart SVG preview keeps 32 positive slices instead of truncating after 16',()=>{
  const w=new Workbook(40,8),edits=[{ref:'A1',raw:'Category'},{ref:'B1',raw:'Value'}],colors=Array.from({length:32},(_,index)=>`#${(0x100000+index).toString(16)}`);

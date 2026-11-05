@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Workbook,display} from '../dist/engine/workbook.js';
 import {SpreadsheetDocument} from '../dist/engine/document.js';
+import {exportXlsx,importXlsx} from '../dist/engine/xlsx.js';
+import {DOMParser} from '@xmldom/xmldom';
 import {runPivotJob,runPivotJobs} from '../dist/engine/pivot_job.js';
 import {buildPivotSummary,pivotDateGroupLabel,pivotDateSerial,pivotSerialDateIso} from '../dist/engine/pivot.js';
 import {chartSvg,histogramData,paretoData,extractChartData} from '../dist/engine/charts.js';
 import {solveGoalSeek} from '../dist/engine/goal_seek.js';
 import {validateTools} from '../dist/engine/sheettools.js';
+globalThis.DOMParser=DOMParser;
 
 test('cross-sheet references invalidate local dependents when the source changes',()=>{
   const doc=new SpreadsheetDocument(new Workbook(30,12));doc.renameSheet(doc.activeId,'Summary');
@@ -31,6 +34,12 @@ test('quoted sheet names work and direct references update after rename and dele
 test('cross-sheet circular references report a cycle instead of recursing indefinitely',()=>{
   const doc=new SpreadsheetDocument(new Workbook(20,10));const one=doc.active;doc.renameSheet(one.id,'One');const two=doc.addSheet('Two',new Workbook(20,10));
   one.book.setCell('A1','=Two!A1');two.book.setCell('A1','=One!A1');assert.equal(one.book.getValue('A1').error?.code,'#CYCLE!');
+});
+
+test('cross-sheet scalar and range formulas remain live through XLSX round-trip',async()=>{
+ const doc=new SpreadsheetDocument(new Workbook(30,12));doc.renameSheet(doc.activeId,'Summary');const source=doc.addSheet('Sales Data',new Workbook(30,12));source.book.applyEdits([{ref:'A1',raw:'4'},{ref:'A2',raw:'6'}],false);
+ doc.sheets[0].book.applyEdits([{ref:'A1',raw:"='Sales Data'!A1+1"},{ref:'A2',raw:"=SUM('Sales Data'!$A$1:$A$2)"}],false);assert.equal(doc.sheets[0].book.getValue('A1').value,5);assert.equal(doc.sheets[0].book.getValue('A2').value,10);
+ const restored=(await importXlsx(exportXlsx(doc))).document;assert.equal(restored.sheets[0].book.getValue('A1').value,5);assert.equal(restored.sheets[0].book.getValue('A2').value,10);restored.sheets[1].book.setCell('A1','9');assert.equal(restored.sheets[0].book.getValue('A1').value,10);assert.equal(restored.sheets[0].book.getValue('A2').value,15);
 });
 
 test('dynamic array formulas spill, resize, clear old cells, and reject editing a spill child',()=>{

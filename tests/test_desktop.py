@@ -89,8 +89,8 @@ class DesktopTests(unittest.TestCase):
 
     def test_desktop_workflow_declared(self):
         src = (ROOT / 'src/main.ts').read_text(encoding='utf-8')
-        self.assertIn('interface GridForgeDesktopAPI', src)
-        self.assertIn('native.save_file(name,type,btoa(encoded))', src)
+        self.assertIn('pywebview?.api?.save_file', src)
+        self.assertIn('native.save_file(name, type, btoa(encoded))', src)
         wf = (ROOT / '.github/workflows/windows-desktop-release.yml').read_text(encoding='utf-8')
         self.assertIn('runs-on: windows-latest', wf)
         self.assertIn('GridForge-Portable-win64.zip', wf)

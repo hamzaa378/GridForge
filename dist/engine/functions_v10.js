@@ -431,18 +431,19 @@ export function buildV10Functions(existing) {
         return 0; return approximateCDF(z => tCDF(z, df), -1000, 1000, name === 'T.INV.2T' ? 1 - x / 2 : x); });
     // Array transformations return rectangular matrices to the workbook's spill engine.
     add('Lookup & Reference', ['SEQUENCE', 'RANDARRAY', 'MUNIT'], 'Generate numeric arrays.', (name, a) => {
-        req(a, 1, name === 'MUNIT' ? 1 : name === 'RANDARRAY' ? 5 : 4);
-        const rows = positiveInt(n(a, 0), 200), cols = a.length > 1 ? positiveInt(n(a, 1), 200) : name === 'MUNIT' ? rows : 1;
+        req(a, name === 'RANDARRAY' ? 0 : 1, name === 'MUNIT' ? 1 : name === 'RANDARRAY' ? 5 : 4);
+        const rows = positiveInt(name === 'RANDARRAY' && a[0] == null ? 1 : n(a, 0), 200);
+        const cols = positiveInt(a[1] == null ? (name === 'MUNIT' ? rows : 1) : n(a, 1), 200);
         guard(rows, cols);
         if (name === 'MUNIT')
             return Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => i === j ? 1 : 0));
-        const start = a.length > 2 ? n(a, 2) : name === 'RANDARRAY' ? 0 : 1, step = a.length > 3 ? n(a, 3) : 1;
+        const start = a[2] == null ? (name === 'RANDARRAY' ? 0 : 1) : n(a, 2), step = a[3] == null ? 1 : n(a, 3);
         if (name === 'RANDARRAY') {
             if (a.length > 5)
                 fail('#ARG!', 'RANDARRAY takes at most 5 arguments.');
-            const low = start, high = a.length > 3 ? n(a, 3) : 1, whole = a.length > 4 ? bool(one(a[4])) : false;
-            if (low > high)
-                fail('#NUM!', 'RANDARRAY min must not exceed max.');
+            const low = start, high = a[3] == null ? 1 : n(a, 3), whole = a.length > 4 ? bool(one(a[4])) : false;
+            if (low >= high)
+                fail('#VALUE!', 'RANDARRAY min must be less than max.');
             return Array.from({ length: rows }, () => Array.from({ length: cols }, () => whole ? Math.floor(Math.random() * (Math.floor(high) - Math.ceil(low) + 1)) + Math.ceil(low) : Math.random() * (high - low) + low));
         }
         return Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => start + (i * cols + j) * step));
@@ -460,11 +461,11 @@ export function buildV10Functions(existing) {
         return tables.flatMap(t => t.map(row => Array.from({ length: c }, (_, j) => j < row.length ? row[j] : missing()))); return Array.from({ length: r }, (_, i) => tables.flatMap((t, index) => Array.from({ length: widths[index] }, (_, j) => i < t.length && j < t[i].length ? t[i][j] : missing()))); });
     add('Lookup & Reference', ['TOCOL', 'TOROW'], 'Flatten an array with blank filtering, optional error filtering, and row- or column-major scan order.', (name, a) => { req(a, 1, 3); const source = matrix(a, 0), ignore = a.length > 1 ? n(a, 1) : 0, byColumn = a.length > 2 ? bool(one(a[2])) : false; if (!Number.isInteger(ignore) || ignore < 0 || ignore > 3)
         fail('#VALUE!', 'Ignore must be 0, 1, 2, or 3.'); const values = byColumn ? source[0].map((_, column) => source.map(row => row[column] ?? null)).flat() : source.flat(), out = values.filter(value => !(ignore % 2 === 1 && !present(value)) && !(ignore >= 2 && isSheetError(value))); return name === 'TOCOL' ? out.map(value => [value]) : [out]; });
-    add('Lookup & Reference', ['WRAPCOLS', 'WRAPROWS'], 'Wrap one-dimensional array into rows or columns.', (name, a) => { req(a, 2, 3); const values = matrix(a, 0).flat(), width = positiveInt(n(a, 1), 20000), pad = a.length > 2 ? one(a[2]) : null; const count = Math.ceil(values.length / width); guard(width, count); if (name === 'WRAPROWS')
+    add('Lookup & Reference', ['WRAPCOLS', 'WRAPROWS'], 'Wrap one-dimensional array into rows or columns.', (name, a) => { req(a, 2, 3); const values = matrix(a, 0).flat(), width = positiveInt(n(a, 1), 20000), pad = a.length > 2 && a[2] !== null && a[2] !== undefined ? one(a[2]) : new SheetError('#N/A', `${name} padding is not specified.`); const count = Math.ceil(values.length / width); guard(width, count); if (name === 'WRAPROWS')
         return Array.from({ length: count }, (_, i) => Array.from({ length: width }, (_, j) => { const index = i * width + j; return index < values.length ? values[index] : pad; })); return Array.from({ length: width }, (_, i) => Array.from({ length: count }, (_, j) => { const index = j * width + i; return index < values.length ? values[index] : pad; })); });
-    add('Lookup & Reference', ['EXPAND'], 'Extend a matrix to new dimensions; omitted pad values return #N/A.', (_, a) => { req(a, 2, 4); const m = matrix(a, 0), sourceRows = m.length, sourceColumns = Math.max(...m.map(row => row.length)), r = positiveInt(n(a, 1)), c = a.length > 2 ? positiveInt(n(a, 2)) : sourceColumns, pad = a.length > 3 && a[3] !== null ? one(a[3]) : new SheetError('#N/A', 'EXPAND padding is not specified.'); if (r < sourceRows || c < sourceColumns)
+    add('Lookup & Reference', ['EXPAND'], 'Extend a matrix to new dimensions; omitted rows, columns, or pad values keep their Excel defaults.', (_, a) => { req(a, 1, 4); const m = matrix(a, 0), sourceRows = m.length, sourceColumns = Math.max(...m.map(row => row.length)), r = a[1] === null || a[1] === undefined ? sourceRows : positiveInt(n(a, 1)), c = a[2] === null || a[2] === undefined ? sourceColumns : positiveInt(n(a, 2)), pad = a.length > 3 && a[3] !== null && a[3] !== undefined ? one(a[3]) : new SheetError('#N/A', 'EXPAND padding is not specified.'); if (r < sourceRows || c < sourceColumns)
         fail('#VALUE!', 'EXPAND cannot shrink input.'); guard(r, c); return Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_, j) => i < sourceRows && j < sourceColumns ? (m[i][j] ?? null) : pad)); });
-    add('Lookup & Reference', ['FILTER'], 'Filter rows or columns using a matching Boolean include vector.', (_, a) => { req(a, 2, 3); const rows = matrix(a, 0), includeMatrix = matrix(a, 1), ifEmpty = a.length === 3 ? arr(a[2]) : null, height = rows.length, width = Math.max(...rows.map(row => row.length)); if (includeMatrix.every(row => row.length === 1) && includeMatrix.length === height) {
+    add('Lookup & Reference', ['FILTER'], 'Filter rows or columns using a matching Boolean include vector.', (_, a) => { req(a, 2, 3); const rows = matrix(a, 0), includeMatrix = matrix(a, 1), ifEmpty = a.length === 3 && a[2] !== null && a[2] !== undefined ? arr(a[2]) : null, height = rows.length, width = Math.max(...rows.map(row => row.length)); if (includeMatrix.every(row => row.length === 1) && includeMatrix.length === height) {
         const include = includeMatrix.map(row => row[0] ?? null), kept = rows.filter((_, i) => bool(include[i]));
         if (kept.length)
             return kept;
@@ -481,7 +482,7 @@ export function buildV10Functions(existing) {
     } return fail('#VALUE!', 'FILTER include must be a one-dimensional vector matching the array rows or columns.'); });
     add('Lookup & Reference', ['SORT', 'SORTBY'], 'Sort rows or columns by a selected index or by multiple key arrays.', (name, a) => {
         req(a, name === 'SORTBY' ? 2 : 1, name === 'SORTBY' ? 255 : 4);
-        const source = matrix(a, 0).map(row => [...row]), byColumns = name === 'SORT' && a.length > 3 ? bool(one(a[3])) : false;
+        const source = matrix(a, 0).map(row => [...row]), byColumns = name === 'SORT' && a.length > 3 && a[3] !== null && a[3] !== undefined ? bool(one(a[3])) : false;
         const transposed = (rows) => rows[0].map((_, column) => rows.map(row => row[column] ?? null));
         const restore = (items) => byColumns ? transposed(items) : items;
         const items = byColumns ? transposed(source) : source, itemCount = items.length;
@@ -508,7 +509,7 @@ export function buildV10Functions(existing) {
         };
         const sortKeys = [];
         if (name === 'SORT') {
-            const rawIndex = a.length > 1 ? n(a, 1) : 1, index = rawIndex - 1, order = a.length > 2 ? n(a, 2) : 1;
+            const rawIndex = a.length > 1 && a[1] !== null && a[1] !== undefined ? n(a, 1) : 1, index = rawIndex - 1, order = a.length > 2 && a[2] !== null && a[2] !== undefined ? n(a, 2) : 1;
             if (!Number.isInteger(rawIndex) || rawIndex < 1 || rawIndex > (byColumns ? source.length : source[0].length))
                 fail('#VALUE!', 'SORT index must select a row or column in the array.');
             if (order !== 1 && order !== -1)
@@ -517,7 +518,7 @@ export function buildV10Functions(existing) {
         }
         else {
             for (let i = 1; i < a.length;) {
-                const keyMatrix = matrix(a, i), key = keyMatrix.flat(), isVector = keyMatrix.length === itemCount && keyMatrix.every(row => row.length === 1) || keyMatrix.length === 1 && keyMatrix[0].length === itemCount, orderArg = a[i + 1], order = orderArg === undefined ? 1 : number(one(orderArg));
+                const keyMatrix = matrix(a, i), key = keyMatrix.flat(), isVector = keyMatrix.length === itemCount && keyMatrix.every(row => row.length === 1) || keyMatrix.length === 1 && keyMatrix[0].length === itemCount, orderArg = a[i + 1], order = orderArg === undefined || orderArg === null ? 1 : number(one(orderArg));
                 if (!isVector)
                     fail('#VALUE!', 'Each SORTBY key must be a one-dimensional array with one value for every sorted row.');
                 if (order !== 1 && order !== -1)
@@ -555,14 +556,14 @@ export function buildV10Functions(existing) {
         m = m.map(r => r.slice(0, -1)); return m; });
     add('Text', ['TEXTSPLIT'], 'Split text using one or more row/column delimiters, with Excel match-mode and padding options.', (_, a) => {
         req(a, 2, 6);
-        const source = s(a, 0), delimiters = (index) => matrix(a, index).flat().map(value => scalar(value)), columnDelimiters = a[1] === null || a[1] === undefined ? [] : delimiters(1), rowDelimiters = a.length > 2 ? delimiters(2) : [], ignoreEmpty = a.length > 3 ? bool(one(a[3])) : false, matchMode = a.length > 4 ? n(a, 4) : 0, pad = a.length > 5 ? one(a[5]) : null;
+        const source = s(a, 0), delimiters = (index) => matrix(a, index).flat().map(value => scalar(value)), columnDelimiters = a[1] === null || a[1] === undefined ? [] : delimiters(1), rowDelimiters = a.length > 2 && a[2] !== null && a[2] !== undefined ? delimiters(2) : [], ignoreEmpty = a.length > 3 ? bool(one(a[3])) : false, matchMode = a.length > 4 ? n(a, 4) : 0, pad = a.length > 5 && a[5] !== null && a[5] !== undefined ? one(a[5]) : new SheetError('#N/A', 'TEXTSPLIT padding is not specified.');
+        if ([...columnDelimiters, ...rowDelimiters].some(delimiter => delimiter.length === 0))
+            fail('#VALUE!', 'TEXTSPLIT delimiters cannot be empty text.');
         if (matchMode !== 0 && matchMode !== 1)
             fail('#VALUE!', 'TEXTSPLIT match_mode must be 0 (case-sensitive) or 1 (case-insensitive).');
         const split = (value, separators) => {
             if (!separators.length)
                 return [value];
-            if (separators.length === 1 && separators[0] === '')
-                return value.length ? Array.from(value) : [''];
             const usable = separators.filter(separator => separator.length > 0).sort((left, right) => right.length - left.length);
             if (!usable.length)
                 return [value];

@@ -75,7 +75,7 @@ const dateFrom = (days) => { const whole = Math.trunc(days); return new Date(Dat
 const excelWeekday = (days) => Math.trunc(days) === 60 ? 3 : dateFrom(days).getUTCDay();
 const serial = (d) => Math.floor((d.getTime() - Date.UTC(1899, 11, 31)) / 86400000) + (d.getTime() >= Date.UTC(1900, 2, 1) ? 1 : 0);
 const workday = (start, days, weekend, holidays) => { validateDateSerial(start, 'Start date'); if (weekend === '1111111')
-    err('#NUM!', 'The weekend definition must leave at least one working day.'); let current = Math.trunc(start), step = Math.sign(days), remaining = Math.abs(Math.trunc(days)); if (remaining > 366000)
+    err('#VALUE!', 'The WORKDAY.INTL weekend string must leave at least one working day.'); let current = Math.trunc(start), step = Math.sign(days), remaining = Math.abs(Math.trunc(days)); if (remaining > 366000)
     err('#NUM!', 'Workday interval too large.'); while (remaining) {
     current += step;
     validateDateSerial(current, 'Result date');
@@ -84,7 +84,7 @@ const workday = (start, days, weekend, holidays) => { validateDateSerial(start, 
         remaining--;
 } return current; };
 const weekendCode = (x) => { const codes = { '1': '0000011', '2': '1000001', '3': '1100000', '4': '0110000', '5': '0011000', '6': '0001100', '7': '0000110', '11': '0000001', '12': '1000000', '13': '0100000', '14': '0010000', '15': '0001000', '16': '0000100', '17': '0000010' }; const mask = typeof x === 'string' && /^[01]{7}$/.test(x) ? x : codes[String(x)]; if (!mask)
-    err('#VALUE!', 'Invalid weekend code/mask.'); return mask; };
+    err(typeof x === 'number' ? '#NUM!' : '#VALUE!', 'Invalid weekend code/mask.'); return mask; };
 const usThirty360 = (a, b) => { const one = dateFrom(a), two = dateFrom(b); let d1 = one.getUTCDate(), d2 = two.getUTCDate(); const lastFeb = (d) => d.getUTCMonth() === 1 && d.getUTCDate() === new Date(Date.UTC(d.getUTCFullYear(), 2, 0)).getUTCDate(); if (d1 === 31 || lastFeb(one))
     d1 = 30; if (d2 === 31 && d1 === 30)
     d2 = 30; if (lastFeb(one) && lastFeb(two))
@@ -263,8 +263,8 @@ export const v6Functions = {
     'DISC': def('Discount rate for a short discounted security.', '=DISC(45000,45100,98,100)', a => { arg(a, 4); const days = usThirty360(n(a, 0), n(a, 1)); if (days <= 0 || n(a, 2) <= 0 || n(a, 3) <= 0)
         err('#NUM!', 'Invalid discount-security parameters.'); return (n(a, 3) - n(a, 2)) / n(a, 3) * 360 / days; }),
     // 2 modern dotted date-function names for existing date capabilities
-    'WORKDAY.INTL': def('Working-day offset with chosen weekend days.', '=WORKDAY.INTL(DATE(2026,1,1),5,1)', a => { arg(a, 2, 4); const mask = weekendCode(a.length >= 3 ? sc(a[2]) : 1), holidays = a.length === 4 ? holidaySerials(a[3]) : new Set(); return workday(n(a, 0), n(a, 1), mask, holidays); }),
-    'NETWORKDAYS.INTL': def('Working days between dates with chosen weekend days.', '=NETWORKDAYS.INTL(A1,B1,1)', a => { arg(a, 2, 4); const mask = weekendCode(a.length >= 3 ? sc(a[2]) : 1), holidays = a.length === 4 ? holidaySerials(a[3]) : new Set(); let start = Math.trunc(n(a, 0)), end = Math.trunc(n(a, 1)), sign = 1; validateDateSerial(start, 'Start date'); validateDateSerial(end, 'End date'); if (start > end) {
+    'WORKDAY.INTL': def('Working-day offset with chosen weekend days.', '=WORKDAY.INTL(DATE(2026,1,1),5,1)', a => { arg(a, 2, 4); const mask = weekendCode(a.length >= 3 && a[2] !== null && a[2] !== undefined ? sc(a[2]) : 1), holidays = a.length === 4 ? holidaySerials(a[3]) : new Set(); return workday(n(a, 0), n(a, 1), mask, holidays); }),
+    'NETWORKDAYS.INTL': def('Working days between dates with chosen weekend days.', '=NETWORKDAYS.INTL(A1,B1,1)', a => { arg(a, 2, 4); const mask = weekendCode(a.length >= 3 && a[2] !== null && a[2] !== undefined ? sc(a[2]) : 1), holidays = a.length === 4 ? holidaySerials(a[3]) : new Set(); let start = Math.trunc(n(a, 0)), end = Math.trunc(n(a, 1)), sign = 1; validateDateSerial(start, 'Start date'); validateDateSerial(end, 'End date'); if (start > end) {
         [start, end] = [end, start];
         sign = -1;
     } if (end - start > 366000)
@@ -422,7 +422,7 @@ function xmatch(a) {
         return hit ? hit.i + 1 : err('#N/A', 'XMATCH found no exact match.');
     }
     const eligible = entries.filter(e => { const c = typeof target === 'number' && typeof e.val === 'number' ? e.val - target : text(e.val).localeCompare(text(target)); return mode === 1 ? c >= 0 : c <= 0; });
-    eligible.sort((x, y) => { const cmp = typeof x.val === 'number' && typeof y.val === 'number' ? x.val - y.val : text(x.val).localeCompare(text(y.val)); return (mode === 1 ? cmp : -cmp) || x.i - y.i; });
+    eligible.sort((x, y) => { const cmp = typeof x.val === 'number' && typeof y.val === 'number' ? x.val - y.val : text(x.val).localeCompare(text(y.val)); return (mode === 1 ? cmp : -cmp) || (search === -1 ? y.i - x.i : x.i - y.i); });
     return eligible.length ? eligible[0].i + 1 : err('#N/A', 'XMATCH found no approximate match.');
 }
 function cumulative(a, interest) { arg(a, 6); const rate = n(a, 0), periods = Math.trunc(n(a, 1)), pv = n(a, 2), start = Math.trunc(n(a, 3)), end = Math.trunc(n(a, 4)), type = n(a, 5); if (rate <= 0 || periods <= 0 || pv <= 0 || start < 1 || end < start || end > periods || ![0, 1].includes(type))

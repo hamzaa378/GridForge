@@ -2496,16 +2496,15 @@ export class Workbook {
                     throw e;
                 }
             }
-            if (n.name === 'XLOOKUP' && n.args.length === 4) {
-                const firstThree = n.args.slice(0, 3).map(arg => this.evaluate(arg, visiting));
-                try {
-                    return f.run(firstThree);
-                }
-                catch (e) {
-                    if (e instanceof SheetError && e.code === '#N/A')
-                        return this.evaluate(n.args[3], visiting);
-                    throw e;
-                }
+            if (n.name === 'XLOOKUP' && n.args.length >= 4 && n.args.length <= 6) {
+                const deferredFallback = Symbol('XLOOKUP fallback'), lookupArgs = [...n.args.slice(0, 3).map(arg => this.evaluate(arg, visiting)), deferredFallback];
+                // Match and search modes are real inputs, while the optional fallback
+                // remains lazy just as Excel does: a bad fallback must not invalidate
+                // a successful lookup.
+                for (const arg of n.args.slice(4))
+                    lookupArgs.push(this.evaluate(arg, visiting));
+                const result = f.run(lookupArgs);
+                return result === deferredFallback ? this.evaluate(n.args[3], visiting) : result;
             }
             if (['ISERR', 'ISERROR', 'ISNA'].includes(n.name)) {
                 if (n.args.length !== 1)

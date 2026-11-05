@@ -38,6 +38,20 @@ test('ODS chart attaches standalone category rotation and reverse-order styles',
  assert.match(xml,/chart:reverse-direction="true"/);
 });
 
+test('ODS native column chart retains gap width and overlap without private chart metadata',async()=>{
+ const doc=chartDocument('column',{categoryGapWidth:42,seriesOverlap:65}),archive=await zipRead(exportOds(doc)),xml=await embeddedChartXml(doc);assert.match(xml,/chart:gap-width="42"/);assert.match(xml,/chart:overlap="65"/);
+ const content=archive.get('content.xml');assert.ok(content);archive.set('content.xml',content.replace(/GridForgeChart:[^<]*/g,''));
+ const imported=await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)})),restored=imported.document.active.tools.charts[0];assert.equal(restored?.categoryGapWidth,42);assert.equal(restored?.seriesOverlap,65);
+});
+
+test('ODS native line chart preserves per-series dash styles without private chart metadata',async()=>{
+ const doc=chartDocument('line',{seriesOptions:[{lineStyle:'dashDot',lineWidth:3,markerSize:12},{lineStyle:'dot',lineWidth:.75,markerSize:8}]}),archive=await zipRead(exportOds(doc)),xml=await embeddedChartXml(doc);
+ assert.match(xml,/svg:stroke-dasharray="6,3,1,3"/);assert.match(xml,/svg:stroke-dasharray="1,3"/);assert.match(xml,/svg:stroke-width="3pt"/);assert.match(xml,/svg:stroke-width="0.75pt"/);assert.match(xml,/chart:symbol-width="12pt"/);assert.match(xml,/chart:symbol-height="8pt"/);
+ const content=archive.get('content.xml');assert.ok(content);archive.set('content.xml',content.replace(/GridForgeChart:[^<]*/g,''));
+ const imported=await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)})),options=imported.document.active.tools.charts[0]?.seriesOptions;
+ assert.deepEqual(options?.map(item=>item.lineStyle),['dashDot','dot']);assert.deepEqual(options?.map(item=>item.markerSize),[12,8]);assert.deepEqual(options?.map(item=>item.lineWidth),[3,.75]);
+});
+
 test('ODS combo charts round-trip mixed series types, axis assignment, and axis titles',async()=>{
  const options={seriesOptions:[{kind:'column',axis:'primary',color:'#2563eb'},{kind:'line',axis:'secondary',color:'#dc5b73',marker:true}],yAxisTitle:'Revenue',secondaryYAxisTitle:'Growth'};
  const doc=chartDocument('combo',options),xml=await embeddedChartXml(doc);
@@ -78,8 +92,8 @@ test('ODS Calc color scales round-trip numeric, percentile, formula, and percent
  archive.set('content.xml',content.replace(/ gridforge:sheet-objects="[^"]*"/g,''));const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.conditional;assert.deepEqual(restored,[{...three,scaleThresholds:[{type:'num',value:10},{type:'percentile',value:60},{type:'formula',value:'=(B2+20)'}]},two]);
 });
 test('ODS Calc icon sets round-trip native names, thresholds and value visibility',async()=>{
- const doc=chartDocument('line'),rule={start:'B2',end:'B4',operator:'iconSet',iconSet:'3Arrows',threshold:0,color:'#000000',iconThresholds:[{type:'min'},{type:'percentile',value:40},{type:'formula',value:'=B2+20'}],iconsOnly:true};doc.active.tools.conditional.push(rule);const archive=await zipRead(exportOds(doc)),content=archive.get('content.xml');assert.match(content,/calcext:icon-set-type="3Arrows" calcext:show-value="false"/);assert.match(content,/calcext:type="percentile" calcext:value="40"/);assert.match(content,/calcext:type="formula" calcext:value="of:=\(\[\.B2\]\+20\)"/);
- archive.set('content.xml',content.replace(/ gridforge:sheet-objects="[^"]*"/g,''));const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.conditional;assert.deepEqual(restored,[{start:'B2',end:'B4',operator:'iconSet',threshold:0,color:'#000000',iconSet:'3Arrows',iconThresholds:[{type:'min'},{type:'percentile',value:40},{type:'formula',value:'=(B2+20)'}],iconsOnly:true}]);
+ const doc=chartDocument('line'),rule={start:'B2',end:'B4',operator:'iconSet',iconSet:'3Arrows',threshold:0,color:'#000000',iconThresholds:[{type:'min'},{type:'percentile',value:40},{type:'formula',value:'=B2+20'}],iconsOnly:true,reverseIcons:true};doc.active.tools.conditional.push(rule);const archive=await zipRead(exportOds(doc)),content=archive.get('content.xml');assert.match(content,/calcext:icon-set-type="3Arrows" calcext:show-value="false" calcext:reverse="true"/);assert.match(content,/calcext:type="percentile" calcext:value="40"/);assert.match(content,/calcext:type="formula" calcext:value="of:=\(\[\.B2\]\+20\)"/);
+ archive.set('content.xml',content.replace(/ gridforge:sheet-objects="[^"]*"/g,''));const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.conditional;assert.deepEqual(restored,[{start:'B2',end:'B4',operator:'iconSet',threshold:0,color:'#000000',iconSet:'3Arrows',iconThresholds:[{type:'min'},{type:'percentile',value:40},{type:'formula',value:'=(B2+20)'}],iconsOnly:true,reverseIcons:true}]);
 });
 test('ODS exports and imports native formula conditional-style maps',async()=>{
  const doc=chartDocument('line'),rule={start:'B2',end:'B4',operator:'formula',formula:'=AND(B2>0,A2<>"")',threshold:0,color:'#22aa44'};doc.active.tools.conditional.push(rule);
@@ -99,6 +113,32 @@ test('ODS pie chart preserves more than 250 per-slice colors',async()=>{
  book.applyEdits(edits,false);const doc=new SpreadsheetDocument(book);doc.active.tools.charts.push({id:'chart-ods-colored-pie',kind:'pie',title:'Colored slices',range:'A1:B301',x:0,y:0,width:500,height:300,dataPointColors:colors});
  const xml=await embeddedChartXml(doc);assert.equal((xml.match(/<chart:data-point /g)??[]).length,300);
  const restored=(await importOds(exportOds(doc))).document.active.tools.charts[0];assert.equal(restored.dataPointColors.length,300);assert.deepEqual(restored.dataPointColors,colors);
+});
+test('ODS column charts preserve category-specific colors through native chart import',async()=>{
+ const book=new Workbook(20,8);book.applyEdits([{ref:'A1',raw:'Category'},{ref:'B1',raw:'Value'},{ref:'A2',raw:'North'},{ref:'B2',raw:'10'},{ref:'A3',raw:'South'},{ref:'B3',raw:'20'},{ref:'A4',raw:'West'},{ref:'B4',raw:'30'}],false);
+ const colors=['#2563eb','#dc5b73','#18865b'],doc=new SpreadsheetDocument(book);doc.active.tools.charts.push({id:'chart-ods-category-colors',kind:'column',title:'Category colors',range:'A1:B4',x:0,y:0,width:500,height:300,dataPointColors:colors});
+ const xml=await embeddedChartXml(doc);assert.equal((xml.match(/<chart:data-point /g)??[]).length,3);
+ const archive=await zipRead(exportOds(doc));archive.set('content.xml',archive.get('content.xml').replace(/ gridforge:sheet-objects="[^"]*"/,''));
+ const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.charts[0];assert.deepEqual(restored.dataPointColors,colors);
+});
+test('ODS combo chart colors columns and line markers and survives metadata-free import',async()=>{
+ const book=new Workbook(20,8);book.applyEdits([{ref:'A1',raw:'Category'},{ref:'B1',raw:'Sales'},{ref:'C1',raw:'Margin'},{ref:'A2',raw:'North'},{ref:'B2',raw:'10'},{ref:'C2',raw:'0.1'},{ref:'A3',raw:'South'},{ref:'B3',raw:'20'},{ref:'C3',raw:'0.2'},{ref:'A4',raw:'West'},{ref:'B4',raw:'30'},{ref:'C4',raw:'0.3'}],false);
+ const colors=['#2563eb','#dc5b73','#18865b'],doc=new SpreadsheetDocument(book);doc.active.tools.charts.push({id:'chart-ods-combo-colors',kind:'combo',title:'Combo colors',range:'A1:C4',x:0,y:0,width:500,height:300,dataPointColors:colors,seriesOptions:[{kind:'column'},{kind:'line'}]});
+ const xml=await embeddedChartXml(doc);assert.equal((xml.match(/<chart:data-point /g)??[]).length,6);
+ const archive=await zipRead(exportOds(doc));archive.set('content.xml',archive.get('content.xml').replace(/ gridforge:sheet-objects="[^"]*"/,''));
+ const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.charts[0];assert.deepEqual(restored.dataPointColors,colors);
+});
+test('ODS line chart marker colors survive native metadata-free import',async()=>{
+ const book=new Workbook(20,8);book.applyEdits([{ref:'A1',raw:'Quarter'},{ref:'B1',raw:'Revenue'},{ref:'A2',raw:'Q1'},{ref:'B2',raw:'10'},{ref:'A3',raw:'Q2'},{ref:'B3',raw:'20'},{ref:'A4',raw:'Q3'},{ref:'B4',raw:'30'}],false);
+ const colors=['#2563eb','#dc5b73','#18865b'],doc=new SpreadsheetDocument(book);doc.active.tools.charts.push({id:'chart-ods-line-marker-colors',kind:'line',title:'Line marker colors',range:'A1:B4',x:0,y:0,width:500,height:300,dataPointColors:colors,seriesOptions:[{marker:true,markerStyle:'diamond'}]});
+ const xml=await embeddedChartXml(doc);assert.equal((xml.match(/<chart:data-point /g)??[]).length,3);
+ const archive=await zipRead(exportOds(doc));archive.set('content.xml',archive.get('content.xml').replace(/ gridforge:sheet-objects="[^"]*"/,''));
+ const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.charts[0];assert.deepEqual(restored.dataPointColors,colors);
+});
+test('ODS line, scatter, and radar charts retain independent point-color arrays per series',async()=>{
+ const book=new Workbook(20,8);book.applyEdits([{ref:'A1',raw:'Quarter'},{ref:'B1',raw:'Revenue'},{ref:'C1',raw:'Cost'},{ref:'A2',raw:'Q1'},{ref:'B2',raw:'10'},{ref:'C2',raw:'4'},{ref:'A3',raw:'Q2'},{ref:'B3',raw:'20'},{ref:'C3',raw:'8'},{ref:'A4',raw:'Q3'},{ref:'B4',raw:'30'},{ref:'C4',raw:'12'}],false);
+ const first=['#2563eb','#dc5b73','#18865b'],second=['#e04040','#40a080','#4040e0'],scatterBook=new Workbook(20,8);scatterBook.applyEdits([{ref:'A1',raw:'X'},{ref:'B1',raw:'Y1'},{ref:'C1',raw:'Y2'},{ref:'A2',raw:'1'},{ref:'B2',raw:'10'},{ref:'C2',raw:'5'},{ref:'A3',raw:'2'},{ref:'B3',raw:'20'},{ref:'C3',raw:'15'},{ref:'A4',raw:'3'},{ref:'B4',raw:'30'},{ref:'C4',raw:'25'}],false);for(const kind of ['line','radar','scatter']){const chartBook=kind==='scatter'?scatterBook:book,doc=new SpreadsheetDocument(chartBook);doc.active.tools.charts.push({id:`chart-ods-${kind}-series-colors`,kind,title:'Series colors',range:'A1:C4',x:0,y:0,width:500,height:300,seriesOptions:[{dataPointColors:first},{dataPointColors:second}]});
+ const archive=await zipRead(exportOds(doc));archive.set('content.xml',archive.get('content.xml').replace(/ gridforge:sheet-objects="[^"]*"/,''));const restored=(await importOds(zipWrite({mimetype:'application/vnd.oasis.opendocument.spreadsheet',...Object.fromEntries(archive)}))).document.active.tools.charts[0];assert.deepEqual(restored.seriesOptions?.[0]?.dataPointColors,first,kind);assert.deepEqual(restored.seriesOptions?.[1]?.dataPointColors,second,kind);}
 });
 test('ODS retains the full 10,000-point single-series chart capacity',async()=>{
  const book=new Workbook(10_100,4),edits=[{ref:'A1',raw:'Category'},{ref:'B1',raw:'Value'}];
@@ -268,6 +308,23 @@ test('ODS emits known _xlfn dynamic functions through the Microsoft compatibilit
  const doc=new SpreadsheetDocument(new Workbook(20,10));doc.active.book.applyEdits([{ref:'A1',raw:'1'},{ref:'A2',raw:'2'},{ref:'B1',raw:'1'},{ref:'B2',raw:'0'},{ref:'D1',raw:'=_xlfn.FILTER(A1:A2,B1:B2)'}],false);
  const bytes=exportOds(doc),archive=await zipRead(bytes);assert.match(archive.get('content.xml'),/COM\.MICROSOFT\.FILTER\(/);const imported=await importOds(bytes);assert.equal(imported.document.active.book.getRaw('D1'),'=FILTER(A1:A2,B1:B2)');
 });
+test('ODS maps TEXTBEFORE and TEXTAFTER to Calc Microsoft functions and restores optional fallback arguments',async()=>{
+ const doc=new SpreadsheetDocument(new Workbook(20,12));doc.active.book.applyEdits([
+  {ref:'A1',raw:'=TEXTBEFORE("Socrates"," ",,,1)'},
+  {ref:'A2',raw:'=TEXTAFTER("Socrates"," ",,,1)'},
+  {ref:'A3',raw:'=TEXTBEFORE("abc","z",,,0,)'},
+  {ref:'A4',raw:'=TEXTAFTER("abc","z",,,0,)'},
+  {ref:'A5',raw:'=TEXTBEFORE("abc","z",,,0,"")'},
+  {ref:'A6',raw:'=TEXTAFTER("abc","z",,,0,"")'},
+ ],false);
+ const bytes=exportOds(doc),archive=await zipRead(bytes),xml=archive.get('content.xml');
+ assert.match(xml,/COM\.MICROSOFT\.TEXTBEFORE\(/);assert.match(xml,/COM\.MICROSOFT\.TEXTAFTER\(/);
+ const book=(await importOds(bytes)).document.active.book;
+ assert.equal(book.getRaw('A1'),'=TEXTBEFORE("Socrates"," ",,,1)');assert.equal(book.getRaw('A2'),'=TEXTAFTER("Socrates"," ",,,1)');
+ assert.equal(book.getValue('A1').value,'Socrates');assert.equal(book.getValue('A2').value,'');
+ assert.equal(book.getValue('A3').error?.code,'#N/A');assert.equal(book.getValue('A4').error?.code,'#N/A');
+ assert.equal(book.getValue('A5').value,'');assert.equal(book.getValue('A6').value,'');
+});
 test('ODS array formulas preserve padded spill errors as error cells and recalculate them on import',async()=>{
  const doc=new SpreadsheetDocument(new Workbook(20,12));doc.active.book.applyEdits([
   {ref:'A1',raw:'1'},{ref:'C1',raw:"'x"},{ref:'C2',raw:"'y"},{ref:'E1',raw:'=VSTACK(A1:A1,C1:D2)'},
@@ -277,16 +334,27 @@ test('ODS array formulas preserve padded spill errors as error cells and recalcu
  assert.match(xml,/office:value-type="error" office:string-value="#N\/A"/);
  const imported=await importOds(bytes),book=imported.document.active.book;assert.equal(book.getValue('E1').value,1);assert.equal(book.getValue('F1').error?.code,'#N/A');assert.equal(book.getValue('E2').value,'x');assert.equal(book.getValue('E3').value,'y');
 });
+test('ODS TEXTSPLIT preserves Excel default #N/A padding with an explicitly omitted pad slot',async()=>{
+ const doc=new SpreadsheetDocument(new Workbook(20,12));doc.active.book.applyEdits([
+  {ref:'D1',raw:'=TEXTSPLIT("a,b;c",",",";",FALSE,0,)'}
+ ],false);
+ const bytes=exportOds(doc),archive=await zipRead(bytes),xml=archive.get('content.xml');
+ assert.match(xml,/COM\.MICROSOFT\.TEXTSPLIT\(/);assert.match(xml,/office:value-type="error" office:string-value="#N\/A"/);
+ const book=(await importOds(bytes)).document.active.book;assert.equal(book.getRaw('D1'),'=TEXTSPLIT("a,b;c",",",";",FALSE(),0,)');
+ assert.deepEqual(['D1','E1','D2'].map(ref=>book.getValue(ref).value),['a','b','c']);assert.equal(book.getValue('E2').error?.code,'#N/A');
+});
 test('ODS FILTER formulas preserve selected source errors through namespace export and recalculation',async()=>{
  const doc=new SpreadsheetDocument(new Workbook(20,12));doc.active.book.applyEdits([
   {ref:'A1',raw:'10'},{ref:'A2',raw:'=1/0'},{ref:'A3',raw:'30'},{ref:'A4',raw:'40'},
   {ref:'B1',raw:'=TRUE()'},{ref:'B2',raw:'=TRUE()'},{ref:'B3',raw:'=FALSE()'},{ref:'B4',raw:'=TRUE()'},
-  {ref:'D1',raw:'=FILTER(A1:A4,B1:B4)'},
+  {ref:'D1',raw:'=FILTER(A1:A4,B1:B4)'},{ref:'F1',raw:'=FILTER(A1:A4,B1:B4=7,)'},{ref:'H1',raw:'=FILTER(A1:A4,B1:B4=7,"")'},
  ],false);
  const bytes=exportOds(doc),archive=await zipRead(bytes),xml=archive.get('content.xml');
  assert.match(xml,/COM\.MICROSOFT\.FILTER\(/);assert.match(xml,/office:value-type="error" office:string-value="#DIV\/0!"/);
  const book=(await importOds(bytes)).document.active.book;assert.equal(book.getRaw('D1'),'=FILTER(A1:A4,B1:B4)');
  assert.deepEqual(['D1','D2','D3'].map(ref=>{const cell=book.getValue(ref);return cell.error?.code??cell.value;}),[10,'#DIV/0!',40]);
+ assert.equal(book.getRaw('F1'),'=FILTER(A1:A4,(B1:B4=7),)');assert.equal(book.getValue('F1').error?.code,'#CALC!');
+ assert.equal(book.getRaw('H1'),'=FILTER(A1:A4,(B1:B4=7),"")');assert.equal(book.getValue('H1').value,'');
 });
 test('ODS round-trips spilled IFS and SWITCH formulas with recalculated cell results',async()=>{
  const doc=new SpreadsheetDocument(new Workbook(20,12));doc.active.book.applyEdits([
@@ -313,6 +381,20 @@ test('XLSX round-trips spilled IFS and SWITCH formulas with recalculated cell re
  assert.equal(book.getRaw('F1'),'=SWITCH(A1:A3,1,"one",3,"three","other")');
  assert.deepEqual(['C1','C2','C3'].map(ref=>book.getValue(ref).value),['low','high','none']);
  assert.deepEqual(['F1','F2','F3'].map(ref=>book.getValue(ref).value),['one','three','other']);
+});
+test('XLSX round-trips omitted optional formula fallbacks and padding arguments',async()=>{
+ const doc=new SpreadsheetDocument(new Workbook(20,12));doc.active.book.applyEdits([
+  {ref:'A1',raw:'1'},{ref:'A2',raw:'2'},
+  {ref:'D1',raw:'=TEXTSPLIT("a,b;c",",",";",FALSE,0,)'},
+  {ref:'G1',raw:'=FILTER(A1:A2,A1:A2>9,)'},
+  {ref:'J1',raw:'=FILTER(A1:A2,A1:A2>9,"")'},
+  {ref:'K1',raw:'=TEXTBEFORE("abc","z",,,0,)'},
+  {ref:'L1',raw:'=TEXTBEFORE("abc","z",,,0,"")'}
+ ],false);
+ const book=(await importXlsx(exportXlsx(doc))).document.active.book;
+ assert.deepEqual(['D1','E1','D2'].map(ref=>book.getValue(ref).value),['a','b','c']);assert.equal(book.getValue('E2').error?.code,'#N/A');
+ assert.equal(book.getValue('G1').error?.code,'#CALC!');assert.equal(book.getValue('J1').value,'');
+ assert.equal(book.getValue('K1').error?.code,'#N/A');assert.equal(book.getValue('L1').value,'');
 });
 test('ODS emits Calc-specific regex formulas and preserves the original GridForge formulas',async()=>{
  const doc=new SpreadsheetDocument(new Workbook(20,10));doc.active.book.applyEdits([
@@ -355,7 +437,12 @@ test('ODS imports supported LibreOffice REGEX formulas and falls back for unsupp
 
 test('ODS formula export/import retains absolute cross-sheet range references',async()=>{
  const sales=new Workbook(20,10);sales.applyEdits([{ref:'A1',raw:'10'},{ref:'A2',raw:'20'},{ref:'A3',raw:'30'}],false);const doc=new SpreadsheetDocument(new Workbook(20,10));doc.addSheet('Sales Data',sales);doc.selectSheet(doc.sheets[0].id);doc.active.book.applyEdits([{ref:'D1',raw:"=SUM('Sales Data'!$A$1:$A$3)"}],false);
- const bytes=exportOds(doc),archive=await zipRead(bytes);assert.match(archive.get('content.xml'),/of:=SUM\(\[\$&apos;Sales Data&apos;\.\$A\$1:\$&apos;Sales Data&apos;\.\$A\$3\]\)/);const imported=await importOds(bytes);assert.equal(imported.document.sheets[0].book.getValue('D1').value,60);assert.equal(imported.document.sheets[0].book.getRaw('D1'),"=SUM('Sales Data'!$A$1:$A$3)");
+ const bytes=exportOds(doc),archive=await zipRead(bytes);assert.match(archive.get('content.xml'),/of:=SUM\(\[\$&apos;Sales Data&apos;\.\$A\$1:\$&apos;Sales Data&apos;\.\$A\$3\]\)/);const imported=await importOds(bytes);assert.equal(imported.document.sheets[0].book.getValue('D1').value,60);assert.equal(imported.document.sheets[0].book.getRaw('D1'),"=SUM('Sales Data'!$A$1:$A$3)");imported.document.sheets[1].book.setCell('A1','50');assert.equal(imported.document.sheets[0].book.getValue('D1').value,100);
+});
+test('ODS preserves XLOOKUP match and reverse-search modes while retaining GridForge results',async()=>{
+ const book=new Workbook(20,12);book.applyEdits([{ref:'D1',raw:'key'},{ref:'D2',raw:'k2'},{ref:'D3',raw:'k2'},{ref:'E1',raw:'Value'},{ref:'E2',raw:'20'},{ref:'E3',raw:'30'},{ref:'A1',raw:'=XLOOKUP("k2",D2:D3,E2:E3,"missing",0,-1)'}],false);
+ const doc=new SpreadsheetDocument(book),xml=(await zipRead(exportOds(doc))).get('content.xml');assert.match(xml,/COM\.MICROSOFT\.XLOOKUP\(&quot;k2&quot;;\[\.D2:\.D3\];\[\.E2:\.E3\];&quot;missing&quot;;0;-\(1\)\)/);
+ const restored=(await importOds(exportOds(doc))).document.active.book;assert.equal(restored.getRaw('A1'),'=XLOOKUP("k2",D2:D3,E2:E3,"missing",0,-(1))');assert.equal(restored.getValue('A1').value,30);
 });
 
 test('ODS writes native Data Pilot fields for supported Pivot Summary rows, columns, pages, and measures',async()=>{

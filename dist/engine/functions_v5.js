@@ -388,7 +388,7 @@ export const v5Functions = {
         [start, end] = [end, start];
         sgn = -1;
     } if (end - start > 365250)
-        bad('#NUM!', 'Date span too large.'); const wk = a.length >= 3 ? scalar(a[2]) : 1; const masks = { 1: '0000011', 2: '1000001', 3: '1100000', 4: '0110000', 5: '0011000', 6: '0001100', 7: '0000110', 11: '0000001', 12: '1000000', 13: '0100000', 14: '0010000', 15: '0001000', 16: '0000100', 17: '0000010' }; const mask = typeof wk === 'string' ? wk : masks[number(wk)]; if (!mask || !/^[01]{7}$/.test(mask))
+        bad('#NUM!', 'Date span too large.'); const wk = a.length >= 3 && a[2] !== null && a[2] !== undefined ? scalar(a[2]) : 1; const masks = { 1: '0000011', 2: '1000001', 3: '1100000', 4: '0110000', 5: '0011000', 6: '0001100', 7: '0000110', 11: '0000001', 12: '1000000', 13: '0100000', 14: '0010000', 15: '0001000', 16: '0000100', 17: '0000010' }; const mask = typeof wk === 'string' ? wk : masks[number(wk)]; if (!mask || !/^[01]{7}$/.test(mask))
         bad('#VALUE!', 'Invalid weekend mask.'); const holidays = a.length === 4 ? holidaySet(a[3]) : new Set(); let total = 0; for (let i = start; i <= end; i++) {
         const weekday = (excelWeekday(i) + 6) % 7;
         if (mask[weekday] === '0' && !holidays.has(i))

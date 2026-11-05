@@ -149,6 +149,19 @@ test('XLOOKUP missing argument is lazily evaluated after an actual lookup miss',
   assert.equal(worksheet('=XLOOKUP("k2",D1:D3,E1:E3,1/0)').getValue('Z20').value,20);
   assert.equal(worksheet('=XLOOKUP("missing",D1:D3,E1:E3,999)').getValue('Z20').value,999);
 });
+test('XLOOKUP keeps the not-found expression lazy with explicit match and search modes',()=>{
+ const matched=worksheet('=XLOOKUP("k2",D1:D3,E1:E3,1/0,0,-1)');assert.equal(matched.getValue('Z20').value,20);
+ const missing=worksheet('=XLOOKUP("missing",D1:D3,E1:E3,1/0,0,-1)');assert.equal(missing.getValue('Z20').error.code,'#DIV/0!');
+ const invalidMode=worksheet('=XLOOKUP("k2",D1:D3,E1:E3,"fallback",3,1)');assert.equal(invalidMode.getValue('Z20').error.code,'#VALUE!');
+ const wildcard=worksheet('=XLOOKUP("k*",D1:D3,E1:E3,0,2,-1)');assert.equal(wildcard.getValue('Z20').value,30);
+ const duplicate=worksheet('=XLOOKUP("k2",D1:D3,E1:E3,"missing",0,-1)');duplicate.applyEdits([{ref:'D1',raw:'k2'},{ref:'D2',raw:'k2'}],false);assert.equal(duplicate.getValue('Z20').value,20);
+ const nextLower=worksheet('=XLOOKUP(2.5,A1:A5,B1:B5,"missing",-1,1)');assert.equal(nextLower.getValue('Z20').value,5);
+ const nextGreater=worksheet('=XLOOKUP(2.5,A1:A5,B1:B5,"missing",1,1)');assert.equal(nextGreater.getValue('Z20').value,7);
+ const binary=worksheet('=XLOOKUP(4,A1:A5,B1:B5,0,0,2)');assert.equal(binary.getValue('Z20').value,9);
+ const reverseBinary=worksheet('=XLOOKUP(4,A1:A5,B1:B5,0,0,-2)');reverseBinary.applyEdits([{ref:'A1',raw:'5'},{ref:'A2',raw:'4'},{ref:'A3',raw:'3'},{ref:'A4',raw:'2'},{ref:'A5',raw:'1'}],false);assert.equal(reverseBinary.getValue('Z20').value,5);
+ const reverseLookup=worksheet('=XLOOKUP(3,A1:A5,B1:B5,0,0,-2)');reverseLookup.applyEdits([{ref:'A1',raw:'5'},{ref:'A2',raw:'4'},{ref:'A3',raw:'3'},{ref:'A4',raw:'2'},{ref:'A5',raw:'1'}],false);assert.equal(reverseLookup.getValue('Z20').value,7);
+ const unsorted=worksheet('=XLOOKUP(2.5,A1:A3,B1:B3,"missing",-1,1)');unsorted.applyEdits([{ref:'A1',raw:'4'},{ref:'A2',raw:'1'},{ref:'A3',raw:'3'}],false);assert.equal(unsorted.getValue('Z20').value,5);
+});
 test('paired regression ignores incomplete observations without misaligning rows',()=>{
   const w=worksheet('=SLOPE(B1:B3,A1:A3)');
   w.setCell('A2','');
@@ -173,12 +186,34 @@ test('XLSX exporter identifies modern Excel functions without altering string li
   const {zipRead}=await import('../dist/engine/zip.js');
   const book=new Workbook();
   book.applyEdits([{ref:'A1',raw:'=XLOOKUP("k2",D1:D3,E1:E3,"missing")'},
+    {ref:'A4',raw:'=XLOOKUP("k2",D1:D3,E1:E3,"missing",0,-1)'},
     {ref:'A2',raw:'=IF(TRUE,"XLOOKUP(A1)",1)'},
     {ref:'A3',raw:'=IFS(TRUE,10,FALSE,0)'},
     {ref:'D1',raw:'k2'},{ref:'E1',raw:'20'}],false);
   const xml=(await zipRead(exportXlsx(new SpreadsheetDocument(book)))).get('xl/worksheets/sheet1.xml');
   assert.match(xml,/<f>_xlfn.XLOOKUP\(/);
+  assert.match(xml,/<f>_xlfn.XLOOKUP\(&quot;k2&quot;,D1:D3,E1:E3,&quot;missing&quot;,0,-1\)<\/f>/);
   assert.match(xml,/<f>_xlfn.IFS\(/);
   assert.match(xml,/XLOOKUP\(A1\)/);
   assert.doesNotMatch(xml,/_xlfn.XLOOKUP\(A1\)/);
+});
+
+test('TEXTBEFORE and TEXTAFTER match Excel empty-text and invalid-instance behavior',()=>{
+ for(const fn of ['TEXTBEFORE','TEXTAFTER']){
+  assert.equal(worksheet(`=${fn}("","missing")`).getValue('Z20').value,'');
+  assert.equal(worksheet(`=${fn}("abc","a",4)`).getValue('Z20').error?.code,'#VALUE!');
+  assert.equal(worksheet(`=${fn}("abc","a",-4)`).getValue('Z20').error?.code,'#VALUE!');
+  assert.equal(worksheet(`=${fn}("abc","a",2)`).getValue('Z20').error?.code,'#N/A');
+ }
+ assert.equal(worksheet('=TEXTBEFORE("abc","")').getValue('Z20').value,'');
+ assert.equal(worksheet('=TEXTBEFORE("abc","",-1)').getValue('Z20').value,'abc');
+ assert.equal(worksheet('=TEXTAFTER("abc","")').getValue('Z20').value,'abc');
+ assert.equal(worksheet('=TEXTAFTER("abc","",-1)').getValue('Z20').value,'');
+ assert.equal(worksheet('=TEXTBEFORE("Socrates"," ",,,1)').getValue('Z20').value,'Socrates');
+ assert.equal(worksheet('=TEXTAFTER("Socrates"," ",,,1)').getValue('Z20').value,'');
+ assert.equal(worksheet('=TEXTBEFORE("Socrates"," ",,,0)').getValue('Z20').error?.code,'#N/A');
+ for(const fn of ['TEXTBEFORE','TEXTAFTER']){
+  assert.equal(worksheet(`=${fn}("abc","z",1,0,0,)`).getValue('Z20').error?.code,'#N/A');
+  assert.equal(worksheet(`=${fn}("abc","z",1,0,0,"")`).getValue('Z20').value,'');
+ }
 });

@@ -2,9 +2,28 @@ import { parseRef, colToName } from './parser.js';
 import { fitTrendline } from './trendlines.js';
 import { formatExcelNumber } from './format.js';
 export const CHART_THEMES = ['office', 'colorful', 'forest', 'sunset', 'ocean', 'monochrome'];
+/** Merge bounded chart-editor point-color edits into validated per-series settings without mutating the saved chart. */
+export function applySeriesPointColorEdits(options, pointCount, edits, defaultColors) {
+    if (!Number.isInteger(pointCount) || pointCount < 0 || pointCount > MAX_CHART_SOURCE_POINTS || defaultColors.length < options.length || defaultColors.slice(0, options.length).some(color => !/^#[0-9a-f]{6}$/i.test(color)))
+        throw Error('Invalid chart point-color edit context.');
+    if (edits.length > MAX_CHART_SOURCE_POINTS * options.length)
+        throw Error('Too many chart point-color edits.');
+    const grouped = new Map();
+    for (const edit of edits) {
+        if (!Number.isInteger(edit.seriesIndex) || edit.seriesIndex < 0 || edit.seriesIndex >= options.length || !Number.isInteger(edit.pointIndex) || edit.pointIndex < 0 || edit.pointIndex >= pointCount || !/^#[0-9a-f]{6}$/i.test(edit.color))
+            throw Error('Invalid chart point-color edit.');
+        const points = grouped.get(edit.seriesIndex) ?? new Map();
+        points.set(edit.pointIndex, edit.color.toLowerCase());
+        grouped.set(edit.seriesIndex, points);
+    }
+    return options.map((option, seriesIndex) => { const pointEdits = grouped.get(seriesIndex); if (!pointEdits?.size)
+        return { ...option, ...(option.dataPointColors ? { dataPointColors: [...option.dataPointColors] } : {}) }; const fallback = option.color ?? defaultColors[seriesIndex], existing = option.dataPointColors, colors = Array.from({ length: pointCount }, (_, pointIndex) => existing?.[pointIndex] ?? fallback); for (const [pointIndex, color] of pointEdits)
+        colors[pointIndex] = color; const changed = !!existing?.length || colors.some(color => color.toLowerCase() !== fallback.toLowerCase()); return { ...option, ...(changed ? { dataPointColors: colors } : { dataPointColors: undefined }) }; });
+}
 /** Bounded point counts support larger real-world chart ranges without unbounded SVG work. */
 export const MAX_CHART_SOURCE_ROWS = 10_001;
-export const MAX_CHART_SOURCE_COLUMNS = 25;
+// Up to 24 XY pairs need 48 value columns (plus an optional label column).
+export const MAX_CHART_SOURCE_COLUMNS = 49;
 export const MAX_CHART_SOURCE_POINTS = 10_000;
 export const MAX_CHART_SERIES = 24;
 /** SVG preview work is bounded, while native XLSX/ODS charts retain the full source range. */
@@ -81,6 +100,10 @@ export function validateChart(raw, rows, cols) {
         throw Error('Chart data tables are available for column, bar, line, area, stacked, 100% stacked and combo charts.');
     if (c.dataTableShowKeys !== undefined && typeof c.dataTableShowKeys !== 'boolean')
         throw Error('Invalid chart data-table legend key setting.');
+    if (c.categoryGapWidth !== undefined && (!Number.isInteger(c.categoryGapWidth) || typeof c.categoryGapWidth !== 'number' || c.categoryGapWidth < 0 || c.categoryGapWidth > 500))
+        throw Error('Column and bar gap width must be a whole percentage from 0 to 500.');
+    if (c.seriesOverlap !== undefined && (!Number.isInteger(c.seriesOverlap) || typeof c.seriesOverlap !== 'number' || c.seriesOverlap < -100 || c.seriesOverlap > 100))
+        throw Error('Column and bar series overlap must be a whole percentage from -100 to 100.');
     if (c.dataLabels !== undefined && typeof c.dataLabels !== 'boolean')
         throw Error('Invalid chart data-label setting.');
     for (const field of ['dataLabelCategoryName', 'dataLabelSeriesName', 'dataLabelPercent'])
@@ -94,6 +117,8 @@ export function validateChart(raw, rows, cols) {
         throw Error('Invalid chart data-label position.');
     if (c.switchRowsColumns !== undefined && typeof c.switchRowsColumns !== 'boolean')
         throw Error('Invalid chart data orientation.');
+    if (c.scatterPairs !== undefined && (typeof c.scatterPairs !== 'boolean' || c.scatterPairs === true && c.kind !== 'scatter'))
+        throw Error('XY pair mode is only available for scatter charts.');
     if (c.showFinalTotal !== undefined && typeof c.showFinalTotal !== 'boolean')
         throw Error('Invalid waterfall final-total setting.');
     if (c.boxQuartileMethod !== undefined && !['inclusive', 'exclusive'].includes(c.boxQuartileMethod))
@@ -129,8 +154,8 @@ export function validateChart(raw, rows, cols) {
         throw Error('Doughnut hole size must be a whole percentage from 10 to 90.');
     if (c.firstSliceAngle !== undefined && (!Number.isInteger(c.firstSliceAngle) || typeof c.firstSliceAngle !== 'number' || c.firstSliceAngle < 0 || c.firstSliceAngle > 360))
         throw Error('First slice angle must be a whole number from 0 to 360 degrees.');
-    if (c.dataPointColors !== undefined && (!['pie', 'doughnut'].includes(c.kind) || !Array.isArray(c.dataPointColors) || c.dataPointColors.length > MAX_CHART_SOURCE_POINTS || c.dataPointColors.some(color => typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color))))
-        throw Error(`Pie and doughnut point colors must be up to ${MAX_CHART_SOURCE_POINTS.toLocaleString()} six-digit hexadecimal colors.`);
+    if (c.dataPointColors !== undefined && (!['pie', 'doughnut', 'column', 'bar', 'stacked-column', 'stacked-bar', 'percent-column', 'percent-bar', 'combo', 'line', 'scatter', 'radar'].includes(c.kind) || !Array.isArray(c.dataPointColors) || c.dataPointColors.length > MAX_CHART_SOURCE_POINTS || c.dataPointColors.some(color => typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color))))
+        throw Error(`Chart point colors must be up to ${MAX_CHART_SOURCE_POINTS.toLocaleString()} six-digit hexadecimal colors for a supported chart type.`);
     if (typeof c.xAxisMin === 'number' && typeof c.xAxisMax === 'number' && c.xAxisMin >= c.xAxisMax || typeof c.yAxisMin === 'number' && typeof c.yAxisMax === 'number' && c.yAxisMin >= c.yAxisMax || typeof c.secondaryYAxisMin === 'number' && typeof c.secondaryYAxisMax === 'number' && c.secondaryYAxisMin >= c.secondaryYAxisMax)
         throw Error('Each chart axis minimum must be less than its maximum.');
     for (const field of ['xAxisNumberFormat', 'yAxisNumberFormat', 'secondaryYAxisNumberFormat'])
@@ -160,7 +185,8 @@ export function validateChart(raw, rows, cols) {
         if (!Array.isArray(c.seriesOptions) || c.seriesOptions.length > MAX_CHART_SERIES)
             throw Error('Invalid chart series options.');
         seriesOptions = c.seriesOptions.map((raw, index) => { if (!raw || typeof raw !== 'object')
-            throw Error('Invalid chart series options.'); const o = raw; if (o.axis !== undefined && !['primary', 'secondary'].includes(o.axis) || o.kind !== undefined && !['column', 'line'].includes(o.kind) || o.color !== undefined && (typeof o.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(o.color)) || o.marker !== undefined && typeof o.marker !== 'boolean' || o.markerStyle !== undefined && !['circle', 'square', 'diamond', 'triangle', 'plus', 'x', 'star'].includes(o.markerStyle))
+            throw Error('Invalid chart series options.'); const o = raw, seriesPointColors = o.dataPointColors; if (seriesPointColors !== undefined && (!Array.isArray(seriesPointColors) || seriesPointColors.length > MAX_CHART_SOURCE_POINTS || seriesPointColors.some(color => typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color))))
+            throw Error('Chart series colors must be up to 10,000 six-digit hexadecimal colors.'); if (o.axis !== undefined && !['primary', 'secondary'].includes(o.axis) || o.kind !== undefined && !['column', 'line'].includes(o.kind) || o.color !== undefined && (typeof o.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(o.color)) || o.lineStyle !== undefined && !['solid', 'dash', 'dot', 'dashDot'].includes(o.lineStyle) || o.lineWidth !== undefined && (typeof o.lineWidth !== 'number' || !Number.isFinite(o.lineWidth) || o.lineWidth < 0.25 || o.lineWidth > 10 || !Number.isInteger(o.lineWidth * 4)) || o.markerSize !== undefined && (!Number.isInteger(o.markerSize) || typeof o.markerSize !== 'number' || o.markerSize < 2 || o.markerSize > 72) || o.marker !== undefined && typeof o.marker !== 'boolean' || o.markerStyle !== undefined && !['circle', 'square', 'diamond', 'triangle', 'plus', 'x', 'star'].includes(o.markerStyle))
             throw Error('Invalid chart series options.'); let errorBars; if (o.errorBars !== undefined) {
             const e = o.errorBars;
             if (!e || typeof e !== 'object' || !['fixed', 'percentage', 'standardDeviation', 'standardError'].includes(e.type) || typeof e.value !== 'number' || !Number.isFinite(e.value) || e.value < 0 || e.value > 1e9 || e.direction !== undefined && !['both', 'plus', 'minus'].includes(e.direction) || e.endCap !== undefined && typeof e.endCap !== 'boolean' || e.axis !== undefined && !['x', 'y'].includes(e.axis))
@@ -171,10 +197,10 @@ export function validateChart(raw, rows, cols) {
             if (!t || typeof t !== 'object' || !['linear', 'exponential', 'logarithmic', 'polynomial', 'power', 'movingAverage'].includes(t.type) || !['order', 'period', 'forward', 'backward'].every(k => t[k] === undefined || Number.isInteger(t[k]) && t[k] >= 0 && t[k] <= 100) || !['showEquation', 'showR2'].every(k => t[k] === undefined || typeof t[k] === 'boolean'))
                 throw Error('Invalid chart trendline.');
             trendline = t;
-        } return { ...(o.axis ? { axis: o.axis } : {}), ...(o.kind ? { kind: o.kind } : {}), ...(o.color ? { color: o.color } : {}), ...(o.marker !== undefined ? { marker: o.marker } : {}), ...(o.markerStyle !== undefined ? { markerStyle: o.markerStyle } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline } : {}) }; });
+        } return { ...(o.axis ? { axis: o.axis } : {}), ...(o.kind ? { kind: o.kind } : {}), ...(o.color ? { color: o.color } : {}), ...(Array.isArray(seriesPointColors) ? { dataPointColors: [...seriesPointColors] } : {}), ...(o.lineStyle ? { lineStyle: o.lineStyle } : {}), ...(o.lineWidth !== undefined ? { lineWidth: o.lineWidth } : {}), ...(o.marker !== undefined ? { marker: o.marker } : {}), ...(o.markerSize !== undefined ? { markerSize: o.markerSize } : {}), ...(o.markerStyle !== undefined ? { markerStyle: o.markerStyle } : {}), ...(errorBars ? { errorBars } : {}), ...(trendline ? { trendline } : {}) }; });
     }
     const waterfallTotalPoints = c.waterfallTotalPoints === undefined ? undefined : [...new Set(c.waterfallTotalPoints)].sort((a, b) => a - b);
-    return { ...(c.theme !== undefined ? { theme: c.theme } : {}), id: c.id, kind: c.kind, title: c.title, ...(typeof c.accessibilityDescription === 'string' && c.accessibilityDescription ? { accessibilityDescription: c.accessibilityDescription } : {}), range: c.range, ...(typeof c.pivotId === 'string' ? { pivotId: c.pivotId } : {}), x: c.x, y: c.y, width: c.width, height: c.height, ...(c.legend !== undefined ? { legend: c.legend } : {}), ...(c.displayBlanksAs !== undefined ? { displayBlanksAs: c.displayBlanksAs } : {}), ...(c.reverseCategories !== undefined ? { reverseCategories: c.reverseCategories } : {}), ...(c.includeHiddenData !== undefined ? { includeHiddenData: c.includeHiddenData } : {}), ...(c.dataTable !== undefined ? { dataTable: c.dataTable } : {}), ...(c.dataTableShowKeys !== undefined ? { dataTableShowKeys: c.dataTableShowKeys } : {}), ...(c.dataLabels !== undefined ? { dataLabels: c.dataLabels } : {}), ...(c.dataLabelCategoryName !== undefined ? { dataLabelCategoryName: c.dataLabelCategoryName } : {}), ...(c.dataLabelSeriesName !== undefined ? { dataLabelSeriesName: c.dataLabelSeriesName } : {}), ...(c.dataLabelPercent !== undefined ? { dataLabelPercent: c.dataLabelPercent } : {}), ...(typeof c.dataLabelFormatCode === 'string' && c.dataLabelFormatCode ? { dataLabelFormatCode: c.dataLabelFormatCode } : {}), ...(typeof c.dataLabelSeparator === 'string' ? { dataLabelSeparator: c.dataLabelSeparator } : {}), ...(c.dataLabelPosition !== undefined ? { dataLabelPosition: c.dataLabelPosition } : {}), ...(c.switchRowsColumns !== undefined ? { switchRowsColumns: c.switchRowsColumns } : {}), ...(c.showFinalTotal !== undefined ? { showFinalTotal: c.showFinalTotal } : {}), ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(c.boxQuartileMethod !== undefined ? { boxQuartileMethod: c.boxQuartileMethod } : {}), ...(c.boxShowInnerPoints !== undefined ? { boxShowInnerPoints: c.boxShowInnerPoints } : {}), ...(c.boxShowOutliers !== undefined ? { boxShowOutliers: c.boxShowOutliers } : {}), ...(c.boxShowMeanMarker !== undefined ? { boxShowMeanMarker: c.boxShowMeanMarker } : {}), ...(c.boxShowMeanLine !== undefined ? { boxShowMeanLine: c.boxShowMeanLine } : {}), ...(c.histogramBins !== undefined ? { histogramBins: c.histogramBins } : {}), ...(c.histogramBinWidth !== undefined ? { histogramBinWidth: c.histogramBinWidth } : {}), ...(c.histogramUnderflow !== undefined ? { histogramUnderflow: c.histogramUnderflow } : {}), ...(c.histogramOverflow !== undefined ? { histogramOverflow: c.histogramOverflow } : {}), ...(c.xAxisTitle !== undefined ? { xAxisTitle: c.xAxisTitle } : {}), ...(c.xAxisLabelAngle !== undefined ? { xAxisLabelAngle: c.xAxisLabelAngle } : {}), ...(c.xAxisLabelInterval !== undefined ? { xAxisLabelInterval: c.xAxisLabelInterval } : {}), ...(c.xAxisMin !== undefined ? { xAxisMin: c.xAxisMin } : {}), ...(c.xAxisMax !== undefined ? { xAxisMax: c.xAxisMax } : {}), ...(c.xAxisMajorUnit !== undefined ? { xAxisMajorUnit: c.xAxisMajorUnit } : {}), ...(c.xAxisNumberFormat !== undefined ? { xAxisNumberFormat: c.xAxisNumberFormat } : {}), ...(typeof c.xAxisFormatCode === 'string' ? { xAxisFormatCode: c.xAxisFormatCode } : {}), ...(c.yAxisTitle !== undefined ? { yAxisTitle: c.yAxisTitle } : {}), ...(c.secondaryYAxisTitle !== undefined ? { secondaryYAxisTitle: c.secondaryYAxisTitle } : {}), ...(c.yAxisMin !== undefined ? { yAxisMin: c.yAxisMin } : {}), ...(c.yAxisMax !== undefined ? { yAxisMax: c.yAxisMax } : {}), ...(c.yAxisMajorUnit !== undefined ? { yAxisMajorUnit: c.yAxisMajorUnit } : {}), ...(c.yAxisLogBase !== undefined ? { yAxisLogBase: c.yAxisLogBase } : {}), ...(c.secondaryYAxisMin !== undefined ? { secondaryYAxisMin: c.secondaryYAxisMin } : {}), ...(c.secondaryYAxisMax !== undefined ? { secondaryYAxisMax: c.secondaryYAxisMax } : {}), ...(c.secondaryYAxisMajorUnit !== undefined ? { secondaryYAxisMajorUnit: c.secondaryYAxisMajorUnit } : {}), ...(c.yAxisNumberFormat !== undefined ? { yAxisNumberFormat: c.yAxisNumberFormat } : {}), ...(c.secondaryYAxisNumberFormat !== undefined ? { secondaryYAxisNumberFormat: c.secondaryYAxisNumberFormat } : {}), ...(typeof c.yAxisFormatCode === 'string' ? { yAxisFormatCode: c.yAxisFormatCode } : {}), ...(typeof c.secondaryYAxisFormatCode === 'string' ? { secondaryYAxisFormatCode: c.secondaryYAxisFormatCode } : {}), ...(c.doughnutHoleSize !== undefined ? { doughnutHoleSize: c.doughnutHoleSize } : {}), ...(c.firstSliceAngle !== undefined ? { firstSliceAngle: c.firstSliceAngle } : {}), ...(Array.isArray(c.dataPointColors) ? { dataPointColors: [...c.dataPointColors] } : {}), ...(c.majorGridlines !== undefined ? { majorGridlines: c.majorGridlines } : {}), ...(c.minorGridlines !== undefined ? { minorGridlines: c.minorGridlines } : {}), ...(seriesOptions ? { seriesOptions } : {}) };
+    return { ...(c.theme !== undefined ? { theme: c.theme } : {}), id: c.id, kind: c.kind, title: c.title, ...(typeof c.accessibilityDescription === 'string' && c.accessibilityDescription ? { accessibilityDescription: c.accessibilityDescription } : {}), range: c.range, ...(typeof c.pivotId === 'string' ? { pivotId: c.pivotId } : {}), x: c.x, y: c.y, width: c.width, height: c.height, ...(c.legend !== undefined ? { legend: c.legend } : {}), ...(c.displayBlanksAs !== undefined ? { displayBlanksAs: c.displayBlanksAs } : {}), ...(c.reverseCategories !== undefined ? { reverseCategories: c.reverseCategories } : {}), ...(c.includeHiddenData !== undefined ? { includeHiddenData: c.includeHiddenData } : {}), ...(c.scatterPairs === true ? { scatterPairs: true } : {}), ...(c.dataTable !== undefined ? { dataTable: c.dataTable } : {}), ...(c.dataTableShowKeys !== undefined ? { dataTableShowKeys: c.dataTableShowKeys } : {}), ...(c.categoryGapWidth !== undefined ? { categoryGapWidth: c.categoryGapWidth } : {}), ...(c.seriesOverlap !== undefined ? { seriesOverlap: c.seriesOverlap } : {}), ...(c.dataLabels !== undefined ? { dataLabels: c.dataLabels } : {}), ...(c.dataLabelCategoryName !== undefined ? { dataLabelCategoryName: c.dataLabelCategoryName } : {}), ...(c.dataLabelSeriesName !== undefined ? { dataLabelSeriesName: c.dataLabelSeriesName } : {}), ...(c.dataLabelPercent !== undefined ? { dataLabelPercent: c.dataLabelPercent } : {}), ...(typeof c.dataLabelFormatCode === 'string' && c.dataLabelFormatCode ? { dataLabelFormatCode: c.dataLabelFormatCode } : {}), ...(typeof c.dataLabelSeparator === 'string' ? { dataLabelSeparator: c.dataLabelSeparator } : {}), ...(c.dataLabelPosition !== undefined ? { dataLabelPosition: c.dataLabelPosition } : {}), ...(c.switchRowsColumns !== undefined ? { switchRowsColumns: c.switchRowsColumns } : {}), ...(c.showFinalTotal !== undefined ? { showFinalTotal: c.showFinalTotal } : {}), ...(waterfallTotalPoints !== undefined ? { waterfallTotalPoints } : {}), ...(c.boxQuartileMethod !== undefined ? { boxQuartileMethod: c.boxQuartileMethod } : {}), ...(c.boxShowInnerPoints !== undefined ? { boxShowInnerPoints: c.boxShowInnerPoints } : {}), ...(c.boxShowOutliers !== undefined ? { boxShowOutliers: c.boxShowOutliers } : {}), ...(c.boxShowMeanMarker !== undefined ? { boxShowMeanMarker: c.boxShowMeanMarker } : {}), ...(c.boxShowMeanLine !== undefined ? { boxShowMeanLine: c.boxShowMeanLine } : {}), ...(c.histogramBins !== undefined ? { histogramBins: c.histogramBins } : {}), ...(c.histogramBinWidth !== undefined ? { histogramBinWidth: c.histogramBinWidth } : {}), ...(c.histogramUnderflow !== undefined ? { histogramUnderflow: c.histogramUnderflow } : {}), ...(c.histogramOverflow !== undefined ? { histogramOverflow: c.histogramOverflow } : {}), ...(c.xAxisTitle !== undefined ? { xAxisTitle: c.xAxisTitle } : {}), ...(c.xAxisLabelAngle !== undefined ? { xAxisLabelAngle: c.xAxisLabelAngle } : {}), ...(c.xAxisLabelInterval !== undefined ? { xAxisLabelInterval: c.xAxisLabelInterval } : {}), ...(c.xAxisMin !== undefined ? { xAxisMin: c.xAxisMin } : {}), ...(c.xAxisMax !== undefined ? { xAxisMax: c.xAxisMax } : {}), ...(c.xAxisMajorUnit !== undefined ? { xAxisMajorUnit: c.xAxisMajorUnit } : {}), ...(c.xAxisNumberFormat !== undefined ? { xAxisNumberFormat: c.xAxisNumberFormat } : {}), ...(typeof c.xAxisFormatCode === 'string' ? { xAxisFormatCode: c.xAxisFormatCode } : {}), ...(c.yAxisTitle !== undefined ? { yAxisTitle: c.yAxisTitle } : {}), ...(c.secondaryYAxisTitle !== undefined ? { secondaryYAxisTitle: c.secondaryYAxisTitle } : {}), ...(c.yAxisMin !== undefined ? { yAxisMin: c.yAxisMin } : {}), ...(c.yAxisMax !== undefined ? { yAxisMax: c.yAxisMax } : {}), ...(c.yAxisMajorUnit !== undefined ? { yAxisMajorUnit: c.yAxisMajorUnit } : {}), ...(c.yAxisLogBase !== undefined ? { yAxisLogBase: c.yAxisLogBase } : {}), ...(c.secondaryYAxisMin !== undefined ? { secondaryYAxisMin: c.secondaryYAxisMin } : {}), ...(c.secondaryYAxisMax !== undefined ? { secondaryYAxisMax: c.secondaryYAxisMax } : {}), ...(c.secondaryYAxisMajorUnit !== undefined ? { secondaryYAxisMajorUnit: c.secondaryYAxisMajorUnit } : {}), ...(c.yAxisNumberFormat !== undefined ? { yAxisNumberFormat: c.yAxisNumberFormat } : {}), ...(c.secondaryYAxisNumberFormat !== undefined ? { secondaryYAxisNumberFormat: c.secondaryYAxisNumberFormat } : {}), ...(typeof c.yAxisFormatCode === 'string' ? { yAxisFormatCode: c.yAxisFormatCode } : {}), ...(typeof c.secondaryYAxisFormatCode === 'string' ? { secondaryYAxisFormatCode: c.secondaryYAxisFormatCode } : {}), ...(c.doughnutHoleSize !== undefined ? { doughnutHoleSize: c.doughnutHoleSize } : {}), ...(c.firstSliceAngle !== undefined ? { firstSliceAngle: c.firstSliceAngle } : {}), ...(Array.isArray(c.dataPointColors) ? { dataPointColors: [...c.dataPointColors] } : {}), ...(c.majorGridlines !== undefined ? { majorGridlines: c.majorGridlines } : {}), ...(c.minorGridlines !== undefined ? { minorGridlines: c.minorGridlines } : {}), ...(seriesOptions ? { seriesOptions } : {}) };
 }
 export function extractChartData(book, range, switchRowsColumns = false, includeHiddenData = true) {
     const r = chartRange(range, book.rows, book.cols), hiddenRows = includeHiddenData ? new Set() : new Set(book.getHiddenRowsForChart()), hiddenColumns = includeHiddenData ? new Set() : new Set(book.getHiddenColumnsForChart());
@@ -192,6 +218,44 @@ export function extractChartData(book, range, switchRowsColumns = false, include
     if (!switchRowsColumns)
         return { range, labels, series, rows: dataRows.length };
     return { range, labels: series.map(item => item.name), series: dataRows.map((row, index) => ({ name: labels[index] ?? String(row + 1), values: series.map(item => item.values[index] ?? null) })), rows: dataRows.length };
+}
+/** Extract adjacent X/Y column pairs for XY charts (X1,Y1,X2,Y2...). */
+export function extractScatterPairData(book, range, includeHiddenData = true) {
+    const r = chartRange(range, book.rows, book.cols), hiddenRows = includeHiddenData ? new Set() : new Set(book.getHiddenRowsForChart()), hiddenColumns = includeHiddenData ? new Set() : new Set(book.getHiddenColumnsForChart()), columns = Array.from({ length: r.c2 - r.c1 + 1 }, (_, i) => r.c1 + i), cell = (row, col) => book.getValue(`${colToName(col)}${row + 1}`), number = (row, col) => { const value = cell(row, col); return !value.error && typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null; }, text = (row, col) => { const value = cell(row, col); return value.error || value.value === null ? '' : String(value.value).trim(); };
+    // A leading text column is accepted as point labels, while the remaining
+    // numeric columns must be complete adjacent X/Y pairs.
+    let dataColumns = [...columns], labelColumn;
+    let explicitLabelHeader = false;
+    if (dataColumns.length % 2 === 1 && dataColumns.length >= 5) {
+        const candidate = dataColumns[0], sampleRows = Array.from({ length: Math.min(20, r.r2 - r.r1) }, (_, i) => r.r1 + i + 1).filter(row => !hiddenRows.has(row)), textCount = sampleRows.filter(row => text(row, candidate) !== '' && number(row, candidate) === null).length, labelHeader = /^(label|point(?: label| id)?|category|name|id|identifier|item|sample(?: id)?|observation(?: id)?|row)$/i.test(text(r.r1, candidate)), numericTail = sampleRows.length > 0 && dataColumns.slice(1).every(col => { const populated = sampleRows.filter(row => text(row, col) !== ''); return !populated.length || populated.filter(row => number(row, col) !== null).length / populated.length >= .75; });
+        if (textCount >= Math.max(1, Math.ceil(sampleRows.length * .5)) || labelHeader && numericTail) {
+            labelColumn = candidate;
+            explicitLabelHeader = labelHeader;
+            dataColumns = dataColumns.slice(1);
+        }
+    }
+    const originalPairCount = dataColumns.length / 2;
+    if (dataColumns.length < 4 || dataColumns.length % 2 !== 0)
+        throw Error('XY pair mode needs at least four numeric columns arranged as adjacent X, Y pairs (X1, Y1, X2, Y2).');
+    if (originalPairCount > MAX_CHART_SERIES)
+        throw Error(`Charts support up to ${MAX_CHART_SERIES} XY pairs.`);
+    // Exclude hidden data by whole X/Y pairs. Filtering columns individually can
+    // shift a remaining X column into a Y position and silently corrupt every pair.
+    const pairs = Array.from({ length: originalPairCount }, (_, index) => ({ xCol: dataColumns[index * 2], yCol: dataColumns[index * 2 + 1], sourceIndex: index })).filter(pair => includeHiddenData || !hiddenColumns.has(pair.xCol) && !hiddenColumns.has(pair.yCol));
+    if (!pairs.length)
+        throw Error('No visible XY column pairs remain in the selected range.');
+    const headerPairs = pairs.filter(({ xCol, yCol }) => [xCol, yCol].some(col => text(r.r1, col) !== '' && number(r.r1, col) === null)).length, hasHeader = explicitLabelHeader || headerPairs >= Math.ceil(pairs.length / 2), start = r.r1 + (hasHeader ? 1 : 0), dataRows = Array.from({ length: Math.max(0, r.r2 - start + 1) }, (_, i) => start + i).filter(row => !hiddenRows.has(row));
+    if (dataRows.length > MAX_CHART_SOURCE_POINTS)
+        throw Error(`Charts support up to ${MAX_CHART_SOURCE_POINTS.toLocaleString()} points per series.`);
+    const series = [], scatterXValues = [], scatterXColumns = [], scatterPairIndexes = [];
+    for (let pair = 0; pair < pairs.length; pair++) {
+        const { xCol, yCol, sourceIndex } = pairs[pair], fallback = `Series ${sourceIndex + 1}`, name = hasHeader ? (text(r.r1, yCol) || text(r.r1, xCol) || fallback) : fallback;
+        series.push({ name, values: dataRows.map(row => number(row, yCol)) });
+        scatterXValues.push(dataRows.map(row => number(row, xCol)));
+        scatterXColumns.push(xCol);
+        scatterPairIndexes.push(sourceIndex);
+    }
+    return { range, labels: dataRows.map((row, index) => labelColumn !== undefined && (includeHiddenData || !hiddenColumns.has(labelColumn)) ? (text(row, labelColumn) || String(index + 1)) : String(index + 1)), series, rows: dataRows.length, scatterXValues, scatterXColumns, scatterPairIndexes };
 }
 export function histogramData(source, requestedBins, requestedWidth, underflow, overflow) {
     const values = source.series.flatMap(item => item.values.filter((v) => v !== null && Number.isFinite(v)));
@@ -331,6 +395,7 @@ const fmt = (n) => { if (!Number.isFinite(n))
     return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(n / 1e6)}m`; if (magnitude >= 1e3)
     return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(n / 1e3)}k`; return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4, useGrouping: false }).format(n); };
 const chartDataLabelFmt = (chart, n) => chart.dataLabelFormatCode ? formatExcelNumber(n, chart.dataLabelFormatCode) ?? fmt(n) : fmt(n);
+const chartDashArray = (style) => style === 'dash' ? '6 3' : style === 'dot' ? '1 3' : style === 'dashDot' ? '6 3 1 3' : '';
 const axisFmt = (n, format, customCode) => customCode ? formatExcelNumber(n, customCode) ?? fmt(n) : format === 'currency' ? new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n) : format === 'percent' ? new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 1 }).format(n) : format === 'number' ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n) : fmt(n);
 function resolveScale(values, minimum, maximum, includeZero = true) {
     const low = includeZero ? Math.min(0, ...values) : Math.min(...values), high = includeZero ? Math.max(0, ...values) : Math.max(...values), autoLow = low === high ? low - 1 : low, autoHigh = low === high ? high + 1 : high;
@@ -376,14 +441,14 @@ const errorBarAmount = (values, dataValue, bars) => { const valid = values.filte
 export function chartSvg(book, chart) {
     let source;
     try {
-        source = chart.kind === 'treemap' || chart.kind === 'sunburst' ? treemapData(book, chart.range) : chart.kind === 'stock' ? stockData(book, chart.range, chart.includeHiddenData ?? false) : extractChartData(book, chart.range, chart.switchRowsColumns ?? false, chart.includeHiddenData ?? false);
+        source = chart.kind === 'treemap' || chart.kind === 'sunburst' ? treemapData(book, chart.range) : chart.kind === 'stock' ? stockData(book, chart.range, chart.includeHiddenData ?? false) : chart.kind === 'scatter' && chart.scatterPairs ? extractScatterPairData(book, chart.range, chart.includeHiddenData ?? false) : extractChartData(book, chart.range, chart.switchRowsColumns ?? false, chart.includeHiddenData ?? false);
     }
     catch (error) {
         const W = Math.max(300, Math.round(chart.width)), H = Math.max(210, Math.round(chart.height)), svg = `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(chart.accessibilityDescription || chart.title || chart.kind + ' chart')}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><title>${esc(chart.title || chart.kind + ' chart')}</title>${chart.accessibilityDescription ? `<desc>${esc(chart.accessibilityDescription)}</desc>` : ''}<rect width="${W}" height="${H}" fill="#ffffff"/>`, title = tag(23, 30, chart.title || `${chart.kind} chart`);
         return svg + title + tag(23, 85, error instanceof Error ? error.message : 'Chart source data is invalid.') + '</svg>';
     }
     let d = source;
-    const palette = CHART_PALETTES[chart.theme ?? 'office'], W = Math.max(300, Math.round(chart.width)), H = Math.max(210, Math.round(chart.height));
+    const seriesOptionIndex = (index) => d.scatterPairIndexes?.[index] ?? index, palette = CHART_PALETTES[chart.theme ?? 'office'], W = Math.max(300, Math.round(chart.width)), H = Math.max(210, Math.round(chart.height));
     const svgStart = `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(chart.accessibilityDescription || chart.title || chart.kind + ' chart')}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><title>${esc(chart.title || chart.kind + ' chart')}</title>${chart.accessibilityDescription ? `<desc>${esc(chart.accessibilityDescription)}</desc>` : ''}<rect width="${W}" height="${H}" fill="#ffffff"/>`;
     const title = tag(23, 30, chart.title || `${chart.kind} chart`).replace('font-size="11"', 'font-size="16" font-weight="700" fill="#172b4d"');
     if (chart.kind === 'histogram')
@@ -471,7 +536,7 @@ export function chartSvg(book, chart) {
         }
         categories.forEach((label, i) => { const theta = -Math.PI / 2 + i * 2 * Math.PI / count, ex = cx + radius * Math.cos(theta), ey = cy + radius * Math.sin(theta); out += `<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" stroke="#dee8f1"/>${tag(cx + (radius + 12) * Math.cos(theta) - 17, cy + (radius + 12) * Math.sin(theta) + 4, label.slice(0, 9))}`; });
         series.forEach((item, si) => {
-            const color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length], values = item.values.slice(0, count), pointAt = (index, value) => { const theta = -Math.PI / 2 + index * 2 * Math.PI / count; return `${cx + radius * (value / max) * Math.cos(theta)},${cy + radius * (value / max) * Math.sin(theta)}`; };
+            const color = chart.seriesOptions?.[seriesOptionIndex(si)]?.color ?? palette[si % palette.length], values = item.values.slice(0, count), pointAt = (index, value) => { const theta = -Math.PI / 2 + index * 2 * Math.PI / count; return `${cx + radius * (value / max) * Math.cos(theta)},${cy + radius * (value / max) * Math.sin(theta)}`; };
             if (chart.displayBlanksAs === 'zero') {
                 const points = categories.map((_, index) => pointAt(index, Math.max(0, values[index] ?? 0))).join(' ');
                 out += `<polygon points="${points}" fill="${color}" fill-opacity=".12" stroke="${color}" stroke-width="2"/>`;
@@ -489,8 +554,8 @@ export function chartSvg(book, chart) {
             // Start just after a blank and walk once around the radar so values at
             // the end and beginning of the category list remain one continuous run.
             let run = [];
-            const flush = () => { if (run.length > 1)
-                out += `<polyline points="${run.join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`; run = []; };
+            const dashArray = chartDashArray(chart.seriesOptions?.[seriesOptionIndex(si)]?.lineStyle), lineWidth = (chart.seriesOptions?.[seriesOptionIndex(si)]?.lineWidth ?? 1.5) * 4 / 3, flush = () => { if (run.length > 1)
+                out += `<polyline points="${run.join(' ')}" fill="none" stroke="${color}" stroke-width="${lineWidth}" stroke-linejoin="round"${dashArray ? ` stroke-dasharray="${dashArray}"` : ''}/>`; run = []; };
             for (let offset = 1; offset <= count; offset++) {
                 const index = (missing[0] + offset) % count, value = values[index];
                 if (value === null || value === undefined) {
@@ -502,11 +567,11 @@ export function chartSvg(book, chart) {
             flush();
         });
         if (chart.legend !== 'none')
-            series.forEach((item, i) => { const wrapped = compactLegend, cols = wrapped ? legendColumns : series.length, row = wrapped ? Math.floor(i / cols) : 0, column = wrapped ? i % cols : i, x = wrapped ? 18 + column * (W - 36) / cols : 18 + i * 112, y = wrapped ? (chart.legend === 'top' ? 28 + row * 14 : H - 19 - (legendRows - 1 - row) * 14) : chart.legend === 'top' ? 48 : H - 19, ty = wrapped ? y + 10 : chart.legend === 'top' ? 57 : H - 10, color = chart.seriesOptions?.[i]?.color ?? palette[i % palette.length]; out += `<rect x="${x}" y="${y}" width="10" height="10" fill="${color}"/>${tag(x + 14, ty, item.name.slice(0, 13))}`; });
+            series.forEach((item, i) => { const wrapped = compactLegend, cols = wrapped ? legendColumns : series.length, row = wrapped ? Math.floor(i / cols) : 0, column = wrapped ? i % cols : i, x = wrapped ? 18 + column * (W - 36) / cols : 18 + i * 112, y = wrapped ? (chart.legend === 'top' ? 28 + row * 14 : H - 19 - (legendRows - 1 - row) * 14) : chart.legend === 'top' ? 48 : H - 19, ty = wrapped ? y + 10 : chart.legend === 'top' ? 57 : H - 10, color = chart.seriesOptions?.[seriesOptionIndex(i)]?.color ?? palette[i % palette.length]; out += `<rect x="${x}" y="${y}" width="10" height="10" fill="${color}"/>${tag(x + 14, ty, item.name.slice(0, 13))}`; });
         return svgStart + title + out + '</svg>';
     }
     const hasSecondary = chart.kind !== 'scatter' && (chart.seriesOptions?.some(option => option.axis === 'secondary') ?? false);
-    const legendSeriesCount = chart.kind === 'scatter' ? Math.max(0, d.series.length - 1) : d.series.length, compactLegend = chart.legend !== 'none' && legendSeriesCount > 4, legendColumns = compactLegend ? Math.max(1, Math.min(4, Math.floor((W - 36) / 130))) : Math.max(1, legendSeriesCount), legendRows = compactLegend ? Math.ceil(legendSeriesCount / legendColumns) : 1, dataTable = chart.dataTable === true, tableSeriesCount = Math.min(d.series.length, 4), tableHeight = dataTable ? 15 * (tableSeriesCount + 1 + (d.series.length > tableSeriesCount ? 1 : 0)) + 8 : 0, L = chart.legend === 'left' && !compactLegend ? 145 : 58, T = chart.legend === 'top' ? (compactLegend ? 44 + legendRows * 14 : 78) : 55, R = hasSecondary ? 54 : 22, B = (dataTable ? (chart.xAxisTitle ? 58 : 34) : (chart.legend === 'none' || chart.legend === 'top' ? 55 : compactLegend ? 26 + legendRows * 14 : 74) + (chart.xAxisTitle ? 23 : 0)) + (dataTable ? tableHeight + 4 : 0), px = L, py = T, pw = W - L - R, ph = Math.max(45, H - T - B);
+    const legendSeriesCount = chart.kind === 'scatter' ? (d.scatterXValues ? d.series.length : Math.max(0, d.series.length - 1)) : d.series.length, compactLegend = chart.legend !== 'none' && legendSeriesCount > 4, legendColumns = compactLegend ? Math.max(1, Math.min(4, Math.floor((W - 36) / 130))) : Math.max(1, legendSeriesCount), legendRows = compactLegend ? Math.ceil(legendSeriesCount / legendColumns) : 1, dataTable = chart.dataTable === true, tableSeriesCount = Math.min(d.series.length, 4), tableHeight = dataTable ? 15 * (tableSeriesCount + 1 + (d.series.length > tableSeriesCount ? 1 : 0)) + 8 : 0, L = chart.legend === 'left' && !compactLegend ? 145 : 58, T = chart.legend === 'top' ? (compactLegend ? 44 + legendRows * 14 : 78) : 55, R = hasSecondary ? 54 : 22, B = (dataTable ? (chart.xAxisTitle ? 58 : 34) : (chart.legend === 'none' || chart.legend === 'top' ? 55 : compactLegend ? 26 + legendRows * 14 : 74) + (chart.xAxisTitle ? 23 : 0)) + (dataTable ? tableHeight + 4 : 0), px = L, py = T, pw = W - L - R, ph = Math.max(45, H - T - B);
     const percent = chart.kind === 'percent-column' || chart.kind === 'percent-bar';
     const stacked = percent || chart.kind === 'stacked-column' || chart.kind === 'stacked-bar';
     const dataSeries = percent ? d.series.map(series => ({ name: series.name, values: series.values.map((v, i) => { if (v === null)
@@ -515,11 +580,11 @@ export function chartSvg(book, chart) {
         tot.pos += v;
     else
         tot.neg += v; return tot; }, { pos: 0, neg: 0 })) : [];
-    const isScatter = chart.kind === 'scatter', values = isScatter && d.series.length >= 2 ? d.series.slice(1).flatMap(item => item.values) : all, scatterValues = values.filter((v) => v !== null && Number.isFinite(v)), scatterXValues = isScatter ? (d.series[0]?.values.filter((v) => v !== null && Number.isFinite(v)) ?? []) : [];
-    const scatterYBounds = isScatter ? d.series.slice(1, MAX_CHART_SERIES + 1).flatMap((series, si) => series.values.flatMap(value => { if (value === null)
-        return []; const bars = chart.seriesOptions?.[si]?.errorBars; if (!bars || bars.axis === 'x')
+    const isScatter = chart.kind === 'scatter', scatterSeries = isScatter ? (d.scatterXValues ? d.series : d.series.slice(1, MAX_CHART_SERIES + 1)) : [], values = isScatter ? scatterSeries.flatMap(item => item.values) : all, scatterValues = values.filter((v) => v !== null && Number.isFinite(v)), scatterXValues = isScatter ? (d.scatterXValues ?? [d.series[0]?.values ?? []]).flat().filter((v) => v !== null && Number.isFinite(v)) : [];
+    const scatterYBounds = isScatter ? scatterSeries.flatMap((series, si) => series.values.flatMap(value => { if (value === null)
+        return []; const bars = chart.seriesOptions?.[seriesOptionIndex(si)]?.errorBars; if (!bars || bars.axis === 'x')
         return [value]; const amount = errorBarAmount(series.values, value, bars), direction = bars.direction ?? 'both'; return [value, ...(direction === 'minus' ? [] : [value + amount]), ...(direction === 'plus' ? [] : [value - amount])]; })) : scatterValues;
-    const scatterXBounds = isScatter ? d.series.slice(1, MAX_CHART_SERIES + 1).flatMap((series, si) => { const xs = d.series[0]?.values ?? [], bars = chart.seriesOptions?.[si]?.errorBars; return xs.flatMap(value => { if (value === null)
+    const scatterXBounds = isScatter ? scatterSeries.flatMap((series, si) => { const xs = (d.scatterXValues ? d.scatterXValues[si] ?? [] : d.series[0]?.values ?? []), bars = chart.seriesOptions?.[seriesOptionIndex(si)]?.errorBars; return xs.flatMap(value => { if (value === null)
         return []; if (!bars || bars.axis !== 'x')
         return [value]; const amount = errorBarAmount(xs, value, bars), direction = bars.direction ?? 'both'; return [value, ...(direction === 'minus' ? [] : [value + amount]), ...(direction === 'plus' ? [] : [value - amount])]; }); }) : scatterXValues;
     const secondaryIndices = new Set((chart.seriesOptions ?? []).map((option, index) => option.axis === 'secondary' ? index : -1).filter(index => index >= 0));
@@ -578,13 +643,13 @@ export function chartSvg(book, chart) {
     }
     const zero = Math.max(0, Math.min(1, (0 - min) / (max - min))), zeroX = px + zero * pw, zeroY = py + ph - zero * ph;
     out += horizontalBar ? `<line x1="${zeroX}" x2="${zeroX}" y1="${py}" y2="${py + ph}" stroke="#9bacbf"/><line x1="${px}" x2="${px + pw}" y1="${py + ph}" y2="${py + ph}" stroke="#9bacbf"/>` : `<line x1="${px}" x2="${px}" y1="${py}" y2="${py + ph}" stroke="#9bacbf"/><line x1="${px}" x2="${px + pw}" y1="${zeroY}" y2="${zeroY}" stroke="#9bacbf"/>`;
-    const showN = Math.min(d.rows, 90), n = Math.max(1, showN), series = chart.kind === 'scatter' && d.series.length >= 2 ? d.series.slice(1, MAX_CHART_SERIES + 1) : dataSeries.slice(0, MAX_CHART_SERIES);
+    const showN = Math.min(d.rows, 90), n = Math.max(1, showN), series = chart.kind === 'scatter' ? scatterSeries : dataSeries.slice(0, MAX_CHART_SERIES);
     const xAt = (i) => px + (i + .5) * pw / n;
     if (chart.kind === 'bar' || chart.kind === 'stacked-bar' || chart.kind === 'percent-bar') {
-        const block = ph / n, band = block * .78 / series.length;
+        const block = ph / n, groupBand = block * 100 / (100 + (chart.categoryGapWidth ?? 150)), band = groupBand / series.length, pitch = band * (1 - (['stacked-bar', 'percent-bar'].includes(chart.kind) ? 0 : chart.seriesOverlap ?? 0) / 100), clusterHeight = band + pitch * (series.length - 1);
         const accumPos = Array(n).fill(0), accumNeg = Array(n).fill(0);
         series.forEach((s, si) => {
-            const values = s.values.slice(0, n), bars = chart.seriesOptions?.[si]?.errorBars;
+            const values = s.values.slice(0, n), bars = chart.seriesOptions?.[seriesOptionIndex(si)]?.errorBars;
             values.forEach((v, i) => {
                 if (v === null)
                     return;
@@ -595,10 +660,10 @@ export function chartSvg(book, chart) {
                     else
                         accumNeg[i] += v;
                 }
-                const zeroX = px + pw * (base - min) / (max - min), endX = px + pw * (base + v - min) / (max - min), bandY = py + i * block + (block - band * series.length) / 2 + (stacked ? 0 : si * band), barHeight = Math.max(2, stacked ? band * series.length - 2 : band - 2);
+                const zeroX = px + pw * (base - min) / (max - min), endX = px + pw * (base + v - min) / (max - min), bandY = py + i * block + (block - clusterHeight) / 2 + (stacked ? 0 : si * pitch), barHeight = Math.max(2, stacked ? band * series.length - 2 : band - 2);
                 out += `<rect x="${Math.min(zeroX, endX)}" y="${bandY}" width="${Math.max(1, Math.abs(endX - zeroX))}" height="${barHeight}" fill="${palette[si % palette.length]}"/>`;
                 if (bars) {
-                    const amount = errorBarAmount(values, v, bars), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', centerY = bandY + barHeight / 2, xValue = px + pw * (v - min) / (max - min), xPlus = showPlus ? px + pw * (v + amount - min) / (max - min) : xValue, xMinus = showMinus ? px + pw * (v - amount - min) / (max - min) : xValue, color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length], cap = (x) => bars.endCap === false ? '' : `<line x1="${x}" x2="${x}" y1="${centerY - 4}" y2="${centerY + 4}"/>`;
+                    const amount = errorBarAmount(values, v, bars), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', centerY = bandY + barHeight / 2, xValue = px + pw * (v - min) / (max - min), xPlus = showPlus ? px + pw * (v + amount - min) / (max - min) : xValue, xMinus = showMinus ? px + pw * (v - amount - min) / (max - min) : xValue, color = chart.seriesOptions?.[seriesOptionIndex(si)]?.color ?? palette[si % palette.length], cap = (x) => bars.endCap === false ? '' : `<line x1="${x}" x2="${x}" y1="${centerY - 4}" y2="${centerY + 4}"/>`;
                     out += `<g stroke="${color}" stroke-width="1.2"><line x1="${xPlus}" x2="${xMinus}" y1="${centerY}" y2="${centerY}"/>${showPlus ? cap(xPlus) : ''}${showMinus ? cap(xMinus) : ''}</g>`;
                 }
             });
@@ -613,28 +678,29 @@ export function chartSvg(book, chart) {
             out += tag(x - 14, py + ph + 17, axisFmt(value, chart.xAxisNumberFormat, chart.xAxisFormatCode));
         }
         series.forEach((item, si) => {
+            const sourceSeriesIndex = seriesOptionIndex(si), seriesColor = chart.seriesOptions?.[sourceSeriesIndex]?.color ?? palette[sourceSeriesIndex % palette.length];
             // Excel scatter charts use a line-and-marker plot by default. Draw the
             // connecting path as well as markers, honoring the chart's blank policy.
             // A missing X or Y breaks the path for gaps, while span skips that row.
             let linePoints = [];
-            const flushLine = () => { if (linePoints.length > 1)
-                out += `<polyline fill="none" stroke="${chart.seriesOptions?.[si]?.color ?? palette[si % palette.length]}" stroke-width="2" stroke-linejoin="round" points="${linePoints.join(' ')}"/>`; linePoints = []; };
-            item.values.slice(0, n).forEach((v, i) => { const x = d.series[0].values[i]; if (v === null || x === null || x === undefined) {
+            const dashArray = chartDashArray(chart.seriesOptions?.[sourceSeriesIndex]?.lineStyle), lineWidth = (chart.seriesOptions?.[sourceSeriesIndex]?.lineWidth ?? 1.5) * 4 / 3, flushLine = () => { if (linePoints.length > 1)
+                out += `<polyline fill="none" stroke="${seriesColor}" stroke-width="${lineWidth}" stroke-linejoin="round"${dashArray ? ` stroke-dasharray="${dashArray}"` : ''} points="${linePoints.join(' ')}"/>`; linePoints = []; };
+            item.values.slice(0, n).forEach((v, i) => { const x = (d.scatterXValues ? d.scatterXValues[si]?.[i] : d.series[0].values[i]); if (v === null || x === null || x === undefined) {
                 if (chart.displayBlanksAs !== 'span')
                     flushLine();
                 return;
             } linePoints.push(`${px + ((x - xMin) / (xMax - xMin || 1)) * pw},${yOf(v)}`); });
             flushLine();
             item.values.slice(0, n).forEach((v, i) => {
-                const x = d.series[0].values[i];
+                const x = (d.scatterXValues ? d.scatterXValues[si]?.[i] : d.series[0].values[i]);
                 if (v === null || x === null || x === undefined)
                     return;
-                const sx = px + ((x - xMin) / (xMax - xMin || 1)) * pw, sy = yOf(v), color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length];
-                if (chart.seriesOptions?.[si]?.marker !== false)
-                    out += `<g opacity=".88"><title>${esc(`${item.name} · ${x}: ${v}`)}</title>${chartMarkerSvg(sx, sy, 4.5, chart.seriesOptions?.[si]?.markerStyle ?? 'circle', color ?? '#4472c4')}</g>`;
-                const bars = chart.seriesOptions?.[si]?.errorBars;
+                const sx = px + ((x - xMin) / (xMax - xMin || 1)) * pw, sy = yOf(v), color = seriesColor, pointColor = chart.seriesOptions?.[sourceSeriesIndex]?.dataPointColors?.[i] ?? (sourceSeriesIndex === 0 ? chart.dataPointColors?.[i] : undefined) ?? color;
+                if (chart.seriesOptions?.[sourceSeriesIndex]?.marker !== false)
+                    out += `<g opacity=".88"><title>${esc(`${item.name} · ${x}: ${v}`)}</title>${chartMarkerSvg(sx, sy, (chart.seriesOptions?.[sourceSeriesIndex]?.markerSize ?? 5) * .56, chart.seriesOptions?.[sourceSeriesIndex]?.markerStyle ?? 'circle', pointColor ?? '#4472c4')}</g>`;
+                const bars = chart.seriesOptions?.[seriesOptionIndex(si)]?.errorBars;
                 if (bars) {
-                    const xBars = bars.axis === 'x', sourceValues = xBars ? (d.series[0]?.values ?? []) : item.values, sourceValue = xBars ? x : v;
+                    const xBars = bars.axis === 'x', sourceValues = xBars ? (d.scatterXValues ? d.scatterXValues[si] ?? [] : d.series[0]?.values ?? []) : item.values, sourceValue = xBars ? x : v;
                     if (sourceValue === null)
                         return;
                     const amount = errorBarAmount(sourceValues, sourceValue, bars), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', xPlus = showPlus ? px + ((x + amount - xMin) / (xMax - xMin || 1)) * pw : sx, xMinus = showMinus ? px + ((x - amount - xMin) / (xMax - xMin || 1)) * pw : sx, yPlus = showPlus ? yOf(v + amount) : sy, yMinus = showMinus ? yOf(v - amount) : sy, capX = (point) => bars.endCap === false ? '' : `<line x1="${point}" x2="${point}" y1="${sy - 4}" y2="${sy + 4}"/>`, capY = (point) => bars.endCap === false ? '' : `<line x1="${sx - 4}" x2="${sx + 4}" y1="${point}" y2="${point}"/>`;
@@ -651,10 +717,10 @@ export function chartSvg(book, chart) {
         });
     }
     else {
-        const segment = pw / n, barWidth = Math.max(2, segment * (chart.kind === 'histogram' ? .96 : .7) / series.length);
+        const segment = pw / n, isColumnSeries = (index) => chart.kind === 'combo' ? (chart.seriesOptions?.[index]?.kind ?? (index < series.length - 1 ? 'column' : 'line')) === 'column' : (['column', 'stacked-column', 'percent-column', 'histogram'].includes(chart.kind) && chart.seriesOptions?.[index]?.kind !== 'line'), columnCount = Math.max(1, series.filter((_, index) => isColumnSeries(index)).length), groupWidth = segment * 100 / (100 + (chart.categoryGapWidth ?? 150)), barWidth = Math.max(2, (chart.kind === 'histogram' ? segment * .96 : groupWidth) / columnCount), pitch = barWidth * (1 - (['stacked-column', 'percent-column'].includes(chart.kind) ? 0 : chart.seriesOverlap ?? 0) / 100), clusterWidth = barWidth + pitch * (columnCount - 1);
         const accumPos = Array(n).fill(0), accumNeg = Array(n).fill(0);
         series.forEach((s, si) => {
-            const columnSeries = chart.kind === 'combo' ? (chart.seriesOptions?.[si]?.kind ?? (si < series.length - 1 ? 'column' : 'line')) === 'column' : (['column', 'stacked-column', 'percent-column', 'histogram'].includes(chart.kind) && chart.seriesOptions?.[si]?.kind !== 'line');
+            const columnSeries = isColumnSeries(si), columnIndex = series.slice(0, si).filter((_, index) => isColumnSeries(index)).length;
             if (columnSeries) {
                 s.values.slice(0, n).forEach((v, i) => { if (v === null)
                     return; const base = stacked ? (v >= 0 ? accumPos[i] : accumNeg[i]) : 0; if (stacked) {
@@ -662,28 +728,28 @@ export function chartSvg(book, chart) {
                         accumPos[i] += v;
                     else
                         accumNeg[i] += v;
-                } const zero = yOfSeries(si, base), top = yOfSeries(si, base + v), gap = chart.kind === 'histogram' ? .02 : .15; out += `<rect x="${px + i * segment + segment * gap + (stacked ? 0 : si * barWidth)}" y="${Math.min(top, zero)}" width="${stacked ? barWidth * .92 * series.length : barWidth * .92}" height="${Math.max(1, Math.abs(top - zero))}" rx="1" fill="${chart.seriesOptions?.[si]?.color ?? palette[si % palette.length]}"/>`; });
+                } const zero = yOfSeries(si, base), top = yOfSeries(si, base + v), gap = chart.kind === 'histogram' ? segment * .02 : (segment - clusterWidth) / 2, pointColor = chart.seriesOptions?.[seriesOptionIndex(si)]?.dataPointColors?.[i] ?? chart.dataPointColors?.[i]; out += `<rect x="${px + i * segment + gap + (stacked ? 0 : columnIndex * pitch)}" y="${Math.min(top, zero)}" width="${stacked ? barWidth * .92 * series.length : barWidth * .92}" height="${Math.max(1, Math.abs(top - zero))}" rx="1" fill="${pointColor ?? chart.seriesOptions?.[seriesOptionIndex(si)]?.color ?? palette[si % palette.length]}"/>`; });
             }
             else {
                 let points = [];
-                const color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length], flush = () => { if (points.length > 1) {
-                    const line = points.join(' ');
+                const color = chart.seriesOptions?.[seriesOptionIndex(si)]?.color ?? palette[si % palette.length], flush = () => { if (points.length > 1) {
+                    const line = points.join(' '), dashArray = chartDashArray(chart.seriesOptions?.[seriesOptionIndex(si)]?.lineStyle), lineWidth = (chart.seriesOptions?.[seriesOptionIndex(si)]?.lineWidth ?? 2.1) * 4 / 3;
                     if (chart.kind === 'area')
                         out += `<polygon points="${points[0].split(',')[0]},${yOf(0)} ${line} ${points[points.length - 1].split(',')[0]},${yOf(0)}" fill="${color}" opacity=".16"/>`;
-                    out += `<polyline fill="none" stroke="${color}" stroke-width="2.8" stroke-linejoin="round" points="${line}"/>`;
+                    out += `<polyline fill="none" stroke="${color}" stroke-width="${lineWidth}" stroke-linejoin="round"${dashArray ? ` stroke-dasharray="${dashArray}"` : ''} points="${line}"/>`;
                 } points = []; };
                 s.values.slice(0, n).forEach((v, i) => { if (v === null) {
                     if (chart.displayBlanksAs !== 'span')
                         flush();
                     return;
-                } const x = xAt(i), y = yOfSeries(si, v); points.push(`${x},${y}`); if (chart.seriesOptions?.[si]?.marker !== false)
-                    out += chartMarkerSvg(x, y, 2.8, chart.seriesOptions?.[si]?.markerStyle ?? 'circle', color ?? '#4472c4'); });
+                } const x = xAt(i), y = yOfSeries(si, v); points.push(`${x},${y}`); if (chart.seriesOptions?.[seriesOptionIndex(si)]?.marker !== false)
+                    out += chartMarkerSvg(x, y, (chart.seriesOptions?.[seriesOptionIndex(si)]?.markerSize ?? 5) * .56, chart.seriesOptions?.[seriesOptionIndex(si)]?.markerStyle ?? 'circle', chart.seriesOptions?.[seriesOptionIndex(si)]?.dataPointColors?.[i] ?? chart.dataPointColors?.[i] ?? color ?? '#4472c4'); });
                 flush();
             }
-            const bars = chart.seriesOptions?.[si]?.errorBars;
+            const bars = chart.seriesOptions?.[seriesOptionIndex(si)]?.errorBars;
             if (bars) {
                 s.values.slice(0, n).forEach((v, i) => { if (v === null)
-                    return; const amount = errorBarAmount(s.values, v, bars), x = xAt(i), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', yValue = yOfSeries(si, v), yPlus = showPlus ? yOfSeries(si, v + amount) : yValue, yMinus = showMinus ? yOfSeries(si, v - amount) : yValue, color = chart.seriesOptions?.[si]?.color ?? palette[si % palette.length], cap = (y) => bars.endCap === false ? '' : `<line x1="${x - 4}" x2="${x + 4}" y1="${y}" y2="${y}"/>`; out += `<g stroke="${color}" stroke-width="1.2"><line x1="${x}" x2="${x}" y1="${yPlus}" y2="${yMinus}"/>${showPlus ? cap(yPlus) : ''}${showMinus ? cap(yMinus) : ''}</g>`; });
+                    return; const amount = errorBarAmount(s.values, v, bars), x = xAt(i), direction = bars.direction ?? 'both', showPlus = direction !== 'minus', showMinus = direction !== 'plus', yValue = yOfSeries(si, v), yPlus = showPlus ? yOfSeries(si, v + amount) : yValue, yMinus = showMinus ? yOfSeries(si, v - amount) : yValue, color = chart.seriesOptions?.[seriesOptionIndex(si)]?.color ?? palette[si % palette.length], cap = (y) => bars.endCap === false ? '' : `<line x1="${x - 4}" x2="${x + 4}" y1="${y}" y2="${y}"/>`; out += `<g stroke="${color}" stroke-width="1.2"><line x1="${x}" x2="${x}" y1="${yPlus}" y2="${yMinus}"/>${showPlus ? cap(yPlus) : ''}${showMinus ? cap(yMinus) : ''}</g>`; });
             }
         });
         const labelStep = chart.xAxisLabelInterval ?? Math.max(1, Math.ceil(n / 8));
@@ -704,18 +770,21 @@ export function chartSvg(book, chart) {
         if (chart.secondaryYAxisTitle)
             out += `<text x="${W - 9}" y="${H / 2}" transform="rotate(-90 ${W - 9} ${H / 2})" font-size="10" fill="#53677f">${esc(chart.secondaryYAxisTitle)}</text>`;
     }
-    for (const [si, options] of (chart.seriesOptions ?? []).entries())
-        if (options.trendline) {
-            const scatter = chart.kind === 'scatter', sourceIndex = scatter ? si + 1 : si, xValues = scatter ? d.series[0]?.values : undefined, fit = fitTrendline(dataSeries[sourceIndex]?.values ?? [], options.trendline, xValues);
-            if (!fit.error) {
-                const pts = fit.points.filter(p => p.y !== null && (scatter ? p.x >= scatterXScale.min && p.x <= scatterXScale.max : p.x >= 1 - (options.trendline.backward ?? 0) && p.x <= n + (options.trendline.forward ?? 0))).map(p => `${scatter ? px + (p.x - scatterXScale.min) / (scatterXScale.max - scatterXScale.min || 1) * pw : px + (p.x - .5) * pw / n},${scatter ? yOf(p.y) : yOfSeries(si, p.y)}`).join(' ');
-                if (pts)
-                    out += `<polyline fill="none" stroke="${options.color ?? palette[si % palette.length]}" stroke-width="2" stroke-dasharray="6 3" points="${pts}"/>`;
-                const note = options.trendline.showEquation ? fit.equation : options.trendline.showR2 && fit.rSquared !== null ? `R² = ${fit.rSquared.toFixed(4)}` : null;
-                if (note)
-                    out += tag(px + pw - 130, py + 14 + si * 14, note);
-            }
+    const trendlineEntries = chart.kind === 'scatter' ? scatterSeries.map((item, si) => ({ si, options: chart.seriesOptions?.[seriesOptionIndex(si)], values: item.values, xValues: d.scatterXValues ? d.scatterXValues[si] : d.series[0]?.values })) : dataSeries.map((item, si) => ({ si, options: chart.seriesOptions?.[si], values: item.values, xValues: undefined }));
+    for (const entry of trendlineEntries) {
+        const { si, options, values: trendValues, xValues } = entry;
+        if (!options?.trendline)
+            continue;
+        const scatter = chart.kind === 'scatter', fit = fitTrendline(trendValues, options.trendline, xValues);
+        if (!fit.error) {
+            const pts = fit.points.filter(p => p.y !== null && (scatter ? p.x >= scatterXScale.min && p.x <= scatterXScale.max : p.x >= 1 - (options.trendline.backward ?? 0) && p.x <= n + (options.trendline.forward ?? 0))).map(p => `${scatter ? px + (p.x - scatterXScale.min) / (scatterXScale.max - scatterXScale.min || 1) * pw : px + (p.x - .5) * pw / n},${scatter ? yOf(p.y) : yOfSeries(si, p.y)}`).join(' ');
+            if (pts)
+                out += `<polyline fill="none" stroke="${options.color ?? palette[seriesOptionIndex(si) % palette.length]}" stroke-width="2" stroke-dasharray="6 3" points="${pts}"/>`;
+            const note = options.trendline.showEquation ? fit.equation : options.trendline.showR2 && fit.rSquared !== null ? `R² = ${fit.rSquared.toFixed(4)}` : null;
+            if (note)
+                out += tag(px + pw - 130, py + 14 + si * 14, note);
         }
+    }
     if (chart.xAxisTitle)
         out += tag(Math.max(70, W / 2 - 28), dataTable ? py + ph + 43 : chart.legend === 'none' ? H - 18 : H - 35, chart.xAxisTitle.slice(0, 50));
     if (chart.yAxisTitle)
@@ -728,14 +797,14 @@ export function chartSvg(book, chart) {
         const position = chart.dataLabelPosition ?? 'outsideEnd', labelY = (value, pointY, baseY) => position === 'center' ? (pointY + baseY) / 2 + 4 : position === 'insideBase' ? (value >= 0 ? baseY - 3 : baseY + 13) : position === 'insideEnd' ? (value >= 0 ? pointY + 13 : pointY - 3) : position === 'above' ? pointY - 8 : position === 'below' ? pointY + 15 : position === 'left' || position === 'right' ? pointY + 4 : (value >= 0 ? pointY - 7 : pointY + 14);
         const labelText = (value, si, i) => [...(chart.dataLabelCategoryName ? [d.labels[i] ?? ''] : []), ...(chart.dataLabelSeriesName ? [series[si]?.name ?? ''] : []), ...(chart.dataLabels ? [percent ? `${chartDataLabelFmt(chart, value)}%` : chartDataLabelFmt(chart, value)] : [])].filter(Boolean).join(chart.dataLabelSeparator ?? ' ');
         if (horizontalBar) {
-            const block = ph / n, band = block * .78 / series.length, positive = Array(n).fill(0), negative = Array(n).fill(0);
+            const block = ph / n, band = block * .78 / series.length, pitch = band * (1 - (chart.seriesOverlap ?? 0) / 100), clusterHeight = band + pitch * (series.length - 1), positive = Array(n).fill(0), negative = Array(n).fill(0);
             series.forEach((item, si) => item.values.slice(0, n).forEach((value, i) => { if (value === null)
                 return; const base = stacked ? (value >= 0 ? positive[i] : negative[i]) : 0; if (stacked) {
                 if (value >= 0)
                     positive[i] += value;
                 else
                     negative[i] += value;
-            } const startX = px + pw * (base - min) / (max - min), endX = px + pw * (base + value - min) / (max - min), centerY = py + i * block + (block - band * series.length) / 2 + (stacked ? band * series.length / 2 : si * band + band / 2), labelX = position === 'center' ? (startX + endX) / 2 : position === 'insideBase' ? (value >= 0 ? startX + 3 : startX - 22) : position === 'insideEnd' ? (value >= 0 ? endX - 22 : endX + 3) : position === 'left' ? startX - 23 : position === 'right' ? endX + 3 : (value >= 0 ? endX + 3 : endX - 22); out += tag(labelX, centerY + 4, labelText(value, si, i)); }));
+            } const startX = px + pw * (base - min) / (max - min), endX = px + pw * (base + value - min) / (max - min), centerY = py + i * block + (block - clusterHeight) / 2 + (stacked ? band * series.length / 2 : si * pitch + band / 2), labelX = position === 'center' ? (startX + endX) / 2 : position === 'insideBase' ? (value >= 0 ? startX + 3 : startX - 22) : position === 'insideEnd' ? (value >= 0 ? endX - 22 : endX + 3) : position === 'left' ? startX - 23 : position === 'right' ? endX + 3 : (value >= 0 ? endX + 3 : endX - 22); out += tag(labelX, centerY + 4, labelText(value, si, i)); }));
         }
         else if (chart.kind === 'stacked-column' || chart.kind === 'percent-column') {
             const positive = Array(n).fill(0), negative = Array(n).fill(0);
@@ -754,12 +823,12 @@ export function chartSvg(book, chart) {
         }
         else
             series.forEach((s, si) => s.values.slice(0, n).forEach((v, i) => { if (v !== null) {
-                const x = (chart.kind === 'column' || chart.kind === 'combo') ? px + (i + .1) * pw / n + si * (pw / n * .7 / series.length) : xAt(i) - 12, isLine = chart.kind === 'combo' && chart.seriesOptions?.[si]?.kind === 'line', pointY = yOfSeries(si, v), baseY = isLine ? pointY : yOfSeries(si, 0), placedX = position === 'left' ? x - 24 : position === 'right' ? x + 7 : x;
+                const x = (chart.kind === 'column' || chart.kind === 'combo') ? px + (i + .1) * pw / n + si * (pw / n * .7 / series.length) : xAt(i) - 12, isLine = chart.kind === 'combo' && chart.seriesOptions?.[seriesOptionIndex(si)]?.kind === 'line', pointY = yOfSeries(si, v), baseY = isLine ? pointY : yOfSeries(si, 0), placedX = position === 'left' ? x - 24 : position === 'right' ? x + 7 : x;
                 out += tag(placedX, labelY(v, pointY, baseY), labelText(v, si, i));
             } }));
     }
     if (series.length > 1 && chart.legend !== 'none') {
-        series.forEach((s, i) => { const wrapped = compactLegend, cols = wrapped ? legendColumns : series.length, row = wrapped ? Math.floor(i / cols) : 0, column = wrapped ? i % cols : i, x = wrapped ? 18 + column * (W - 36) / cols : chart.legend === 'left' ? 14 : L + i * Math.min(145, pw / series.length), y = wrapped ? (chart.legend === 'top' ? 34 + row * 14 : H - 19 - (legendRows - 1 - row) * 14) : chart.legend === 'left' ? 44 + i * 20 : chart.legend === 'top' ? 56 : H - 20, ty = wrapped ? (chart.legend === 'top' ? y + 10 : y + 9) : chart.legend === 'left' ? 53 + i * 20 : chart.legend === 'top' ? 65 : H - 11; out += `<rect x="${x}" y="${y}" width="10" height="10" fill="${chart.seriesOptions?.[i]?.color ?? palette[i % palette.length]}"/>${tag(x + 15, ty, s.name.slice(0, wrapped ? 14 : 17))}`; });
+        series.forEach((s, i) => { const optionIndex = seriesOptionIndex(i), wrapped = compactLegend, cols = wrapped ? legendColumns : series.length, row = wrapped ? Math.floor(i / cols) : 0, column = wrapped ? i % cols : i, x = wrapped ? 18 + column * (W - 36) / cols : chart.legend === 'left' ? 14 : L + i * Math.min(145, pw / series.length), y = wrapped ? (chart.legend === 'top' ? 34 + row * 14 : H - 19 - (legendRows - 1 - row) * 14) : chart.legend === 'left' ? 44 + i * 20 : chart.legend === 'top' ? 56 : H - 20, ty = wrapped ? (chart.legend === 'top' ? y + 10 : y + 9) : chart.legend === 'left' ? 53 + i * 20 : chart.legend === 'top' ? 65 : H - 11; out += `<rect x="${x}" y="${y}" width="10" height="10" fill="${chart.seriesOptions?.[optionIndex]?.color ?? palette[optionIndex % palette.length]}"/>${tag(x + 15, ty, s.name.slice(0, wrapped ? 14 : 17))}`; });
     }
     return svgStart + title + out + '</svg>';
 }
