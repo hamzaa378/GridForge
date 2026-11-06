@@ -4,6 +4,7 @@ import { colToName, parseRef, rewriteSheetReferences } from './parser.js';
 import { error, text } from './functions.js';
 import { MAX_WORKBOOK_POPULATED_CELLS, MAX_WORKBOOK_SHEETS } from './limits.js';
 import { matchesPivotLabelFilter, pivotDateGroupLabel, pivotDateSerial, pivotNumberGroupLabel, pivotNumberGroupUsesIntegerLabels, pivotSourceFieldHeaders, resolvePivotNumberGroupRange } from './pivot.js';
+import { emptyDataModel, validateDataModel } from './data_model.js';
 const validTabColor = (value) => { if (value === undefined || value === '')
     return undefined; if (!/^#[0-9a-f]{6}$/i.test(value))
     throw Error('Worksheet tab color must be a six-digit hex color.'); return value.toLowerCase(); };
@@ -28,6 +29,7 @@ export class SpreadsheetDocument {
     notifyingChanges = false;
     pendingExternalInvalidations = new Map();
     workbookDefinedNames = [];
+    dataModel = emptyDataModel();
     activeId = '';
     constructor(initial, deferRecalculation = false) { this.addSheet('Sheet 1', initial ?? new Workbook(), deferRecalculation); }
     get sheets() { return this.items; }
@@ -465,7 +467,8 @@ export class SpreadsheetDocument {
         throw Error('Sheet not found.'); sheet.hidden = false; }
     renameSheet(id, name) { const found = this.items.find(x => x.id === id); if (!found)
         throw Error('Sheet not found.'); const previous = found.name, next = this.validateName(name, id); if (previous === next)
-        return; found.name = next; for (const item of this.items)
+        return; found.name = next; if (this.dataModel.tables.some(table => table.sheet.toLocaleLowerCase() === previous.toLocaleLowerCase()))
+        this.setDataModel({ ...this.dataModel, tables: this.dataModel.tables.map(table => table.sheet.toLocaleLowerCase() === previous.toLocaleLowerCase() ? { ...table, sheet: next } : table) }); for (const item of this.items)
         for (const pivot of item.tools.pivotTables)
             if (pivot.sourceSheet?.toLocaleLowerCase() === previous.toLocaleLowerCase())
                 pivot.sourceSheet = next; this.bindSheetContexts(); this.setWorkbookDefinedNames(this.workbookDefinedNames.map(item => ({ ...item, ref: rewriteSheetReferences(item.ref, previous, next) }))); for (const item of this.items) {
@@ -500,7 +503,8 @@ export class SpreadsheetDocument {
     deleteSheet(id = this.activeId) { const idx = this.items.findIndex(x => x.id === id); if (idx === -1)
         throw Error('Sheet not found.'); if (this.items.length === 1)
         throw Error('At least one sheet must remain.'); if (!this.items[idx].hidden && this.items.filter(x => !x.hidden).length <= 1)
-        throw Error('A workbook must keep at least one worksheet visible.'); const removed = this.items[idx].name; this.items.splice(idx, 1); this.bindSheetContexts(); this.setWorkbookDefinedNames(this.workbookDefinedNames.map(item => ({ ...item, ref: rewriteSheetReferences(item.ref, removed, null) }))); for (const item of this.items) {
+        throw Error('A workbook must keep at least one worksheet visible.'); const removed = this.items[idx].name, removedModelNames = new Set(this.dataModel.tables.filter(table => table.sheet.toLocaleLowerCase() === removed.toLocaleLowerCase()).map(table => table.name.toLocaleLowerCase())); if (removedModelNames.size)
+        this.setDataModel({ tables: this.dataModel.tables.filter(table => !removedModelNames.has(table.name.toLocaleLowerCase())), relationships: this.dataModel.relationships.filter(rel => !removedModelNames.has(rel.manyTable.toLocaleLowerCase()) && !removedModelNames.has(rel.oneTable.toLocaleLowerCase())), measures: this.dataModel.measures.filter(measure => ![...removedModelNames].some(name => measure.expression.toLocaleLowerCase().includes(`${name}[`))) }); this.items.splice(idx, 1); this.bindSheetContexts(); this.setWorkbookDefinedNames(this.workbookDefinedNames.map(item => ({ ...item, ref: rewriteSheetReferences(item.ref, removed, null) }))); for (const item of this.items) {
         const names = item.book.getDefinedNames();
         item.book.setDefinedNames(names.map(named => ({ ...named, ref: rewriteSheetReferences(named.ref, removed, null) })), false);
         const removedPivotIds = new Set(item.tools.pivotTables.filter(pivot => pivot.sourceSheet?.toLocaleLowerCase() === removed.toLocaleLowerCase()).map(pivot => pivot.id));
@@ -518,7 +522,8 @@ export class SpreadsheetDocument {
             item.book.applyEdits(edits);
     } if (this.activeId === id)
         this.activeId = this.items.slice(Math.min(idx, this.items.length)).find(x => !x.hidden)?.id ?? this.items.find(x => !x.hidden).id; }
-    toJSON() { return { format: 'gridforge', version: 5, activeId: this.activeId, workbookDefinedNames: this.getWorkbookDefinedNames(), sheets: this.items.map(x => ({ id: x.id, name: x.name, workbook: x.book.toJSON(), tools: x.tools, hidden: x.hidden, ...(x.tabColor ? { tabColor: x.tabColor } : {}), ...(x.viewOptions ? { viewOptions: x.viewOptions } : {}) })) }; }
+    setDataModel(value) { this.dataModel = validateDataModel(value); }
+    toJSON() { return { format: 'gridforge', version: 6, activeId: this.activeId, workbookDefinedNames: this.getWorkbookDefinedNames(), dataModel: this.dataModel, sheets: this.items.map(x => ({ id: x.id, name: x.name, workbook: x.book.toJSON(), tools: x.tools, hidden: x.hidden, ...(x.tabColor ? { tabColor: x.tabColor } : {}), ...(x.viewOptions ? { viewOptions: x.viewOptions } : {}) })) }; }
     static fromJSON(raw, options = {}) {
         if (!raw || typeof raw !== 'object')
             throw Error('Invalid document JSON.');
@@ -526,7 +531,7 @@ export class SpreadsheetDocument {
         if (!Array.isArray(data.sheets)) {
             return new SpreadsheetDocument(Workbook.fromJSON(raw, options), options.deferCalculation === true);
         }
-        if (data.format !== 'gridforge' || ![2, 3, 4, 5].includes(data.version) || !data.sheets.length || data.sheets.length > MAX_WORKBOOK_SHEETS)
+        if (data.format !== 'gridforge' || ![2, 3, 4, 5, 6].includes(data.version) || !data.sheets.length || data.sheets.length > MAX_WORKBOOK_SHEETS)
             throw Error('Invalid GridForge document.');
         let workbookCells = 0, workbookStyles = 0;
         for (const rawSheet of data.sheets) {
@@ -563,6 +568,8 @@ export class SpreadsheetDocument {
             const viewOptions = validSheetView(x.viewOptions);
             doc.items.push({ id, name, book, tools, hidden: x.hidden === true, ...(x.tabColor ? { tabColor: validTabColor(x.tabColor) } : {}), ...(viewOptions ? { viewOptions } : {}) });
         }
+        if (data.dataModel !== undefined)
+            doc.setDataModel(data.dataModel);
         if (doc.items.every(sheet => sheet.hidden))
             throw Error('A workbook must contain at least one visible worksheet.');
         doc.bindSheetContexts(options.deferCalculation === true);

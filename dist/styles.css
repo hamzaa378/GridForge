@@ -761,3 +761,29 @@ html[data-theme="dark"] .worksheet-pivot-slicer{background:#1d2c3b;border-color:
 .chart-option-group{display:grid;gap:2px;margin:12px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px}.chart-option-group legend{padding:0 6px;font-weight:700;font-size:12px;color:var(--text)}.chart-option-group .chart-option{margin:4px 0 0}
 .conditional-icon{flex:0 0 auto;margin-right:5px;font-family:Arial,sans-serif;font-size:1.15em;font-weight:700;line-height:1;}
 .conditional-rule-manager{display:grid;gap:7px;margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:7px}.conditional-rule-manager h3{margin:0;font-size:13px}.conditional-rule-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border)}.conditional-rule-description{font-size:12px;overflow-wrap:anywhere}.conditional-rules-empty{margin:2px 0;color:var(--muted);font-size:12px}.conditional-icon-threshold{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:7px 0}.conditional-icon-threshold .field-label{grid-column:1/-1}
+
+/* Excel-inspired contextual chart tools: concise controls, visible grouping, and keyboard focus. */
+.chart-command-group{gap:7px;padding-inline:9px;overflow-x:auto;scrollbar-width:thin}
+.chart-command-group .chart-ribbon-label{min-width:78px;padding-inline:3px;font-size:9px;font-weight:650;color:#56636d}
+.chart-command-group .chart-ribbon-label select,.chart-command-group .chart-ribbon-label input{height:27px;max-width:150px;border-color:#c8d1d8;border-radius:3px;font:11px 'Segoe UI',Arial,sans-serif}
+#chart-context-layout{min-width:112px}
+.excel-tab.chart-context-tab{color:#a04c36;border-bottom-color:transparent}
+.excel-tab.chart-context-tab:hover{background:#fbeee9;color:#813a28}
+.excel-tab.chart-context-tab[aria-selected="true"]{background:#fff4ef;color:#8c3d29;border-bottom-color:#c65b3c}
+.worksheet-chart-head{background:#f7f8fa;border-color:#dfe3e8}
+.worksheet-chart.selected .worksheet-chart-head{background:#f0f6f1}
+.worksheet-chart .chart-head-actions button{min-width:27px;min-height:26px;border:1px solid transparent;border-radius:3px;background:transparent;color:#4d5b66}
+.worksheet-chart .chart-head-actions button:hover{border-color:#c8d7cc;background:#fff;color:#217346}
+html[data-theme="dark"] .chart-command-group .chart-ribbon-label{color:#c2ced8}
+html[data-theme="dark"] .chart-command-group .chart-ribbon-label select,html[data-theme="dark"] .chart-command-group .chart-ribbon-label input{background:#25282b;border-color:#555a5e;color:#f1f1f1}
+html[data-theme="dark"] .worksheet-chart-head{background:#303438;border-color:#474b4e}
+html[data-theme="dark"] .worksheet-chart.selected .worksheet-chart-head{background:#26382d}
+
+/* Chart editing controls follow the same compact, grouped rhythm as the Excel ribbon. */
+html[data-workspace="excel"] .chart-command-group{min-width:0;max-width:100%;scrollbar-color:#c5d0d8 transparent}
+html[data-workspace="excel"] .chart-command-group .tool-btn[aria-pressed="true"]{background:#e3efe7;border:1px solid #7fa88c;color:#17623b}
+html[data-workspace="excel"] .chart-command-group .tool-btn:disabled{opacity:.42;cursor:default}
+html[data-workspace="excel"] .chart-command-group .tool-btn{font-size:13px}
+html[data-workspace="excel"] .chart-command-group .tool-btn span{font-size:9px}
+html[data-theme="dark"][data-workspace="excel"] .chart-command-group .tool-btn[aria-pressed="true"]{background:#31513d;border-color:#639274;color:#d2f1db}
+@media(max-width:900px){.chart-command-group{overflow-x:auto;overscroll-behavior-inline:contain}.chart-command-group .chart-ribbon-label{min-width:70px}}

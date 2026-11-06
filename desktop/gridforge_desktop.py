@@ -15,13 +15,15 @@ import os
 from pathlib import Path
 import re
 import secrets
+import sqlite3
 import sys
 import threading
+import time
 import traceback
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 APP_NAME = "GridForge"
 APP_VERSION = "12.0.210"
@@ -96,11 +98,191 @@ def create_local_server(dist: Path, port: int = PORT) -> LocalServer:
 
 
 class DesktopAPI:
-    """Only exposed native action: an explicit, user-approved Save As dialog.
+    """Expose narrowly scoped native file, query, and cloud actions to the UI.
 
-    Do not expose arbitrary read/write APIs to web content. Opening files is
-    already handled by the ordinary OS-backed HTML file picker.
+    Keep methods bounded and explicit; do not expose arbitrary filesystem or
+    process APIs to web content. Secrets should never enter workbook state.
     """
+
+    def __init__(self) -> None:
+        self._sqlite_lock = threading.Lock()
+        self._sqlite_handles: dict[str, Path] = {}
+
+    def choose_sqlite_database(self) -> dict[str, str] | None:
+        """Ask the user to select a local SQLite file and return an opaque session handle."""
+        import webview
+
+        window = _desktop_window
+        if window is None:
+            raise RuntimeError("Desktop window not ready")
+        chosen = window.create_file_dialog(
+            webview.FileDialog.OPEN,
+            allow_multiple=False,
+            file_types=("SQLite databases (*.db;*.sqlite;*.sqlite3)", "All files (*.*)"),
+        )
+        if not chosen:
+            return None
+        path = Path(chosen[0] if isinstance(chosen, (tuple, list)) else chosen).resolve(strict=True)
+        if not path.is_file() or path.suffix.lower() not in {".db", ".sqlite", ".sqlite3"}:
+            raise ValueError("Select a SQLite database file (.db, .sqlite or .sqlite3)")
+        handle = secrets.token_urlsafe(24)
+        with self._sqlite_lock:
+            self._sqlite_handles[handle] = path
+            if len(self._sqlite_handles) > 24:
+                self._sqlite_handles.pop(next(iter(self._sqlite_handles)))
+        return {"handle": handle, "name": path.name}
+
+    def run_sqlite_select(self, handle: str, sql: str) -> dict[str, Any]:
+        """Execute one bounded read-only SELECT against a database chosen in this session."""
+        if not isinstance(handle, str) or len(handle) > 128 or not isinstance(sql, str) or not 1 <= len(sql.strip()) <= 20_000 or "\x00" in sql:
+            raise ValueError("Enter one SQL query of at most 20,000 characters")
+        if not re.match(r"^\s*(?:SELECT|WITH)\b", sql, re.IGNORECASE):
+            raise ValueError("Only read-only SELECT queries are allowed")
+        with self._sqlite_lock:
+            path = self._sqlite_handles.get(handle)
+        if path is None:
+            raise ValueError("The selected database session expired. Choose the database file again.")
+        if not path.is_file():
+            raise ValueError("The selected database file is no longer available")
+        uri = path.as_uri() + "?mode=ro"
+        connection: sqlite3.Connection | None = None
+        deadline = time.monotonic() + 8.0
+        instruction_count = 0
+        try:
+            connection = sqlite3.connect(uri, uri=True, timeout=2.0)
+            connection.enable_load_extension(False)
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("PRAGMA trusted_schema=OFF")
+            limits = (
+                ("SQLITE_LIMIT_LENGTH", 32767), ("SQLITE_LIMIT_SQL_LENGTH", 20_000),
+                ("SQLITE_LIMIT_COLUMN", 104), ("SQLITE_LIMIT_EXPR_DEPTH", 64),
+                ("SQLITE_LIMIT_COMPOUND_SELECT", 32), ("SQLITE_LIMIT_VARIABLE_NUMBER", 1000),
+                ("SQLITE_LIMIT_ATTACHED", 0),
+            )
+            for name, limit in limits:
+                category = getattr(sqlite3, name, None)
+                if category is not None:
+                    connection.setlimit(category, limit)
+            denied_names = (
+                "SQLITE_INSERT", "SQLITE_UPDATE", "SQLITE_DELETE", "SQLITE_CREATE_INDEX", "SQLITE_CREATE_TABLE",
+                "SQLITE_CREATE_TEMP_INDEX", "SQLITE_CREATE_TEMP_TABLE", "SQLITE_CREATE_TEMP_TRIGGER",
+                "SQLITE_CREATE_TEMP_VIEW", "SQLITE_CREATE_TRIGGER", "SQLITE_CREATE_VIEW", "SQLITE_DROP_INDEX",
+                "SQLITE_DROP_TABLE", "SQLITE_DROP_TEMP_INDEX", "SQLITE_DROP_TEMP_TABLE", "SQLITE_DROP_TEMP_TRIGGER",
+                "SQLITE_DROP_TEMP_VIEW", "SQLITE_DROP_TRIGGER", "SQLITE_DROP_VIEW", "SQLITE_ALTER_TABLE",
+                "SQLITE_ATTACH", "SQLITE_DETACH", "SQLITE_PRAGMA", "SQLITE_TRANSACTION", "SQLITE_SAVEPOINT",
+                "SQLITE_CREATE_VTABLE", "SQLITE_DROP_VTABLE", "SQLITE_REINDEX", "SQLITE_ANALYZE",
+            )
+            denied = {getattr(sqlite3, name) for name in denied_names if hasattr(sqlite3, name)}
+
+            def authorize(action: int, first: str | None, second: str | None, database: str | None, trigger: str | None) -> int:
+                if action in denied:
+                    return sqlite3.SQLITE_DENY
+                if action == getattr(sqlite3, "SQLITE_FUNCTION", -1):
+                    function_name = (second or first or "").lower()
+                    if function_name in {"load_extension", "readfile", "writefile", "fts3_tokenizer"}:
+                        return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+
+            connection.set_authorizer(authorize)
+
+            def progress() -> int:
+                nonlocal instruction_count
+                instruction_count += 1000
+                return int(time.monotonic() > deadline or instruction_count > 5_000_000)
+
+            connection.set_progress_handler(progress, 1000)
+            cursor = connection.execute(sql)
+            description = cursor.description
+            if not description:
+                raise ValueError("The SQL query must return a result table")
+            if len(description) > 104:
+                raise ValueError("SQLite results are limited to 104 columns")
+            headers: list[str] = []
+            counts: dict[str, int] = {}
+            for index, column in enumerate(description, 1):
+                base = str(column[0] or f"Column {index}")[:255]
+                count = counts.get(base.casefold(), 0) + 1
+                counts[base.casefold()] = count
+                headers.append(base if count == 1 else f"{base} ({count})")
+            rows: list[list[str | int | float | bool | None]] = []
+            for row in cursor.fetchmany(1001):
+                if len(rows) >= 1000:
+                    raise ValueError("SQLite results are limited to 1,000 data rows")
+                clean: list[str | int | float | bool | None] = []
+                for cell in row:
+                    if cell is None or isinstance(cell, (str, bool)):
+                        if isinstance(cell, str) and len(cell) > 32_767:
+                            raise ValueError("SQLite text cells are limited to 32,767 characters")
+                        clean.append(cell)
+                    elif isinstance(cell, int):
+                        clean.append(cell if abs(cell) <= 9_007_199_254_740_991 else str(cell))
+                    elif isinstance(cell, float) and (cell == cell) and abs(cell) != float("inf"):
+                        clean.append(cell)
+                    else:
+                        raise ValueError("SQLite BLOB or non-finite values cannot be loaded into worksheet cells")
+                rows.append(clean)
+                if (len(rows) + 1) * len(headers) > 12_000:
+                    raise ValueError("SQLite results are limited to 12,000 total cells")
+            return {"headers": headers, "rows": rows, "database": path.name}
+        except sqlite3.Error as exc:
+            message = "The SQL query exceeded its time limit" if time.monotonic() > deadline else str(exc)
+            raise ValueError(message[:500]) from exc
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def fetch_authenticated_data(self, url: str, kind: str, auth_kind: str, username: str = "", secret: str = "") -> dict[str, str]:
+        """Fetch a bounded HTTPS CSV/JSON document using credentials for this request only."""
+        if not isinstance(url, str) or len(url) > 2048 or "\r" in url or "\n" in url:
+            raise ValueError("Enter a valid HTTPS data URL")
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+            raise ValueError("Authenticated data imports require an HTTPS URL without embedded credentials or fragments")
+        if kind not in {"csv", "json"}:
+            raise ValueError("Choose CSV or JSON as the response format")
+        if auth_kind not in {"none", "basic", "bearer"}:
+            raise ValueError("Choose no authentication, Basic, or Bearer authentication")
+        if not isinstance(username, str) or not isinstance(secret, str) or len(username) > 512 or len(secret) > 8192:
+            raise ValueError("Credentials exceed the supported input length")
+        if any(char in username + secret for char in "\r\n\x00"):
+            raise ValueError("Credentials cannot contain line breaks or null characters")
+        headers = {"Accept": "text/csv, text/plain;q=0.9" if kind == "csv" else "application/json"}
+        if auth_kind == "basic":
+            if not username or not secret or ":" in username:
+                raise ValueError("Basic authentication requires a username and password")
+            token = base64.b64encode(f"{username}:{secret}".encode("utf-8")).decode("ascii")
+            headers["Authorization"] = f"Basic {token}"
+        elif auth_kind == "bearer":
+            if not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", secret):
+                raise ValueError("Bearer authentication requires a token")
+            headers["Authorization"] = f"Bearer {secret}"
+        request = Request(url, headers=headers, method="GET")
+
+        class RejectRedirects(HTTPRedirectHandler):
+            def redirect_request(self, req: Request, fp: Any, code: int, msg: str, response_headers: Any, new_url: str) -> None:
+                return None
+
+        try:
+            with build_opener(RejectRedirects).open(request, timeout=15) as response:
+                length = response.headers.get("Content-Length")
+                if length and int(length) > 3 * 1024 * 1024:
+                    raise ValueError("External data is limited to 3 MB")
+                content = response.read(3 * 1024 * 1024 + 1)
+                if len(content) > 3 * 1024 * 1024:
+                    raise ValueError("External data is limited to 3 MB")
+                try:
+                    text = content.decode("utf-8-sig", errors="strict")
+                except UnicodeDecodeError as exc:
+                    raise ValueError("External data must be valid UTF-8 text") from exc
+                return {"content": text, "status": str(response.status)}
+        except HTTPError as exc:
+            if 300 <= exc.code < 400:
+                raise ValueError("Redirects are not followed for authenticated requests") from exc
+            if exc.code in {401, 403}:
+                raise ValueError("The server rejected these credentials (HTTP 401/403)") from exc
+            raise ValueError(f"The data source returned HTTP {exc.code}") from exc
+        except URLError as exc:
+            raise ValueError("The HTTPS data source could not be reached") from exc
 
     def save_file(self, filename: str, mime: str, base64_content: str) -> str:
         import webview

@@ -1,0 +1,3261 @@
+import { excelDateSerial, excelSerialDateIso, excelSerialUtcDate } from './date_serial.js';
+const normalizedName = (value) => value.toLowerCase();
+const MAX_CODE = 20_000, MAX_ROWS = 1_000, MAX_COLUMNS = 104, MAX_CELLS = 12_000, MAX_STEPS = 50, MAX_TOKENS = 8_000;
+const mRecordFieldOrder = new WeakMap();
+const mTableValues = new WeakSet();
+const mRecordFields = (record) => mRecordFieldOrder.get(record) ?? Object.keys(record);
+const mOrderedRecord = (fields, values) => { const record = Object.fromEntries(fields.map((field, index) => [field, values[index] ?? null])); mRecordFieldOrder.set(record, [...fields]); return record; };
+const M_NUMBER_CONSTANTS = { 'Number.E': Math.E, 'Number.Epsilon': Number.EPSILON, 'Number.NaN': Number.NaN, 'Number.NegativeInfinity': Number.NEGATIVE_INFINITY, 'Number.PI': Math.PI, 'Number.PositiveInfinity': Number.POSITIVE_INFINITY };
+function isMDuration(value) { return !!value && typeof value === 'object' && Object.hasOwn(value, 'mDurationDays') && typeof value.mDurationDays === 'number'; }
+function daysInGregorianMonth(year, month) { return month === 2 ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31; }
+function strictMDateTimeSerial(value) { if (typeof value !== 'string')
+    return null; const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d{1,9})?)$/.exec(value); if (!match)
+    return null; const [year, month, day, hour, minute, second] = match.slice(1).map(Number); if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > daysInGregorianMonth(year, month) || hour > 23 || minute > 59 || second >= 60)
+    return null; const date = excelDateSerial(`${match[1]}-${match[2]}-${match[3]}`); if (date === null)
+    return null; const serial = date + (hour * 3600 + minute * 60 + second) / 86400; return Number.isFinite(serial) && serial <= 2_958_465 ? serial : null; }
+function worksheetDateTimeSerial(value) { if (typeof value === 'number')
+    return Number.isFinite(value) && value >= 0 && value <= 2_958_465 ? value : null; if (typeof value !== 'string')
+    return null; const datetime = strictMDateTimeSerial(value); if (datetime !== null)
+    return datetime; return /^\d{4}-\d{2}-\d{2}$/.test(value) ? excelDateSerial(value) : null; }
+function strictMTimeSerial(value) { if (typeof value !== 'string')
+    return null; const match = /^(\d{2}):(\d{2}):(\d{2}(?:\.\d{1,9})?)$/.exec(value); if (!match)
+    return null; const [hour, minute, second] = match.slice(1).map(Number); if (hour > 23 || minute > 59 || second >= 60)
+    return null; return (hour * 3600 + minute * 60 + second) / 86400; }
+function strictMDurationDays(value) { if (typeof value !== 'string')
+    return null; const match = /^(-)?(?:(\d+)\.)?(\d{1,2}):([0-5]\d)(?::([0-5]\d(?:\.\d{1,7})?))?$/.exec(value); if (!match)
+    return null; const days = Number(match[2] ?? 0), hours = Number(match[3]), minutes = Number(match[4]), seconds = Number(match[5] ?? 0); if (!Number.isSafeInteger(days) || hours > 23)
+    return null; const total = days + hours / 24 + minutes / 1440 + seconds / 86400, result = match[1] ? -total : total; return Number.isFinite(result) ? result : null; }
+function normalizedDurationParts(value, name) { if (!value || typeof value !== 'object' || !Object.hasOwn(value, 'mDurationDays') || typeof value.mDurationDays !== 'number')
+    throw Error(`${name} expects a duration value from #duration or Duration.From.`); const totalDays = value.mDurationDays, totalSeconds = totalDays * 86400; if (!Number.isFinite(totalSeconds))
+    throw Error(`${name} duration is outside finite numeric range.`); const sign = totalSeconds < 0 ? -1 : 1, absolute = Math.abs(totalSeconds), days = Math.floor(absolute / 86400), afterDays = absolute - days * 86400, hours = Math.floor(afterDays / 3600), afterHours = afterDays - hours * 3600, minutes = Math.floor(afterHours / 60); let seconds = Math.round((afterHours - minutes * 60) * 1e7) / 1e7, normalizedMinutes = minutes, normalizedHours = hours, normalizedDays = days; if (seconds >= 60) {
+    seconds = 0;
+    normalizedMinutes++;
+} if (normalizedMinutes >= 60) {
+    normalizedMinutes = 0;
+    normalizedHours++;
+} if (normalizedHours >= 24) {
+    normalizedHours = 0;
+    normalizedDays++;
+} const part = (n) => sign * n || 0; return { Days: part(normalizedDays), Hours: part(normalizedHours), Minutes: part(normalizedMinutes), Seconds: part(seconds) }; }
+function formatMDurationText(value, name) { const parts = normalizedDurationParts(value, name), days = parts.Days, hours = parts.Hours, minutes = parts.Minutes, seconds = parts.Seconds, sign = value.mDurationDays < 0 ? '-' : '', sec = Math.abs(seconds).toFixed(7).replace(/0+$/, '').replace(/\.$/, '').padStart(2, '0'); return `${sign}${Math.abs(days)}.${String(Math.abs(hours)).padStart(2, '0')}:${String(Math.abs(minutes)).padStart(2, '0')}:${sec}`; }
+function formatMTimeText(serial) { let millis = Math.round(serial * 86400000); if (millis >= 86400000)
+    millis = 86399999; const hour = Math.floor(millis / 3600000), minute = Math.floor((millis - hour * 3600000) / 60000), seconds = (millis - hour * 3600000 - minute * 60000) / 1000, secondText = seconds.toFixed(3).replace(/0+$/, '').replace(/\.$/, '').padStart(2, '0'); return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${secondText}`; }
+function tokenize(code) {
+    if (code.length > MAX_CODE)
+        throw Error('M expression is limited to 20,000 characters.');
+    const out = [];
+    let i = 0;
+    while (i < code.length) {
+        if (out.length >= MAX_TOKENS)
+            throw Error(`M expressions are limited to ${MAX_TOKENS} tokens.`);
+        const ch = code[i];
+        if (/\s/.test(ch)) {
+            i++;
+            continue;
+        }
+        if (ch === '/' && code[i + 1] === '/') {
+            while (i < code.length && code[i] !== '\n')
+                i++;
+            continue;
+        }
+        if (ch === '"') {
+            const at = i++;
+            let value = '';
+            let closed = false;
+            while (i < code.length) {
+                if (code[i] === '"') {
+                    if (code[i + 1] === '"') {
+                        value += '"';
+                        i += 2;
+                        continue;
+                    }
+                    i++;
+                    closed = true;
+                    break;
+                }
+                value += code[i++];
+            }
+            if (!closed)
+                throw Error(`Unclosed M text literal at character ${at + 1}.`);
+            out.push({ kind: 'string', value, at });
+            continue;
+        }
+        if (/[A-Za-z_]/.test(ch)) {
+            const at = i++;
+            while (i < code.length && /[A-Za-z0-9_.]/.test(code[i]))
+                i++;
+            out.push({ kind: 'id', value: code.slice(at, i), at });
+            continue;
+        }
+        if (/[0-9]/.test(ch) || ch === '.' && /[0-9]/.test(code[i + 1] ?? '')) {
+            const at = i++;
+            while (i < code.length && /[0-9.eE+-]/.test(code[i])) {
+                if (/[+-]/.test(code[i]) && !/[eE]/.test(code[i - 1] ?? ''))
+                    break;
+                i++;
+            }
+            out.push({ kind: 'number', value: code.slice(at, i), at });
+            continue;
+        }
+        const at = i;
+        if (['<=', '>=', '<>', '=>'].includes(code.slice(i, i + 2))) {
+            out.push({ kind: 'symbol', value: code.slice(i, i + 2), at });
+            i += 2;
+            continue;
+        }
+        if ('()[]{},=#&+-*/<>'.includes(ch)) {
+            out.push({ kind: 'symbol', value: ch, at });
+            i++;
+            continue;
+        }
+        throw Error(`Unsupported M character “${ch}” at character ${i + 1}.`);
+    }
+    let nesting = 0;
+    for (const token of out) {
+        if (token.kind !== 'symbol')
+            continue;
+        if (['(', '[', '{'].includes(token.value)) {
+            nesting++;
+            if (nesting > 64)
+                throw Error('M expression nesting is limited to 64 levels.');
+        }
+        else if ([')', ']', '}'].includes(token.value))
+            nesting = Math.max(0, nesting - 1);
+    }
+    out.push({ kind: 'symbol', value: '<eof>', at: code.length });
+    return out;
+}
+class Parser {
+    tokens;
+    i = 0;
+    constructor(tokens) {
+        this.tokens = tokens;
+    }
+    peek() { return this.tokens[this.i]; }
+    take() { return this.tokens[this.i++]; }
+    accept(value) { if (this.peek().value === value) {
+        this.i++;
+        return true;
+    } return false; }
+    expect(value) { if (!this.accept(value))
+        throw Error(`Expected “${value}” near character ${this.peek().at + 1}.`); }
+    parse() { this.expect('let'); const bindings = []; while (true) {
+        const name = this.take();
+        if (name.kind !== 'id' || name.value.toLowerCase() === 'in')
+            throw Error(`Expected a step name near character ${name.at + 1}.`);
+        this.expect('=');
+        bindings.push([name.value, this.expression()]);
+        if (!this.accept(','))
+            break;
+        if (bindings.length >= MAX_STEPS)
+            throw Error(`M expressions are limited to ${MAX_STEPS} let bindings.`);
+    } this.expect('in'); const result = this.expression(); if (this.peek().value !== '<eof>')
+        throw Error(`Unexpected M expression content at character ${this.peek().at + 1}.`); return { bindings, result }; }
+    expression(min = 0) { let left = this.primary(); const prec = { 'or': 1, 'and': 2, '=': 3, '<>': 3, '<': 3, '>': 3, '<=': 3, '>=': 3, '&': 4, '+': 5, '-': 5, '*': 6, '/': 6 }; while (true) {
+        const next = this.peek(), op = next.kind === 'id' ? next.value.toLowerCase() : next.value, p = prec[op] ?? 0;
+        if (p < min || p === 0)
+            break;
+        this.take();
+        left = { kind: 'binary', op, left, right: this.expression(p + 1) };
+    } return left; }
+    primary() {
+        const token = this.take();
+        let value;
+        if (token.kind === 'symbol' && (token.value === '-' || token.value === '+') || token.kind === 'id' && token.value.toLowerCase() === 'not')
+            value = { kind: 'unary', op: token.kind === 'id' ? 'not' : token.value, value: this.primary() };
+        else if (token.kind === 'string')
+            value = { kind: 'literal', value: token.value };
+        else if (token.kind === 'number') {
+            const n = Number(token.value);
+            if (!Number.isFinite(n))
+                throw Error(`Invalid M number at character ${token.at + 1}.`);
+            value = { kind: 'literal', value: n };
+        }
+        else if (token.value === '#') {
+            const next = this.take();
+            if (next.kind !== 'id' || !['table', 'date', 'time', 'duration', 'datetime'].includes(next.value.toLowerCase()))
+                throw Error(`Unsupported M literal after “#” at character ${next.at + 1}.`);
+            const literal = next.value.toLowerCase();
+            this.expect('(');
+            const args = [];
+            if (!this.accept(')')) {
+                do {
+                    args.push(this.expression());
+                    if (args.length > (literal === 'table' ? 2 : literal === 'date' || literal === 'time' ? 3 : literal === 'duration' ? 4 : 6))
+                        throw Error(literal === 'table' ? '#table expects a column-name list and a row list.' : literal === 'date' ? '#date expects year, month, and day.' : literal === 'time' ? '#time expects hour, minute, and second.' : literal === 'duration' ? '#duration expects days, hours, minutes, and seconds.' : '#datetime expects year, month, day, hour, minute, and second.');
+                } while (this.accept(','));
+                this.expect(')');
+            }
+            if (literal === 'table' && args.length !== 2)
+                throw Error('#table expects a column-name list and a row list.');
+            if (literal === 'date' && args.length !== 3)
+                throw Error('#date expects year, month, and day.');
+            if (literal === 'time' && args.length !== 3)
+                throw Error('#time expects hour, minute, and second.');
+            if (literal === 'duration' && args.length !== 4)
+                throw Error('#duration expects days, hours, minutes, and seconds.');
+            if (literal === 'datetime' && args.length !== 6)
+                throw Error('#datetime expects year, month, day, hour, minute, and second.');
+            value = { kind: 'call', name: literal === 'table' ? '#table' : literal === 'date' ? '#date' : literal === 'time' ? '#time' : literal === 'duration' ? '#duration' : '#datetime', args };
+        }
+        else if (token.value === '{') {
+            const items = [];
+            if (!this.accept('}')) {
+                do {
+                    items.push(this.expression());
+                    if (items.length > MAX_COLUMNS)
+                        throw Error('M lists are limited to 256 entries.');
+                } while (this.accept(','));
+                this.expect('}');
+            }
+            value = { kind: 'list', items };
+        }
+        else if (token.value === '[') {
+            const next = this.peek(), after = this.tokens[this.i + 1];
+            if ((next.kind === 'id' || next.kind === 'string') && after.value === ']') {
+                this.i += 2;
+                value = { kind: 'field', base: { kind: 'name', value: '__row__' }, name: next.value };
+            }
+            else {
+                const items = [];
+                if (!this.accept(']')) {
+                    do {
+                        const key = this.take();
+                        if (key.kind !== 'id' && key.kind !== 'string')
+                            throw Error(`Expected a record field near character ${key.at + 1}.`);
+                        this.expect('=');
+                        items.push([key.value, this.expression()]);
+                        if (items.length > MAX_COLUMNS)
+                            throw Error(`M records are limited to ${MAX_COLUMNS} fields.`);
+                    } while (this.accept(','));
+                    this.expect(']');
+                }
+                if (new Set(items.map(([key]) => key)).size !== items.length)
+                    throw Error('M record field names must be unique.');
+                value = { kind: 'record', items };
+            }
+        }
+        else if (token.value === '(') {
+            value = this.expression();
+            this.expect(')');
+        }
+        else if (token.kind === 'id') {
+            if (token.value.toLowerCase() === 'true')
+                value = { kind: 'literal', value: true };
+            else if (token.value.toLowerCase() === 'false')
+                value = { kind: 'literal', value: false };
+            else if (token.value.toLowerCase() === 'null')
+                value = { kind: 'literal', value: null };
+            else if (token.value === 'type') {
+                const annotation = this.take();
+                if (annotation.kind !== 'id' || !['text', 'number', 'logical', 'date', 'datetime', 'any', 'table'].includes(annotation.value.toLowerCase()))
+                    throw Error(`Unsupported M type annotation near character ${annotation.at + 1}.`);
+                value = { kind: 'literal', value: `__type:${annotation.value.toLowerCase()}` };
+            }
+            else if (token.value === 'Order.Ascending' || token.value === 'Order.Descending')
+                value = { kind: 'literal', value: token.value };
+            else if (token.value.toLowerCase() === 'each')
+                value = { kind: 'each', body: this.expression() };
+            else if (this.accept('(')) {
+                const args = [];
+                if (!this.accept(')')) {
+                    do {
+                        args.push(this.expression());
+                        if (args.length > 32)
+                            throw Error('M function calls are limited to 32 arguments.');
+                    } while (this.accept(','));
+                    this.expect(')');
+                }
+                value = { kind: 'call', name: token.value, args };
+            }
+            else
+                value = { kind: 'name', value: token.value };
+        }
+        else
+            throw Error(`Unexpected M token “${token.value}” (${token.kind}) near character ${token.at + 1}.`);
+        while (this.accept('[')) {
+            const key = this.take();
+            if (key.kind !== 'id' && key.kind !== 'string')
+                throw Error(`Expected a field name near character ${key.at + 1}.`);
+            this.expect(']');
+            value = { kind: 'field', base: value, name: key.value };
+        }
+        return value;
+    }
+}
+const isMTableShape = (value) => !!value && typeof value === 'object' && !Array.isArray(value) && Array.isArray(value.headers) && Array.isArray(value.rows);
+const isMTable = (value) => !!value && typeof value === 'object' && mTableValues.has(value);
+function markMTableResults(value, depth = 0) { if (depth > 4)
+    return; if (isMTableShape(value)) {
+    mTableValues.add(value);
+    return;
+} if (Array.isArray(value))
+    for (const item of value)
+        markMTableResults(item, depth + 1); }
+const asTable = (value) => { if (!isMTable(value))
+    throw Error('M table operation received a non-table value.'); return value; };
+function mValuesEqual(left, right, depth = 0) { if (left === right)
+    return true; if (depth > 64)
+    throw Error('M structured equality is limited to 64 nested levels.'); if (isMDuration(left) || isMDuration(right))
+    return isMDuration(left) && isMDuration(right) && left.mDurationDays === right.mDurationDays; if (left === null || right === null || typeof left !== typeof right)
+    return false; if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length)
+        return false;
+    for (let index = 0; index < left.length; index++)
+        if (!mValuesEqual(left[index], right[index], depth + 1))
+            return false;
+    return true;
+} if (typeof left === 'object' && typeof right === 'object') {
+    if (isMTable(left) || isMTable(right) || !mRecordFieldOrder.has(left) || !mRecordFieldOrder.has(right))
+        return false;
+    const leftFields = mRecordFields(left), rightFields = mRecordFields(right);
+    if (leftFields.length !== rightFields.length)
+        return false;
+    for (const field of leftFields)
+        if (!Object.hasOwn(right, field) || !mValuesEqual(left[field], right[field], depth + 1))
+            return false;
+    return true;
+} return false; }
+function compare(left, right, op) { const leftDuration = isMDuration(left), rightDuration = isMDuration(right); if (op === '=')
+    return mValuesEqual(left, right); if (op === '<>')
+    return !mValuesEqual(left, right); if (left === null || right === null) {
+    if (left === right)
+        return op === '<=' || op === '>=';
+    return left === null ? op === '<' || op === '<=' : op === '>' || op === '>=';
+} if (leftDuration || rightDuration) {
+    if (!leftDuration || !rightDuration)
+        throw Error('M duration ordering requires two duration values.');
+}
+else if (typeof left !== typeof right || typeof left !== 'number' && typeof left !== 'string')
+    throw Error('M ordering comparisons require two numbers or two text values of the same type.'); const order = leftDuration ? left.mDurationDays - right.mDurationDays : typeof left === 'number' ? left - right : String(left).localeCompare(String(right), undefined, { sensitivity: 'variant' }); switch (op) {
+    case '<': return order < 0;
+    case '>': return order > 0;
+    case '<=': return order <= 0;
+    default: return order >= 0;
+} }
+function compareMScalar(left, right) { if (left === right)
+    return 0; if (left === null)
+    return -1; if (right === null)
+    return 1; const rank = (value) => typeof value === 'boolean' ? 0 : typeof value === 'number' ? 1 : 2, lr = rank(left), rr = rank(right); if (lr !== rr)
+    return lr - rr; if (typeof left === 'boolean' && typeof right === 'boolean')
+    return Number(left) - Number(right); if (typeof left === 'number' && typeof right === 'number')
+    return left - right; return String(left).localeCompare(String(right), 'en-US', { usage: 'sort', sensitivity: 'variant' }); }
+function evaluateMPercentile(sorted, probability, mode) {
+    if (typeof probability !== 'number' || !Number.isFinite(probability) || probability < 0 || probability > 1 || mode === 'PercentileMode.ExcelExc' && (probability === 0 || probability === 1))
+        throw Error('List.Percentile probability must be from 0 through 1 for ExcelInc or strictly between 0 and 1 for ExcelExc.');
+    if (!sorted.length)
+        return null;
+    if (mode === 'PercentileMode.ExcelInc') {
+        const position = probability * (sorted.length - 1), lower = Math.floor(position), fraction = position - lower, low = sorted[lower], high = sorted[Math.min(lower + 1, sorted.length - 1)];
+        return fraction === 0 ? low : low * (1 - fraction) + high * fraction;
+    }
+    if (sorted.length < 2)
+        return null;
+    const position = probability * (sorted.length + 1), rank = Math.floor(position), fraction = position - rank;
+    if (rank < 1 || rank > sorted.length)
+        throw Error('List.Percentile ExcelExc probability falls outside the available numeric values.');
+    const low = sorted[rank - 1], high = sorted[Math.min(rank, sorted.length - 1)];
+    return fraction === 0 ? low : low * (1 - fraction) + high * fraction;
+}
+function convertMType(value, target, column) { if (target === 'any' || value === null)
+    return value; switch (target) {
+    case 'text': return typeof value === 'string' ? value : String(value);
+    case 'number': {
+        if (typeof value === 'number' && Number.isFinite(value))
+            return value;
+        if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value.trim())))
+            return Number(value.trim());
+        break;
+    }
+    case 'logical': {
+        if (typeof value === 'boolean')
+            return value;
+        if (typeof value === 'string' && /^(true|false)$/i.test(value.trim()))
+            return value.trim().toLowerCase() === 'true';
+        if (value === 0 || value === 1)
+            return value === 1;
+        break;
+    }
+    case 'date':
+    case 'datetime': {
+        if (typeof value === 'number') {
+            if (!Number.isFinite(value) || value < 0 || value > 2_958_465)
+                break;
+            return target === 'date' ? Math.floor(value) : value;
+        }
+        const serial = worksheetDateTimeSerial(value);
+        if (serial !== null)
+            return target === 'date' ? Math.floor(serial) : serial;
+        break;
+    }
+} throw Error(`Cannot convert value in “${column}” to ${target}; fix the source value or remove this type conversion.`); }
+function evaluate(expr, env, row) {
+    switch (expr.kind) {
+        case 'literal': return expr.value;
+        case 'name': {
+            if (Object.hasOwn(M_NUMBER_CONSTANTS, expr.value))
+                return M_NUMBER_CONSTANTS[expr.value];
+            const value = env.get(expr.value);
+            if (value === undefined && !env.has(expr.value)) {
+                if (['Text.Trim', 'Text.TrimStart', 'Text.TrimEnd', 'Text.Clean', 'Text.Upper', 'Text.Lower', 'Text.Length', 'Text.Contains', 'Text.StartsWith', 'Text.EndsWith', 'Text.Replace', 'Text.Split', 'Text.Combine', 'Text.BeforeDelimiter', 'Text.AfterDelimiter', 'Text.BetweenDelimiters', 'Text.PositionOf', 'Text.Select', 'Text.Remove', 'Text.Range', 'Text.From', 'Text.Reverse', 'Text.Start', 'Text.End', 'Text.PadStart', 'Text.PadEnd', 'Record.ToList', 'Record.FieldValues', 'Record.FieldNames', 'Record.FieldCount', 'Record.ToTable', 'Record.FromList', 'Record.FromTable', 'Record.SelectFields', 'Record.RemoveFields', 'Record.AddField', 'Record.ReorderFields', 'Record.RenameFields', 'Record.TransformFields', 'Record.Combine', 'Record.HasFields', 'Record.Field', 'Record.FieldOrDefault', 'Splitter.SplitTextByDelimiter', 'Combiner.CombineTextByDelimiter', 'Number.From', 'Number.FromText', 'Number.ToText', 'Number.Abs', 'Number.Sign', 'Number.IntegerDivide', 'Number.Mod', 'Number.Power', 'Number.Sqrt', 'Number.Exp', 'Number.Ln', 'Number.Log', 'Number.Log10', 'Number.Factorial', 'Number.Combinations', 'Number.Permutations', 'Number.IsNaN', 'Number.Round', 'Number.RoundUp', 'Number.RoundDown', 'Number.RoundTowardZero', 'Number.RoundAwayFromZero', 'Date.From', 'Date.FromText', 'Table.First', 'Table.Last', 'Table.FirstValue', 'DateTime.From', 'DateTime.FromText', 'DateTime.ToText', 'DateTime.ToRecord', 'DateTime.AddDays', 'DateTime.AddHours', 'DateTime.AddMinutes', 'DateTime.AddSeconds', 'DateTime.Date', 'DateTime.Time', 'DateTime.StartOfDay', 'DateTime.EndOfDay', 'DateTime.AddWeeks', 'DateTime.AddMonths', 'DateTime.AddQuarters', 'DateTime.AddYears', 'Time.From', 'Time.FromText', 'Time.ToRecord', 'Time.Hour', 'Time.Minute', 'Time.Second', 'Time.StartOfHour', 'Time.EndOfHour', 'Time.ToText', 'Duration.From', 'Duration.FromText', 'Duration.ToText', 'Duration.ToRecord', 'Duration.Days', 'Duration.Hours', 'Duration.Minutes', 'Duration.Seconds', 'Duration.TotalDays', 'Duration.TotalHours', 'Duration.TotalMinutes', 'Duration.TotalSeconds', 'Date.MonthName', 'Date.DayOfWeekName', 'Date.WeekOfMonth', 'Date.IsLeapYear', 'Date.AddDays', 'Date.AddWeeks', 'Date.AddMonths', 'Date.AddQuarters', 'Date.AddYears', 'Date.Year', 'Date.Month', 'Date.QuarterOfYear', 'Date.Day', 'Date.DayOfYear', 'Date.DayOfWeek', 'Date.WeekOfYear', 'Date.DaysInMonth', 'Date.StartOfMonth', 'Date.StartOfQuarter', 'Date.StartOfYear', 'Date.StartOfWeek', 'Date.EndOfWeek', 'Date.EndOfMonth', 'Date.EndOfQuarter', 'Date.EndOfYear', 'List.Sort', 'List.MaxN', 'List.MinN', 'List.Skip', 'List.FirstN', 'List.LastN', 'List.RemoveFirstN', 'List.RemoveLastN', 'List.Range', 'List.Numbers', 'List.Alternate', 'List.InsertRange', 'List.RemoveRange', 'List.ReplaceRange', 'List.Positions', 'List.Repeat', 'List.Split', 'List.Zip', 'List.Combine', 'List.Transform', 'List.Select', 'List.RemoveNulls', 'List.Reverse', 'List.Sum', 'List.Count', 'List.NonNullCount', 'List.Average', 'List.Min', 'List.Max', 'List.Product', 'List.Median', 'List.StandardDeviation', 'List.Percentile', 'List.First', 'List.Last', 'List.Single', 'List.SingleOrDefault', 'List.Distinct', 'List.Union', 'List.Intersect', 'List.Difference', 'List.RemoveItems', 'List.RemoveMatchingItems', 'List.ReplaceMatchingItems', 'List.Mode', 'List.Modes', 'List.IsEmpty', 'List.Contains', 'List.PositionOf', 'List.AllTrue', 'List.AnyTrue', 'List.IsDistinct', 'List.ContainsAll', 'List.ContainsAny', 'List.PositionOfAny'].includes(expr.value))
+                    return { mFunction: expr.value };
+                if (['JoinKind.Inner', 'JoinKind.LeftOuter', 'JoinKind.RightOuter', 'JoinKind.FullOuter'].includes(expr.value))
+                    return { mJoinKind: expr.value };
+                if (['MissingField.Error', 'MissingField.Ignore', 'MissingField.UseNull'].includes(expr.value))
+                    return { mMissingField: expr.value };
+                if (['Day.Sunday', 'Day.Monday', 'Day.Tuesday', 'Day.Wednesday', 'Day.Thursday', 'Day.Friday', 'Day.Saturday'].includes(expr.value))
+                    return { mDayOfWeek: expr.value };
+                if (['RoundingMode.ToEven', 'RoundingMode.AwayFromZero', 'RoundingMode.TowardZero', 'RoundingMode.Up', 'RoundingMode.Down'].includes(expr.value))
+                    return { mRoundingMode: expr.value };
+                if (['PercentileMode.ExcelInc', 'PercentileMode.ExcelExc'].includes(expr.value))
+                    return { mPercentileMode: expr.value };
+                if (['Order.Ascending', 'Order.Descending'].includes(expr.value))
+                    return { mOrder: expr.value };
+                if (['Occurrence.First', 'Occurrence.Last'].includes(expr.value))
+                    return { mOccurrence: expr.value };
+                if (['QuoteStyle.None', 'QuoteStyle.Csv'].includes(expr.value))
+                    return { mQuoteStyle: expr.value };
+                if (expr.value === 'Replacer.ReplaceValue' || expr.value === 'Replacer.ReplaceText')
+                    return { mReplacer: expr.value };
+                throw Error(`Unknown M step or identifier “${expr.value}”.`);
+            }
+            return value;
+        }
+        case 'list': return expr.items.map(item => evaluate(item, env, row));
+        case 'record': {
+            const record = Object.fromEntries(expr.items.map(([key, item]) => [key, evaluate(item, env, row)]));
+            mRecordFieldOrder.set(record, expr.items.map(([key]) => key));
+            return record;
+        }
+        case 'field': {
+            if (expr.base.kind === 'name' && expr.base.value === '__row__') {
+                if (!row || !Object.hasOwn(row, expr.name))
+                    throw Error(`M row has no column “${expr.name}”.`);
+                return row[expr.name];
+            }
+            const base = evaluate(expr.base, env, row);
+            if (!base || typeof base !== 'object' || !Object.hasOwn(base, expr.name))
+                throw Error(`M record has no field “${expr.name}”.`);
+            return base[expr.name];
+        }
+        case 'each': return { each: expr.body };
+        case 'unary': {
+            const value = evaluate(expr.value, env, row);
+            if (expr.op === 'not') {
+                if (typeof value !== 'boolean')
+                    throw Error('M “not” requires a logical operand.');
+                return !value;
+            }
+            if (isMDuration(value) && expr.op === '-')
+                return { mDurationDays: -value.mDurationDays };
+            if (typeof value !== 'number')
+                throw Error(`M unary “${expr.op}” requires a numeric or duration operand.`);
+            return expr.op === '-' ? -value : value;
+        }
+        case 'binary': {
+            const a = evaluate(expr.left, env, row);
+            if (expr.op === 'and' || expr.op === 'or') {
+                if (typeof a !== 'boolean')
+                    throw Error(`M “${expr.op}” requires logical operands.`);
+                if (expr.op === 'and' && !a || expr.op === 'or' && a)
+                    return a;
+                const b = evaluate(expr.right, env, row);
+                if (typeof b !== 'boolean')
+                    throw Error(`M “${expr.op}” requires logical operands.`);
+                return b;
+            }
+            const b = evaluate(expr.right, env, row);
+            if (['=', '<>', '<', '>', '<=', '>='].includes(expr.op))
+                return compare(a, b, expr.op);
+            if (expr.op === '&') {
+                if (typeof a === 'string' && typeof b === 'string') {
+                    const text = a + b;
+                    if (text.length > 32767)
+                        throw Error('M text concatenation exceeds the 32,767-character limit.');
+                    return text;
+                }
+                if (Array.isArray(a) && Array.isArray(b)) {
+                    if (a.length + b.length > MAX_CELLS)
+                        throw Error('M list concatenation exceeds the 12,000-item limit.');
+                    return [...a, ...b];
+                }
+                if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b) && !isMTable(a) && !isMTable(b) && mRecordFieldOrder.has(a) && mRecordFieldOrder.has(b)) {
+                    const leftFields = mRecordFields(a), rightFields = mRecordFields(b), fields = [...leftFields, ...rightFields.filter(field => !Object.hasOwn(a, field))];
+                    if (fields.length > MAX_COLUMNS)
+                        throw Error('M record merge exceeds 104 fields.');
+                    const merged = Object.fromEntries(fields.map(field => [field, Object.hasOwn(b, field) ? b[field] : a[field]]));
+                    mRecordFieldOrder.set(merged, fields);
+                    return merged;
+                }
+                throw Error('M “&” requires two text, list, or record values of the same kind.');
+            }
+            const ad = isMDuration(a), bd = isMDuration(b);
+            if (ad || bd) {
+                let days;
+                if (expr.op === '+' && ad && bd)
+                    days = a.mDurationDays + b.mDurationDays;
+                else if ((expr.op === '+' || expr.op === '-') && ad !== bd) {
+                    const numeric = ad ? b : a, duration = (ad ? a : b);
+                    if (typeof numeric !== 'number' || !Number.isFinite(numeric))
+                        throw Error('Duration/date arithmetic requires a finite numeric worksheet serial.');
+                    if (ad && expr.op === '-')
+                        throw Error('Subtracting a worksheet serial from a duration is unsupported.');
+                    days = ad ? numeric + duration.mDurationDays : expr.op === '+' ? numeric + duration.mDurationDays : numeric - duration.mDurationDays;
+                    if (days < 0 || days > 2_958_465)
+                        throw Error('Duration/date arithmetic result is outside the supported worksheet serial range.');
+                    return days;
+                }
+                else if (expr.op === '*' && ad !== bd) {
+                    const factor = ad ? b : a, duration = (ad ? a : b);
+                    if (typeof factor !== 'number' || !Number.isFinite(factor))
+                        throw Error('Duration multiplication requires a finite number.');
+                    days = duration.mDurationDays * factor;
+                }
+                else if (expr.op === '/' && ad && !bd) {
+                    if (typeof b !== 'number' || !Number.isFinite(b) || b === 0)
+                        throw Error('Duration division requires a non-zero finite number.');
+                    days = a.mDurationDays / b;
+                }
+                else
+                    throw Error(`M “${expr.op}” does not support these duration operands in this subset.`);
+                if (!Number.isFinite(days))
+                    throw Error('M duration arithmetic produced a non-finite result.');
+                return { mDurationDays: days };
+            }
+            if (typeof a !== 'number' || typeof b !== 'number')
+                throw Error(`M “${expr.op}” requires numeric operands.`);
+            const n = expr.op === '+' ? a + b : expr.op === '-' ? a - b : expr.op === '*' ? a * b : b === 0 ? NaN : a / b;
+            if (!Number.isFinite(n))
+                throw Error('M arithmetic produced a non-finite value.');
+            return n;
+        }
+        case 'call': {
+            const result = call(expr.name, expr.args, env, row);
+            if (expr.name === '#table' || expr.name.toLowerCase().startsWith('table.') || expr.name.toLowerCase() === 'record.totable')
+                markMTableResults(result);
+            return result;
+        }
+    }
+}
+function splitMText(value, delimiter, csv) { if (!csv)
+    return value.split(delimiter); const parts = []; let current = '', quoted = false; for (let index = 0; index < value.length;) {
+    const character = value[index];
+    if (character === '"') {
+        if (quoted && value[index + 1] === '"') {
+            current += '"';
+            index += 2;
+            continue;
+        }
+        if (quoted) {
+            quoted = false;
+            index++;
+            continue;
+        }
+        if (current.length === 0) {
+            quoted = true;
+            index++;
+            continue;
+        }
+        current += '"';
+        index++;
+        continue;
+    }
+    if (!quoted && value.startsWith(delimiter, index)) {
+        parts.push(current);
+        current = '';
+        index += delimiter.length;
+        continue;
+    }
+    current += character;
+    index++;
+} if (quoted)
+    throw Error('CSV-style split found an unmatched quote.'); parts.push(current); return parts; }
+function call(name, args, env, row) {
+    const short = name.toLowerCase(), arg = (i) => args[i] === undefined ? undefined : evaluate(args[i], env, row), table = () => asTable(arg(0)), columns = (value) => { if (!Array.isArray(value) || value.some(item => typeof item !== 'string'))
+        throw Error('M column names must be a list of text values.'); return value; }, check = (n) => { if (args.length !== n)
+        throw Error(`${name} expects ${n} arguments in this M subset.`); };
+    if (short === 'list.percentile') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('List.Percentile expects a numeric list, a percentile or percentile list, and optional PercentileMode options.');
+        const input = arg(0);
+        if (!Array.isArray(input) || input.length > MAX_CELLS)
+            throw Error('List.Percentile expects a list of at most 12,000 values.');
+        const values = input.filter(value => value !== null && value !== ''), numbers = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
+        if (numbers.length !== values.length)
+            throw Error('List.Percentile requires numeric list values.');
+        const sorted = [...numbers].sort((a, b) => a - b);
+        let mode = 'PercentileMode.ExcelInc';
+        if (args[2]) {
+            const options = arg(2);
+            if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).length !== 1 || !Object.hasOwn(options, 'PercentileMode'))
+                throw Error('List.Percentile options support only [PercentileMode = PercentileMode.ExcelInc or PercentileMode.ExcelExc].');
+            const selected = options.PercentileMode?.mPercentileMode;
+            if (selected !== 'PercentileMode.ExcelInc' && selected !== 'PercentileMode.ExcelExc')
+                throw Error('List.Percentile options support only PercentileMode.ExcelInc or PercentileMode.ExcelExc.');
+            mode = selected;
+        }
+        const probabilities = arg(1);
+        if (Array.isArray(probabilities)) {
+            if (probabilities.length > MAX_CELLS)
+                throw Error('List.Percentile probability list exceeds the 12,000-item limit.');
+            return probabilities.map(probability => evaluateMPercentile(sorted, probability, mode));
+        }
+        return evaluateMPercentile(sorted, probabilities, mode);
+    }
+    if (short === 'list.maxn' || short === 'list.minn') {
+        check(2);
+        const values = arg(0), selector = arg(1);
+        if (!Array.isArray(values) || values.length > MAX_CELLS)
+            throw Error(`${name} expects a list of at most 12,000 comparable values.`);
+        const types = new Set(values.filter(value => value !== null).map(value => typeof value));
+        if (types.size > 1 || [...types].some(type => !['string', 'number', 'boolean'].includes(type)) || values.some(value => typeof value === 'number' && !Number.isFinite(value)))
+            throw Error(`${name} requires comparable values of one scalar type, with nulls allowed.`);
+        const direction = short === 'list.maxn' ? -1 : 1, sorted = [...values].sort((a, b) => direction * compareMScalar(a, b));
+        if (selector && typeof selector === 'object' && 'each' in selector) {
+            const body = selector.each, result = [];
+            for (const value of sorted) {
+                const local = new Map(env);
+                local.set('_', value);
+                const matches = evaluate(body, local, row);
+                if (typeof matches !== 'boolean')
+                    throw Error(`${name} condition must return true or false.`);
+                if (!matches)
+                    break;
+                result.push(value);
+            }
+            return result;
+        }
+        if (typeof selector !== 'number' || !Number.isSafeInteger(selector) || selector < 0 || selector > MAX_CELLS)
+            throw Error(`${name} expects a whole result count from 0 to 12,000 or an “each” condition.`);
+        return sorted.slice(0, selector);
+    }
+    if (short === 'list.sort') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('List.Sort expects a list and optional Order.Ascending or Order.Descending.');
+        const values = arg(0);
+        if (!Array.isArray(values) || values.length > MAX_CELLS)
+            throw Error('List.Sort expects a list of at most 12,000 values.');
+        const orderValue = args[1] ? arg(1) : 'Order.Ascending', order = typeof orderValue === 'string' ? orderValue : String(orderValue?.mOrder ?? '');
+        if (!['Order.Ascending', 'Order.Descending'].includes(order))
+            throw Error('List.Sort supports Order.Ascending or Order.Descending only.');
+        const types = new Set(values.filter(value => value !== null).map(value => typeof value));
+        if (types.size > 1 || [...types].some(type => !['string', 'number', 'boolean'].includes(type)) || values.some(value => typeof value === 'number' && !Number.isFinite(value)))
+            throw Error('List.Sort requires comparable values of one scalar type, with nulls allowed.');
+        const sorted = [...values].sort((a, b) => compareMScalar(a, b));
+        if (order === 'Order.Descending')
+            sorted.reverse();
+        return sorted;
+    }
+    if (short === 'list.matchesall' || short === 'list.matchesany') {
+        check(2);
+        const values = arg(0), predicate = evaluate(args[1], env);
+        if (!Array.isArray(values) || values.length > MAX_CELLS || !predicate || typeof predicate !== 'object' || !('each' in predicate))
+            throw Error(`${name} expects a bounded list and an “each” condition.`);
+        const body = predicate.each, wantsAll = short === 'list.matchesall';
+        for (const value of values) {
+            const local = new Map(env);
+            local.set('_', value);
+            const result = evaluate(body, local, row);
+            if (typeof result !== 'boolean')
+                throw Error(`${name} condition must return true or false.`);
+            if (wantsAll && !result)
+                return false;
+            if (!wantsAll && result)
+                return true;
+        }
+        return wantsAll;
+    }
+    if (['list.skip', 'list.firstn', 'list.lastn', 'list.removefirstn', 'list.removelastn', 'list.range'].includes(short)) {
+        if (args.length < (short === 'list.range' ? 2 : 1) || args.length > (short === 'list.range' ? 3 : 2))
+            throw Error(`${name} has an unsupported argument count in this subset.`);
+        const values = arg(0);
+        if (!Array.isArray(values) || values.length > MAX_CELLS)
+            throw Error(`${name} expects a list of at most 12,000 values.`);
+        if (short !== 'list.range' && args[1]) {
+            const selector = arg(1);
+            if (selector && typeof selector === 'object' && 'each' in selector) {
+                const body = selector.each, matches = (value) => { const local = new Map(env); local.set('_', value); const result = evaluate(body, local, row); if (typeof result !== 'boolean')
+                    throw Error(`${name} condition must return true or false.`); return result; };
+                let edge = 0;
+                if (short === 'list.firstn' || short === 'list.skip' || short === 'list.removefirstn') {
+                    while (edge < values.length && matches(values[edge]))
+                        edge++;
+                    return short === 'list.firstn' ? values.slice(0, edge) : values.slice(edge);
+                }
+                while (edge < values.length && matches(values[values.length - 1 - edge]))
+                    edge++;
+                return short === 'list.lastn' ? values.slice(values.length - edge) : values.slice(0, values.length - edge);
+            }
+        }
+        let offset = short === 'list.range' ? arg(1) : 0, countValue = short === 'list.range' ? (args[2] ? arg(2) : values.length) : args[1] ? arg(1) : 1;
+        if (short === 'list.skip') {
+            offset = countValue;
+            countValue = values.length;
+        }
+        if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > MAX_CELLS || typeof countValue !== 'number' || !Number.isSafeInteger(countValue) || countValue < 0 || countValue > MAX_CELLS)
+            throw Error(`${name} count/offset values must be whole numbers from 0 to 12,000.`);
+        if (short === 'list.skip')
+            return values.slice(offset);
+        if (short === 'list.firstn')
+            return values.slice(0, countValue);
+        if (short === 'list.lastn')
+            return countValue === 0 ? [] : values.slice(-countValue);
+        if (short === 'list.removefirstn')
+            return values.slice(countValue);
+        if (short === 'list.removelastn')
+            return countValue === 0 ? [...values] : values.slice(0, -countValue);
+        return values.slice(offset, offset + countValue);
+    }
+    if (short === 'table.tolist') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Table.ToList expects a table and optional text combiner.');
+        const source = table(), combiner = args[1] ? arg(1) : null, configuration = combiner === null ? { mCombiner: 'delimiter', delimiter: ',', quoteStyle: 'QuoteStyle.None' } : combiner;
+        if (!configuration || typeof configuration !== 'object' || configuration.mCombiner !== 'delimiter')
+            throw Error('Table.ToList supports only Combiner.CombineTextByDelimiter or its default comma combiner.');
+        const { delimiter, quoteStyle } = configuration;
+        if (typeof delimiter !== 'string' || delimiter.length > 255 || !['QuoteStyle.None', 'QuoteStyle.Csv'].includes(String(quoteStyle)))
+            throw Error('Table.ToList needs a supported text delimiter combiner.');
+        const csv = quoteStyle === 'QuoteStyle.Csv';
+        return source.rows.map((row, rowIndex) => { const values = row.map((value, columnIndex) => { if (typeof value !== 'string')
+            throw Error(`Table.ToList row ${rowIndex + 1}, column “${source.headers[columnIndex]}” must contain text for the bounded combiner.`); return csv && ((delimiter && value.includes(delimiter)) || value.includes('"') || value.includes('\r') || value.includes('\n')) ? '"' + value.replace(/"/g, '""') + '"' : value; }), combined = values.join(delimiter); if (combined.length > 32767)
+            throw Error('Table.ToList output exceeds the 32,767-character limit.'); return combined; });
+    }
+    if (['table.first', 'table.last', 'table.firstvalue'].includes(short)) {
+        if (args.length < 1 || args.length > 2)
+            throw Error(`${name} expects a table and optional default value.`);
+        const source = table();
+        if (!source.rows.length) {
+            if (args[1] !== undefined)
+                return arg(1);
+            if (short === 'table.firstvalue')
+                return null;
+            throw Error(`${name} cannot return a row from an empty table without a default.`);
+        }
+        const values = short === 'table.last' ? source.rows[source.rows.length - 1] : source.rows[0];
+        if (short === 'table.firstvalue')
+            return values[0] ?? null;
+        const record = Object.fromEntries(source.headers.map((header, index) => [header, values[index] ?? null]));
+        mRecordFieldOrder.set(record, [...source.headers]);
+        return record;
+    }
+    if (short === 'table.torecords') {
+        check(1);
+        const source = table();
+        return source.rows.map(values => { const record = Object.fromEntries(source.headers.map((header, index) => { const value = values[index] ?? null; if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+            throw Error('Table.ToRecords supports scalar table cells only; expand nested joins first.'); return [header, value]; })); mRecordFieldOrder.set(record, [...source.headers]); return record; });
+    }
+    if (short === 'table.fromrecords') {
+        if (args.length < 1 || args.length > 3)
+            throw Error('Table.FromRecords expects a list of records, optional column names, and optional MissingField mode.');
+        const records = arg(0);
+        if (!Array.isArray(records) || records.length > MAX_ROWS)
+            throw Error(`Table.FromRecords expects a list of at most ${MAX_ROWS} records.`);
+        if (records.some(record => !record || typeof record !== 'object' || Array.isArray(record) || isMTable(record)))
+            throw Error('Table.FromRecords input must contain only records.');
+        const explicit = args[1] !== undefined, headers = explicit ? columns(arg(1)) : Array.from(new Set(records.flatMap(record => mRecordFields(record))));
+        const missing = args[2] ? String(arg(2)?.mMissingField ?? '') : 'MissingField.Error';
+        if (!['MissingField.Error', 'MissingField.UseNull'].includes(missing))
+            throw Error('Table.FromRecords supports MissingField.Error or MissingField.UseNull.');
+        if (headers.length > MAX_COLUMNS || new Set(headers.map(normalizedName)).size !== headers.length || headers.some(header => !header.trim() || header.length > 255))
+            throw Error('Table.FromRecords needs unique, non-empty column names within the M column limit.');
+        if ((records.length + 1) * headers.length > MAX_CELLS)
+            throw Error('Table.FromRecords exceeds the M cell limit.');
+        const rows = records.map((record, index) => { const fields = record; if (missing === 'MissingField.Error') {
+            const absent = headers.filter(header => !Object.hasOwn(fields, header));
+            if (absent.length)
+                throw Error(`Table.FromRecords record ${index + 1} is missing field “${absent[0]}”.`);
+        } return headers.map(header => { const value = Object.hasOwn(fields, header) ? fields[header] : null; if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+            throw Error(`Table.FromRecords field “${header}” must contain a scalar value.`); return value; }); });
+        return { headers, rows };
+    }
+    if (short === 'table.fromvalue') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Table.FromValue expects a scalar or list value and optional DefaultColumnName options record.');
+        const input = arg(0), rawOptions = args[1] ? arg(1) : null;
+        let header = 'Value';
+        if (rawOptions !== null) {
+            if (!rawOptions || typeof rawOptions !== 'object' || Array.isArray(rawOptions) || isMTable(rawOptions))
+                throw Error('Table.FromValue options must be null or a record.');
+            const keys = mRecordFields(rawOptions);
+            if (keys.some(key => key !== 'DefaultColumnName'))
+                throw Error('Table.FromValue supports only the DefaultColumnName option.');
+            if (Object.hasOwn(rawOptions, 'DefaultColumnName')) {
+                const value = rawOptions.DefaultColumnName;
+                if (typeof value !== 'string' || !value.trim() || value.length > 255)
+                    throw Error('Table.FromValue DefaultColumnName must be non-empty text up to 255 characters.');
+                header = value;
+            }
+        }
+        const values = Array.isArray(input) ? input : [input];
+        if (values.length > MAX_ROWS)
+            throw Error(`Table.FromValue is limited to ${MAX_ROWS} rows.`);
+        if (values.some(value => value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value)))
+            throw Error('Table.FromValue supports only finite scalar values in this M subset.');
+        if (values.length + 1 > MAX_CELLS)
+            throw Error('Table.FromValue exceeds the M cell limit.');
+        return { headers: [header], rows: values.map(value => [value]) };
+    }
+    if (short === 'table.fromrows') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Table.FromRows expects a list of scalar rows and an optional list of column names.');
+        const input = arg(0);
+        if (!Array.isArray(input) || input.length > MAX_ROWS)
+            throw Error(`Table.FromRows expects at most ${MAX_ROWS} rows.`);
+        if (input.some(item => !Array.isArray(item)))
+            throw Error('Table.FromRows input must contain only row lists.');
+        const rows = input, width = rows[0]?.length ?? (args[1] !== undefined ? columns(arg(1)).length : 0), headers = args[1] !== undefined ? columns(arg(1)) : Array.from({ length: width }, (_, index) => `Column${index + 1}`);
+        if (!headers.length || headers.length > MAX_COLUMNS || new Set(headers.map(normalizedName)).size !== headers.length || headers.some(header => !header.trim() || header.length > 255))
+            throw Error('Table.FromRows needs unique, non-empty column names within the M column limit.');
+        if (rows.some((row, index) => row.length !== headers.length))
+            throw Error(`Table.FromRows row ${rows.findIndex(row => row.length !== headers.length) + 1} has a different number of values than the column schema.`);
+        if ((rows.length + 1) * headers.length > MAX_CELLS)
+            throw Error('Table.FromRows exceeds the M cell limit.');
+        const scalarRows = rows.map((row, rowIndex) => row.map((value, columnIndex) => { if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+            throw Error(`Table.FromRows cell ${rowIndex + 1},${columnIndex + 1} must contain a scalar value.`); return value; }));
+        return { headers, rows: scalarRows };
+    }
+    if (short === 'table.torows') {
+        check(1);
+        const source = table();
+        return source.rows.map((row, rowIndex) => row.map((value, columnIndex) => { if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+            throw Error(`Table.ToRows cell ${rowIndex + 1},${columnIndex + 1} is not scalar; expand nested joins first.`); return value ?? null; }));
+    }
+    if (short === 'table.tocolumns') {
+        check(1);
+        const source = table();
+        return source.headers.map((_, columnIndex) => source.rows.map((row, rowIndex) => { const value = row[columnIndex] ?? null; if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+            throw Error(`Table.ToColumns cell ${rowIndex + 1},${columnIndex + 1} is not scalar; expand nested joins first.`); return value; }));
+    }
+    if (short === 'table.fromcolumns') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Table.FromColumns expects a list of scalar columns and an optional list of names.');
+        const input = arg(0);
+        if (!Array.isArray(input) || !input.length || input.length > MAX_COLUMNS || input.some(column => !Array.isArray(column) || column.length > MAX_ROWS))
+            throw Error(`Table.FromColumns expects 1 to ${MAX_COLUMNS} column lists, each with at most ${MAX_ROWS} values.`);
+        const sourceColumns = input, headers = args[1] !== undefined ? columns(arg(1)) : sourceColumns.map((_, index) => `Column${index + 1}`);
+        if (headers.length !== sourceColumns.length || new Set(headers.map(normalizedName)).size !== headers.length || headers.some(header => !header.trim() || header.length > 255))
+            throw Error('Table.FromColumns needs one unique, non-empty name per column.');
+        const rowCount = Math.max(...sourceColumns.map(column => column.length));
+        if ((rowCount + 1) * headers.length > MAX_CELLS)
+            throw Error('Table.FromColumns exceeds the M cell limit.');
+        const rows = Array.from({ length: rowCount }, (_, rowIndex) => sourceColumns.map((column, columnIndex) => { const value = rowIndex < column.length ? column[rowIndex] : null; if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+            throw Error(`Table.FromColumns cell ${rowIndex + 1},${columnIndex + 1} must contain a scalar value.`); return value; }));
+        return { headers, rows };
+    }
+    if (['text.trim', 'text.trimstart', 'text.trimend'].includes(short)) {
+        if (args.length < 1 || args.length > 2)
+            throw Error(`${name} expects text and optional trim characters.`);
+        const value = arg(0), trim = args[1] ? arg(1) : undefined;
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || trim !== undefined && typeof trim !== 'string' && !Array.isArray(trim))
+            throw Error(`${name} expects text and optional text/list trim characters.`);
+        if (trim === undefined)
+            return short === 'text.trim' ? value.trim() : short === 'text.trimstart' ? value.trimStart() : value.trimEnd();
+        const trimChars = typeof trim === 'string' ? Array.from(trim) : trim.flatMap(item => { if (typeof item !== 'string')
+            throw Error(`${name} trim-character lists must contain text.`); return Array.from(item); }), set = new Set(trimChars), characters = Array.from(value);
+        let start = 0, end = characters.length;
+        if (short !== 'text.trimend')
+            while (start < end && set.has(characters[start]))
+                start++;
+        if (short !== 'text.trimstart')
+            while (end > start && set.has(characters[end - 1]))
+                end--;
+        return characters.slice(start, end).join('');
+    }
+    if (['text.clean', 'text.upper', 'text.lower', 'text.length'].includes(short)) {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string')
+            throw Error(`${name} expects text.`);
+        switch (short) {
+            case 'text.clean': return value.replace(/\p{Cc}/gu, '');
+            case 'text.upper': return value.toUpperCase();
+            case 'text.lower': return value.toLowerCase();
+            default: return Array.from(value).length;
+        }
+    }
+    if (short === 'text.tolist') {
+        check(1);
+        const value = arg(0);
+        if (typeof value !== 'string' || value.length > 32767)
+            throw Error('Text.ToList expects text of at most 32,767 characters.');
+        const characters = Array.from(value);
+        if (characters.length > MAX_CELLS)
+            throw Error(`Text.ToList output is limited to ${MAX_CELLS} characters in this M subset.`);
+        return characters;
+    }
+    if (['text.contains', 'text.startswith', 'text.endswith'].includes(short)) {
+        check(2);
+        const value = arg(0), search = arg(1);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || typeof search !== 'string')
+            throw Error(`${name} expects two text arguments.`);
+        return short === 'text.contains' ? value.includes(search) : short === 'text.startswith' ? value.startsWith(search) : value.endsWith(search);
+    }
+    if (short === 'text.beforedelimiter' || short === 'text.afterdelimiter') {
+        check(2);
+        const value = arg(0), delimiter = arg(1);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || typeof delimiter !== 'string' || !delimiter)
+            throw Error(`${name} expects text and a non-empty delimiter.`);
+        const index = value.indexOf(delimiter);
+        if (index < 0)
+            throw Error(`${name} could not find the requested delimiter.`);
+        return short === 'text.beforedelimiter' ? value.slice(0, index) : value.slice(index + delimiter.length);
+    }
+    if (short === 'text.betweendelimiters') {
+        check(3);
+        const value = arg(0), start = arg(1), end = arg(2);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || typeof start !== 'string' || typeof end !== 'string' || !start || !end)
+            throw Error('Text.BetweenDelimiters expects text and non-empty start/end delimiters.');
+        const startAt = value.indexOf(start);
+        if (startAt < 0)
+            throw Error('Text.BetweenDelimiters could not find the start delimiter.');
+        const contentAt = startAt + start.length, endAt = value.indexOf(end, contentAt);
+        if (endAt < 0)
+            throw Error('Text.BetweenDelimiters could not find the end delimiter after the start.');
+        return value.slice(contentAt, endAt);
+    }
+    if (short === 'text.positionof') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('Text.PositionOf expects text, search text, and optional Occurrence.First or Occurrence.Last.');
+        const value = arg(0), search = arg(1), occurrence = args[2] ? String(arg(2)?.mOccurrence ?? '') : 'Occurrence.First';
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || typeof search !== 'string' || !['Occurrence.First', 'Occurrence.Last'].includes(occurrence))
+            throw Error('Text.PositionOf requires text values and Occurrence.First or Occurrence.Last.');
+        return occurrence === 'Occurrence.First' ? value.indexOf(search) : value.lastIndexOf(search);
+    }
+    if (short === 'text.select' || short === 'text.remove') {
+        check(2);
+        const value = arg(0), selected = arg(1);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || value.length > 32767)
+            throw Error(`${name} expects text of at most 32,767 characters.`);
+        let characters;
+        if (typeof selected === 'string')
+            characters = Array.from(selected);
+        else if (Array.isArray(selected) && selected.every(item => typeof item === 'string'))
+            characters = selected.flatMap(item => Array.from(item));
+        else
+            throw Error(`${name} expects a text or list of text characters.`);
+        const keep = new Set(characters);
+        return Array.from(value).filter(character => short === 'text.select' ? keep.has(character) : !keep.has(character)).join('');
+    }
+    if (short === 'text.range') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('Text.Range expects text, a start index, and optional character count.');
+        const value = arg(0), offset = arg(1), count = args[2] ? arg(2) : undefined;
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || value.length > 32767 || typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0 || offset > 32767 || count !== undefined && (typeof count !== 'number' || !Number.isInteger(count) || count < 0 || count > 32767))
+            throw Error('Text.Range needs text of at most 32,767 characters and non-negative whole-number index/count values.');
+        const characters = Array.from(value);
+        return characters.slice(offset, count === undefined ? undefined : offset + count).join('');
+    }
+    if (short === 'text.replace') {
+        check(3);
+        const value = arg(0), oldValue = arg(1), newValue = arg(2);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || typeof oldValue !== 'string' || typeof newValue !== 'string' || !oldValue)
+            throw Error('Text.Replace expects text values and a non-empty old substring.');
+        return value.split(oldValue).join(newValue);
+    }
+    if (short === 'text.split') {
+        check(2);
+        const value = arg(0), separator = arg(1);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || typeof separator !== 'string' || !separator)
+            throw Error('Text.Split expects text and a non-empty separator.');
+        return value.split(separator);
+    }
+    if (short === 'text.combine') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Text.Combine expects a list and an optional separator.');
+        const values = arg(0), separator = args[1] ? arg(1) : '';
+        if (!Array.isArray(values) || typeof separator !== 'string' || values.some(item => item !== null && typeof item !== 'string'))
+            throw Error('Text.Combine expects a list of text or null values and an optional text separator.');
+        return values.filter((item) => item !== null).join(separator);
+    }
+    if (short === 'text.from') {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value === 'string')
+            return value;
+        if (typeof value === 'boolean')
+            return value ? 'true' : 'false';
+        if (typeof value === 'number' && Number.isFinite(value))
+            return String(value);
+        throw Error('Text.From supports scalar text, number, or logical values in invariant format.');
+    }
+    if (short === 'text.reverse') {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || value.length > 32767)
+            throw Error('Text.Reverse expects text of at most 32,767 characters.');
+        return Array.from(value).reverse().join('');
+    }
+    if (short === 'text.start' || short === 'text.end') {
+        check(2);
+        const value = arg(0), count = arg(1);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || value.length > 32767 || typeof count !== 'number' || !Number.isInteger(count) || count < 0 || count > 32767)
+            throw Error(`${name} expects text of at most 32,767 characters and a whole character count from 0 to 32,767.`);
+        const characters = Array.from(value);
+        return (short === 'text.start' ? characters.slice(0, count) : count ? characters.slice(-count) : []).join('');
+    }
+    if (short === 'text.padstart' || short === 'text.padend') {
+        if (args.length < 2 || args.length > 3)
+            throw Error(`${name} expects text, a target length and optional pad text.`);
+        const value = arg(0), target = arg(1), pad = args[2] ? arg(2) : ' ';
+        if (value === null)
+            return null;
+        if (typeof value !== 'string' || value.length > 32767 || typeof target !== 'number' || !Number.isInteger(target) || target < 0 || target > 32767 || typeof pad !== 'string' || Array.from(pad).length !== 1)
+            throw Error(`${name} needs text of at most 32,767 characters, a whole target length from 0 to 32,767, and one Unicode pad character.`);
+        const characters = Array.from(value), needed = Math.max(0, target - characters.length);
+        if (characters.length + needed > 32767)
+            throw Error(`${name} output is limited to 32,767 characters.`);
+        const fill = Array.from({ length: needed }, () => pad).join('');
+        return short === 'text.padstart' ? fill + value : value + fill;
+    }
+    if (short === 'number.isnan') {
+        check(1);
+        const value = arg(0);
+        if (typeof value !== 'number')
+            throw Error('Number.IsNaN expects a number.');
+        return Number.isNaN(value);
+    }
+    if (short === 'number.totext') {
+        if (args.length < 1 || args.length > 3)
+            throw Error('Number.ToText expects a number and optional format and culture.');
+        if (args.length > 1 && (arg(1) !== null || args.length > 2 && arg(2) !== null && arg(2) !== ''))
+            throw Error('Number.ToText format strings and culture overrides are not implemented; omit them for invariant general text.');
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value !== 'number')
+            throw Error('Number.ToText expects a numeric value.');
+        return Number.isNaN(value) ? 'NaN' : value === Number.POSITIVE_INFINITY ? 'Infinity' : value === Number.NEGATIVE_INFINITY ? '-Infinity' : String(value);
+    }
+    if (short === 'number.fromtext') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Number.FromText expects text and optional culture; culture parsing is not implemented in this subset.');
+        if (args.length === 2) {
+            const culture = arg(1);
+            if (culture !== null && culture !== '')
+                throw Error('Number.FromText culture parsing is not implemented; use an empty culture string for invariant decimal text without grouping separators.');
+        }
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value !== 'string')
+            throw Error('Number.FromText expects a text value.');
+        const text = value.trim();
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text))
+            throw Error('Number.FromText could not convert the text using invariant decimal syntax.');
+        const parsed = Number(text);
+        if (!Number.isFinite(parsed))
+            throw Error('Number.FromText produced a non-finite numeric result.');
+        return parsed;
+    }
+    if (short === 'number.iseven' || short === 'number.isodd') {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value !== 'number' || !Number.isFinite(value))
+            throw Error(`${name} expects a finite number.`);
+        const even = value % 2 === 0;
+        return short === 'number.iseven' ? even : !even;
+    }
+    if (['number.acos', 'number.asin', 'number.atan', 'number.cos', 'number.cosh', 'number.sin', 'number.sinh', 'number.tan', 'number.tanh'].includes(short)) {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (typeof value !== 'number' || !Number.isFinite(value))
+            throw Error(`${name} expects a finite number.`);
+        if ((short === 'number.acos' || short === 'number.asin') && (value < -1 || value > 1))
+            throw Error(`${name} input must be between -1 and 1.`);
+        const result = short === 'number.acos' ? Math.acos(value) : short === 'number.asin' ? Math.asin(value) : short === 'number.atan' ? Math.atan(value) : short === 'number.cos' ? Math.cos(value) : short === 'number.cosh' ? Math.cosh(value) : short === 'number.sin' ? Math.sin(value) : short === 'number.sinh' ? Math.sinh(value) : short === 'number.tan' ? Math.tan(value) : Math.tanh(value);
+        if (!Number.isFinite(result))
+            throw Error(`${name} produced a non-finite result.`);
+        return result;
+    }
+    if (short === 'number.atan2') {
+        check(2);
+        const y = arg(0), x = arg(1);
+        if (y === null || x === null)
+            return null;
+        if (typeof y !== 'number' || !Number.isFinite(y) || typeof x !== 'number' || !Number.isFinite(x))
+            throw Error(`${name} expects finite numeric inputs.`);
+        return Math.atan2(y, x);
+    }
+    if (['number.bitwiseand', 'number.bitwiseor', 'number.bitwisexor', 'number.bitwisenot', 'number.bitwiseshiftleft', 'number.bitwiseshiftright'].includes(short)) {
+        const unary = short === 'number.bitwisenot';
+        check(unary ? 1 : 2);
+        const left = arg(0), right = unary ? null : arg(1);
+        if (left === null || !unary && right === null)
+            return null;
+        if (typeof left !== 'number' || !Number.isSafeInteger(left) || !unary && (typeof right !== 'number' || !Number.isSafeInteger(right)))
+            throw Error(`${name} accepts only safe whole-number operands in this subset.`);
+        let value;
+        const a = BigInt(left);
+        if (unary)
+            value = ~a;
+        else {
+            const b = BigInt(right);
+            switch (short) {
+                case 'number.bitwiseand':
+                    value = a & b;
+                    break;
+                case 'number.bitwiseor':
+                    value = a | b;
+                    break;
+                case 'number.bitwisexor':
+                    value = a ^ b;
+                    break;
+                default:
+                    if (b < 0n || b > 52n)
+                        throw Error(`${name} shift count must be from 0 through 52.`);
+                    value = short === 'number.bitwiseshiftleft' ? a << b : a >> b;
+            }
+        }
+        const result = Number(value);
+        if (!Number.isSafeInteger(result))
+            throw Error(`${name} result exceeds the safe integer range.`);
+        return result;
+    }
+    if (['number.factorial', 'number.combinations', 'number.permutations'].includes(short)) {
+        const factorial = short === 'number.factorial';
+        if (factorial)
+            check(1);
+        else
+            check(2);
+        const first = arg(0), second = factorial ? null : arg(1);
+        if (first === null || !factorial && second === null)
+            return null;
+        if (typeof first !== 'number' || !Number.isSafeInteger(first) || first < 0)
+            throw Error(`${name} requires a non-negative whole-number input.`);
+        if (factorial) {
+            if (first > 170)
+                throw Error('Number.Factorial would overflow the finite numeric result range.');
+            let result = 1;
+            for (let value = 2; value <= first; value++) {
+                result *= value;
+                if (!Number.isFinite(result))
+                    throw Error('Number.Factorial produced a non-finite result.');
+            }
+            return result;
+        }
+        if (typeof second !== 'number' || !Number.isSafeInteger(second) || second < 0)
+            throw Error(`${name} requires a non-negative whole-number size.`);
+        if (second > first)
+            throw Error(`${name} size cannot exceed the set size.`);
+        if (short === 'number.combinations') {
+            const choose = Math.min(second, first - second);
+            if (choose > MAX_CELLS)
+                throw Error('Number.Combinations exceeds the 12,000-step calculation limit.');
+            let result = 1;
+            for (let index = 1; index <= choose; index++) {
+                result *= ((first - choose + index) / index);
+                if (!Number.isFinite(result))
+                    throw Error('Number.Combinations produced a non-finite result.');
+            }
+            return result;
+        }
+        if (second > MAX_CELLS)
+            throw Error('Number.Permutations exceeds the 12,000-step calculation limit.');
+        let result = 1;
+        for (let index = 0; index < second; index++) {
+            result *= first - index;
+            if (!Number.isFinite(result))
+                throw Error('Number.Permutations produced a non-finite result.');
+        }
+        return result;
+    }
+    if (['number.sign', 'number.integerdivide', 'number.mod', 'number.power', 'number.sqrt', 'number.exp', 'number.ln', 'number.log', 'number.log10'].includes(short)) {
+        const unary = ['number.sign', 'number.sqrt', 'number.exp', 'number.ln', 'number.log10'].includes(short), baseLog = short === 'number.log';
+        if (unary)
+            check(1);
+        else if (baseLog) {
+            if (args.length < 1 || args.length > 2)
+                throw Error('Number.Log expects a number and optional base.');
+        }
+        else
+            check(2);
+        const value = arg(0);
+        if (value === null || !unary && arg(1) === null)
+            return null;
+        if (typeof value !== 'number' || !Number.isFinite(value))
+            throw Error(`${name} expects finite numeric input.`);
+        if (short === 'number.sign')
+            return Math.sign(value);
+        if (short === 'number.sqrt') {
+            if (value < 0)
+                throw Error('Number.Sqrt requires a non-negative number.');
+            return Math.sqrt(value);
+        }
+        if (short === 'number.exp') {
+            const result = Math.exp(value);
+            if (!Number.isFinite(result))
+                throw Error('Number.Exp produced a non-finite result.');
+            return result;
+        }
+        if (short === 'number.ln' || short === 'number.log10' || baseLog) {
+            const base = baseLog && args[1] ? arg(1) : baseLog ? 10 : undefined;
+            if (value <= 0 || baseLog && (typeof base !== 'number' || !Number.isFinite(base) || base <= 0 || base === 1))
+                throw Error(`${name} requires a positive input and a positive base other than 1.`);
+            return baseLog ? Math.log(value) / Math.log(base) : short === 'number.log10' ? Math.log10(value) : Math.log(value);
+        }
+        const divisor = arg(1);
+        if (typeof divisor !== 'number' || !Number.isFinite(divisor))
+            throw Error(`${name} expects finite numeric inputs.`);
+        if ((short === 'number.mod' || short === 'number.integerdivide') && divisor === 0)
+            throw Error(`${name} cannot divide by zero.`);
+        const result = short === 'number.power' ? value ** divisor : short === 'number.integerdivide' ? Math.trunc(value / divisor) : value % divisor;
+        if (!Number.isFinite(result))
+            throw Error(`${name} produced a non-finite result.`);
+        return result;
+    }
+    if (short === 'number.from' || short === 'number.abs' || ['number.round', 'number.roundup', 'number.rounddown', 'number.roundtowardzero', 'number.roundawayfromzero'].includes(short)) {
+        if (short === 'number.from') {
+            check(1);
+            const value = arg(0);
+            if (value === null)
+                return null;
+            if (typeof value === 'number' && Number.isFinite(value))
+                return value;
+            if (typeof value === 'boolean')
+                return value ? 1 : 0;
+            if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value.trim())))
+                return Number(value.trim());
+            throw Error('Number.From could not convert this value using invariant decimal syntax.');
+        }
+        if (short === 'number.abs') {
+            check(1);
+            const n = arg(0);
+            if (typeof n !== 'number')
+                throw Error('Number.Abs expects a number.');
+            return Math.abs(n);
+        }
+        const nearest = short === 'number.round';
+        if (args.length < 1 || args.length > (nearest ? 3 : 2))
+            throw Error(`${name} expects a number, optional decimal count${nearest ? ' and optional RoundingMode' : ''}.`);
+        const n = arg(0), digits = args[1] ? arg(1) : 0;
+        if (n === null)
+            return null;
+        if (typeof n !== 'number' || !Number.isFinite(n) || typeof digits !== 'number' || !Number.isInteger(digits) || Math.abs(digits) > 12)
+            throw Error(`${name} needs a finite number and a whole decimal count from -12 to 12.`);
+        const factor = 10 ** digits, scaled = n * factor;
+        if (!Number.isFinite(scaled))
+            throw Error(`${name} produced a non-finite intermediate result.`);
+        let rounded;
+        if (!nearest) {
+            switch (short) {
+                case 'number.roundup':
+                    rounded = Math.ceil(scaled);
+                    break;
+                case 'number.rounddown':
+                    rounded = Math.floor(scaled);
+                    break;
+                case 'number.roundtowardzero':
+                    rounded = Math.trunc(scaled);
+                    break;
+                default:
+                    rounded = Math.sign(scaled) * Math.ceil(Math.abs(scaled));
+                    break;
+            }
+        }
+        else {
+            const mode = args[2] ? String(arg(2)?.mRoundingMode ?? '') : 'RoundingMode.ToEven';
+            if (!['RoundingMode.ToEven', 'RoundingMode.AwayFromZero', 'RoundingMode.TowardZero', 'RoundingMode.Up', 'RoundingMode.Down'].includes(mode))
+                throw Error('Number.Round supports ToEven, AwayFromZero, TowardZero, Up, or Down tie modes.');
+            const magnitude = Math.abs(scaled), lower = Math.floor(magnitude), fraction = magnitude - lower, tolerance = Number.EPSILON * Math.max(1, magnitude) * 2, tieRounded = mode === 'RoundingMode.ToEven' ? (lower % 2 === 1 ? lower + 1 : lower) : mode === 'RoundingMode.TowardZero' ? lower : mode === 'RoundingMode.Up' ? (n >= 0 ? lower + 1 : lower) : mode === 'RoundingMode.Down' ? (n < 0 ? lower + 1 : lower) : lower + 1, magnitudeRounded = fraction > 0.5 + tolerance ? lower + 1 : fraction < 0.5 - tolerance ? lower : tieRounded;
+            rounded = Math.sign(n) * magnitudeRounded;
+        }
+        const result = rounded / factor;
+        if (!Number.isFinite(result))
+            throw Error(`${name} produced a non-finite result.`);
+        return result;
+    }
+    if (['datetime.addweeks', 'datetime.addmonths', 'datetime.addquarters', 'datetime.addyears'].includes(short)) {
+        check(2);
+        const raw = arg(0), serial = worksheetDateTimeSerial(raw), amount = arg(1);
+        if (raw === null)
+            return null;
+        if (serial === null)
+            throw Error(`${name} expects a valid worksheet serial or ISO local date/time value.`);
+        if (typeof amount !== 'number' || !Number.isFinite(amount) || Math.abs(amount) > 120_000 || (short !== 'datetime.addweeks' && !Number.isSafeInteger(amount)))
+            throw Error(`${name} needs a finite offset within -120,000 to 120,000; month, quarter and year offsets must be whole numbers.`);
+        if (short === 'datetime.addweeks') {
+            const shifted = serial + amount * 7;
+            if (!Number.isFinite(shifted) || shifted < 0 || shifted > 2_958_465)
+                throw Error(`${name} result is outside the supported Excel datetime range.`);
+            return shifted;
+        }
+        const dateName = short === 'datetime.addmonths' ? 'Date.AddMonths' : short === 'datetime.addquarters' ? 'Date.AddQuarters' : 'Date.AddYears';
+        return call(dateName, [{ kind: 'literal', value: serial }, { kind: 'literal', value: amount }], env, row);
+    }
+    if (short === 'duration.totext') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Duration.ToText expects a duration and optional format.');
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (args[1] && arg(1) !== null)
+            throw Error('Duration.ToText format is deprecated and non-null formats are unsupported.');
+        return formatMDurationText(value, name);
+    }
+    if (short === 'duration.from' || short === 'duration.fromtext') {
+        if (short === 'duration.fromtext')
+            check(1);
+        else if (args.length < 1 || args.length > 2)
+            throw Error('Duration.From expects a value and optional culture.');
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (short === 'duration.from' && args[1] && arg(1) !== null && arg(1) !== '')
+            throw Error('Duration.From culture parsing is unsupported; use invariant duration text.');
+        if (short === 'duration.from' && isMDuration(value))
+            return value;
+        if (short === 'duration.from' && typeof value === 'number' && Number.isFinite(value))
+            return { mDurationDays: value };
+        const days = strictMDurationDays(value);
+        if (days !== null)
+            return { mDurationDays: days };
+        throw Error(`${name} accepts a finite day fraction or strict d.hh:mm:ss duration text in this subset.`);
+    }
+    if (['duration.torecord', 'duration.days', 'duration.hours', 'duration.minutes', 'duration.seconds'].includes(short)) {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        const parts = normalizedDurationParts(value, name);
+        if (short === 'duration.torecord')
+            return parts;
+        const key = short === 'duration.days' ? 'Days' : short === 'duration.hours' ? 'Hours' : short === 'duration.minutes' ? 'Minutes' : 'Seconds';
+        return parts[key];
+    }
+    if (['duration.totaldays', 'duration.totalhours', 'duration.totalminutes', 'duration.totalseconds'].includes(short)) {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (!value || typeof value !== 'object' || !Object.hasOwn(value, 'mDurationDays') || typeof value.mDurationDays !== 'number')
+            throw Error(`${name} expects a duration value from #duration.`);
+        const factor = short === 'duration.totaldays' ? 1 : short === 'duration.totalhours' ? 24 : short === 'duration.totalminutes' ? 1440 : 86400, result = value.mDurationDays * factor;
+        if (!Number.isFinite(result))
+            throw Error(`${name} result exceeds finite numeric range.`);
+        return result;
+    }
+    if (short === 'time.totext') {
+        check(1);
+        const value = arg(0), serial = typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 1 ? value : strictMTimeSerial(value);
+        if (value === null)
+            return null;
+        if (serial === null)
+            throw Error('Time.ToText expects a time fraction from 0 up to 1 or exact local time text.');
+        let millis = Math.round(serial * 86400000);
+        if (millis >= 86400000)
+            millis = 86399999;
+        const hour = Math.floor(millis / 3600000), minute = Math.floor((millis - hour * 3600000) / 60000), seconds = (millis - hour * 3600000 - minute * 60000) / 1000, secondText = seconds.toFixed(3).replace(/0+$/, '').replace(/\.$/, '').padStart(2, '0');
+        return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${secondText}`;
+    }
+    if (short === 'time.startofhour' || short === 'time.endofhour') {
+        check(1);
+        const value = arg(0), serial = typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 1 ? value : strictMTimeSerial(value);
+        if (value === null)
+            return null;
+        if (serial === null)
+            throw Error(`${name} expects a time fraction from 0 up to 1 or exact local time text.`);
+        const start = Math.floor(serial * 24) / 24;
+        return short === 'time.startofhour' ? start : start + 3599 / 86400;
+    }
+    if (short === 'time.from') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Time.From expects a value and optional culture.');
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (args[1] && arg(1) !== null && arg(1) !== '')
+            throw Error('Time.From culture parsing is unsupported; use invariant HH:mm:ss text.');
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 1)
+            return value;
+        const parsed = strictMTimeSerial(value);
+        if (parsed !== null)
+            return parsed;
+        throw Error('Time.From accepts a day fraction from 0 up to 1 or exact local HH:mm:ss[.fraction] text in this subset.');
+    }
+    if (short === 'time.fromtext') {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        const serial = strictMTimeSerial(value);
+        if (serial === null)
+            throw Error('Time.FromText accepts exact local text HH:mm:ss[.fraction] without a timezone in this subset.');
+        return serial;
+    }
+    if (['time.torecord', 'time.hour', 'time.minute', 'time.second'].includes(short)) {
+        check(1);
+        const value = arg(0), serial = typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 1 ? value : strictMTimeSerial(value);
+        if (value === null)
+            return null;
+        if (serial === null)
+            throw Error(`${name} expects a time fraction from 0 up to 1 or exact local time text.`);
+        let millis = Math.round(serial * 86400000);
+        if (millis >= 86400000)
+            millis = 86399999;
+        const hour = Math.floor(millis / 3600000), minute = Math.floor((millis - hour * 3600000) / 60000), second = (millis - hour * 3600000 - minute * 60000) / 1000;
+        if (short === 'time.hour')
+            return hour;
+        if (short === 'time.minute')
+            return minute;
+        if (short === 'time.second')
+            return second;
+        return { Hour: hour, Minute: minute, Second: second };
+    }
+    if (short === 'datetime.date' || short === 'datetime.time' || short === 'datetime.startofday' || short === 'datetime.endofday') {
+        check(1);
+        const value = arg(0), serial = worksheetDateTimeSerial(value);
+        if (value === null)
+            return null;
+        if (serial === null)
+            throw Error(`${name} expects a valid worksheet serial or ISO local date/time value.`);
+        const day = Math.floor(serial);
+        if (short === 'datetime.date' || short === 'datetime.startofday')
+            return day;
+        if (short === 'datetime.time')
+            return serial - day;
+        return day + 86399 / 86400;
+    }
+    if (short === 'datetime.from') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('DateTime.From expects a value and optional culture.');
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (args[1] && arg(1) !== null && arg(1) !== '')
+            throw Error('DateTime.From culture parsing is unsupported; use invariant worksheet serials or ISO text.');
+        const serial = worksheetDateTimeSerial(value);
+        if (serial === null)
+            throw Error('DateTime.From accepts a bounded worksheet serial or ISO local date/time text in this subset.');
+        return serial;
+    }
+    if (short === 'datetime.totext') {
+        check(1);
+        const value = arg(0), serial = worksheetDateTimeSerial(value);
+        if (value === null)
+            return null;
+        if (serial === null)
+            throw Error('DateTime.ToText expects a valid worksheet serial or ISO local date/time value.');
+        const iso = excelSerialDateIso(Math.floor(serial));
+        if (!iso)
+            throw Error('DateTime.ToText date is outside the supported worksheet serial range.');
+        return `${iso}T${formatMTimeText(serial - Math.floor(serial))}`;
+    }
+    if (short === 'datetime.fromtext') {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        const serial = strictMDateTimeSerial(value);
+        if (serial === null)
+            throw Error('DateTime.FromText accepts exact ISO local timestamps YYYY-MM-DDTHH:mm:ss[.fraction] without a timezone in this subset.');
+        return serial;
+    }
+    if (short === 'datetime.torecord') {
+        check(1);
+        const value = arg(0), serial = worksheetDateTimeSerial(value), iso = serial === null ? null : excelSerialDateIso(serial);
+        if (serial === null || !iso)
+            throw Error('DateTime.ToRecord expects a valid datetime serial or ISO date/time value.');
+        const whole = Math.floor(serial), time = Math.round((serial - whole) * 86400 * 1000) / 1000;
+        let hour = Math.floor(time / 3600), minute = Math.floor((time - hour * 3600) / 60), second = Math.round((time - hour * 3600 - minute * 60) * 1000) / 1000;
+        if (second >= 60) {
+            second = 0;
+            minute++;
+        }
+        if (minute >= 60) {
+            minute = 0;
+            hour++;
+        }
+        return { Year: Number(iso.slice(0, 4)), Month: Number(iso.slice(5, 7)), Day: Number(iso.slice(8, 10)), Hour: hour, Minute: minute, Second: second };
+    }
+    if (short === 'date.torecord') {
+        check(1);
+        const value = arg(0), serial = typeof value === 'number' ? value : excelDateSerial(value), iso = serial === null ? null : excelSerialDateIso(serial);
+        if (serial === null || !iso)
+            throw Error('Date.ToRecord expects a valid date serial or ISO date value.');
+        const date = excelSerialUtcDate(serial);
+        return { Year: date.getUTCFullYear(), Month: date.getUTCMonth() + 1, Day: date.getUTCDate() };
+    }
+    if (short === 'date.monthname' || short === 'date.dayofweekname') {
+        if (args.length < 1 || args.length > 2)
+            throw Error(`${name} expects a date and optional culture.`);
+        const value = arg(0), culture = args[1] ? arg(1) : null;
+        if (value === null)
+            return null;
+        if (culture !== null && (typeof culture !== 'string' || culture !== '' && !/^en(?:-[A-Za-z]{2,8})?$/i.test(culture)))
+            throw Error(`${name} supports English cultures only in this subset.`);
+        const serial = typeof value === 'number' ? value : excelDateSerial(value), iso = serial === null ? null : excelSerialDateIso(serial);
+        if (serial === null || !iso)
+            return null;
+        const date = excelSerialUtcDate(serial), months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'], days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        return short === 'date.monthname' ? months[date.getUTCMonth()] : days[serial === 60 ? 4 : date.getUTCDay()];
+    }
+    if (short === 'date.from' || short === 'date.fromtext') {
+        check(1);
+        const value = arg(0);
+        if (value === null)
+            return null;
+        if (short === 'date.fromtext' && typeof value !== 'string')
+            throw Error('Date.FromText accepts ISO date text only in this subset.');
+        const serial = typeof value === 'number' ? value : short === 'date.from' ? worksheetDateTimeSerial(value) : excelDateSerial(value), hint = short === 'date.from' ? 'an Excel 1900-system serial or exact ISO local date/time text' : 'an Excel 1900-system serial or exact ISO date text (YYYY-MM-DD)';
+        if (serial === null || !Number.isFinite(serial) || serial < 0 || serial > 2_958_465)
+            throw Error(`${name} could not convert the input; use ${hint}.`);
+        return Math.floor(serial);
+    }
+    if (['datetime.adddays', 'datetime.addhours', 'datetime.addminutes', 'datetime.addseconds'].includes(short)) {
+        check(2);
+        const raw = arg(0), serial = worksheetDateTimeSerial(raw), amount = arg(1);
+        if (raw === null || serial === null || !Number.isFinite(serial) || serial < 0 || serial > 2_958_465)
+            return null;
+        if (typeof amount !== 'number' || !Number.isFinite(amount) || Math.abs(amount) > 120_000)
+            throw Error(`${name} needs a finite offset from -120,000 to 120,000 in the selected unit.`);
+        const unit = short === 'datetime.adddays' ? 1 : short === 'datetime.addhours' ? 1 / 24 : short === 'datetime.addminutes' ? 1 / 1440 : 1 / 86400, shifted = serial + amount * unit;
+        if (!Number.isFinite(shifted) || shifted < 0 || shifted > 2_958_465)
+            throw Error(`${name} result is outside the supported Excel datetime range.`);
+        return shifted;
+    }
+    if (['date.adddays', 'date.addweeks', 'date.addmonths', 'date.addquarters', 'date.addyears'].includes(short)) {
+        check(2);
+        const value = arg(0), amount = arg(1), serial = typeof value === 'number' ? value : excelDateSerial(value);
+        if (serial === null || !Number.isFinite(serial) || serial < 0 || serial > 2_958_465)
+            return null;
+        if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || Math.abs(amount) > 120_000)
+            throw Error(`${name} needs a whole-number offset from -120,000 to 120,000.`);
+        if (short === 'date.adddays' || short === 'date.addweeks') {
+            const shifted = serial + amount * (short === 'date.addweeks' ? 7 : 1);
+            if (!Number.isFinite(shifted) || shifted < 0 || shifted > 2_958_465)
+                throw Error(`${name} result is outside the supported Excel date range.`);
+            return shifted;
+        }
+        const whole = Math.floor(serial), fraction = serial - whole, iso = excelSerialDateIso(whole);
+        if (!iso)
+            return null;
+        const year = Number(iso.slice(0, 4)), month = Number(iso.slice(5, 7)), day = Number(iso.slice(8, 10)), months = amount * (short === 'date.addmonths' ? 1 : short === 'date.addquarters' ? 3 : 12), targetIndex = year * 12 + month - 1 + months, targetYear = Math.floor(targetIndex / 12), targetMonth = ((targetIndex % 12) + 12) % 12 + 1;
+        if (targetYear < 1900 || targetYear > 9999)
+            throw Error(`${name} result is outside the supported Excel date range.`);
+        const lastDay = new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate(), targetDay = Math.min(day, lastDay);
+        if (targetYear === 1900 && targetMonth === 2 && targetDay === 29)
+            return 60 + fraction;
+        const shifted = excelDateSerial(`${String(targetYear).padStart(4, '0')}-${String(targetMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`);
+        if (shifted === null || shifted + fraction > 2_958_465)
+            throw Error(`${name} result is outside the supported Excel date range.`);
+        return shifted + fraction;
+    }
+    if (short.startsWith('date.')) {
+        if (['date.dayofweek', 'date.weekofyear', 'date.weekofmonth', 'date.startofweek', 'date.endofweek'].includes(short)) {
+            if (args.length < 1 || args.length > 2)
+                throw Error(`${name} expects a date and optional Day.* value.`);
+        }
+        else
+            check(1);
+        const value = arg(0), serial = typeof value === 'number' ? value : excelDateSerial(value), iso = serial === null ? null : excelSerialDateIso(serial);
+        if (serial === null || !iso)
+            return null;
+        const date = excelSerialUtcDate(serial), year = date.getUTCFullYear(), month = date.getUTCMonth() + 1, day = date.getUTCDate(), quarterEndMonth = Math.ceil(month / 3) * 3, yearStart = excelDateSerial(`${String(year).padStart(4, '0')}-01-01`), dayOfYear = Math.floor(serial - yearStart) + 1, dayNames = ['Day.Sunday', 'Day.Monday', 'Day.Tuesday', 'Day.Wednesday', 'Day.Thursday', 'Day.Friday', 'Day.Saturday'], firstDay = args[1] ? String(arg(1)?.mDayOfWeek ?? '') : 'Day.Sunday', firstIndex = dayNames.indexOf(firstDay), weekday = serial === 60 ? 4 : date.getUTCDay();
+        if (['date.dayofweek', 'date.weekofyear', 'date.weekofmonth', 'date.startofweek', 'date.endofweek'].includes(short) && firstIndex < 0)
+            throw Error(`${name} supports Day.Sunday through Day.Saturday.`);
+        switch (short) {
+            case 'date.year': return year;
+            case 'date.month': return month;
+            case 'date.quarterofyear': return Math.ceil(month / 3);
+            case 'date.day': return day;
+            case 'date.dayofyear': return dayOfYear;
+            case 'date.dayofweek': return (weekday - firstIndex + 7) % 7;
+            case 'date.weekofyear': {
+                const jan1 = new Date(Date.UTC(year, 0, 1)), jan1Offset = (jan1.getUTCDay() - firstIndex + 7) % 7;
+                return Math.floor((dayOfYear - 1 + jan1Offset) / 7) + 1;
+            }
+            case 'date.weekofmonth': {
+                const monthStart = new Date(Date.UTC(year, month - 1, 1)), offset = (monthStart.getUTCDay() - firstIndex + 7) % 7;
+                return Math.floor((day - 1 + offset) / 7) + 1;
+            }
+            case 'date.isleapyear': return new Date(Date.UTC(year, 1, 29)).getUTCMonth() === 1;
+            case 'date.startofweek': return Math.floor(serial) - ((weekday - firstIndex + 7) % 7);
+            case 'date.endofweek': return Math.floor(serial) - ((weekday - firstIndex + 7) % 7) + 6;
+            case 'date.daysinmonth': return new Date(Date.UTC(year, month, 0)).getUTCDate();
+            case 'date.startofmonth': return excelDateSerial(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`);
+            case 'date.startofquarter': return excelDateSerial(`${String(year).padStart(4, '0')}-${String(Math.floor((month - 1) / 3) * 3 + 1).padStart(2, '0')}-01`);
+            case 'date.startofyear': return excelDateSerial(`${String(year).padStart(4, '0')}-01-01`);
+            case 'date.endofmonth': return excelDateSerial(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`);
+            case 'date.endofquarter': return excelDateSerial(`${String(year).padStart(4, '0')}-${String(quarterEndMonth).padStart(2, '0')}-${String(new Date(Date.UTC(year, quarterEndMonth, 0)).getUTCDate()).padStart(2, '0')}`);
+            case 'date.endofyear': return excelDateSerial(`${String(year).padStart(4, '0')}-12-31`);
+            default: throw Error(`M date function “${name}” is not supported.`);
+        }
+    }
+    if (short === 'list.dates') {
+        check(3);
+        const start = arg(0), count = arg(1), step = arg(2);
+        if (typeof start !== 'number' || !Number.isFinite(start) || start < 0 || start > 2_958_465 || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0 || count > MAX_CELLS || !step || typeof step !== 'object' || !('mDurationDays' in step) || typeof step.mDurationDays !== 'number')
+            throw Error('List.Dates needs a valid worksheet date serial, a count from 0 to 12,000, and a #duration step.');
+        const increment = step.mDurationDays, values = [];
+        for (let index = 0; index < count; index++) {
+            const date = start + increment * index;
+            if (!Number.isFinite(date) || date < 0 || date > 2_958_465)
+                throw Error('List.Dates generated a date outside the supported worksheet serial range.');
+            values.push(date);
+        }
+        return values;
+    }
+    if (short === 'list.numbers') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('List.Numbers expects a start, count, and optional increment.');
+        const start = arg(0), count = arg(1), increment = args[2] ? arg(2) : 1;
+        if (typeof start !== 'number' || !Number.isFinite(start) || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0 || count > MAX_CELLS || typeof increment !== 'number' || !Number.isFinite(increment))
+            throw Error('List.Numbers needs a finite start, a whole count from 0 to 12,000, and an optional finite increment.');
+        return Array.from({ length: count }, (_, index) => { const value = start + increment * index; if (!Number.isFinite(value))
+            throw Error('List.Numbers generated a non-finite value.'); return value; });
+    }
+    if (short === 'list.replacematchingitems') {
+        check(2);
+        const source = arg(0), replacements = arg(1);
+        if (!Array.isArray(source) || !Array.isArray(replacements) || source.length > MAX_CELLS || replacements.length > MAX_CELLS || source.length * replacements.length > MAX_CELLS)
+            throw Error('List.ReplaceMatchingItems expects bounded lists with at most 12,000 source/replacement comparisons.');
+        const keyOf = (value) => { if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+            throw Error('List.ReplaceMatchingItems in this subset compares finite scalar values only.'); return JSON.stringify([typeof value, value]); };
+        const result = [...source];
+        for (const pair of replacements) {
+            if (!Array.isArray(pair) || pair.length !== 2)
+                throw Error('List.ReplaceMatchingItems replacement entries must be {oldValue, newValue} pairs.');
+            const oldKey = keyOf(pair[0]);
+            keyOf(pair[1]);
+            for (let index = 0; index < result.length; index++)
+                if (keyOf(result[index]) === oldKey)
+                    result[index] = pair[1];
+        }
+        return result;
+    }
+    if (short === 'list.standarddeviation') {
+        check(1);
+        const values = arg(0);
+        if (!Array.isArray(values) || !values.length || values.length > MAX_CELLS)
+            throw Error('List.StandardDeviation expects a non-empty list of at most 12,000 numbers.');
+        if (values.some(value => typeof value !== 'number' || !Number.isFinite(value)))
+            throw Error('List.StandardDeviation requires every list item to be a finite number.');
+        if (values.length < 2)
+            throw Error('List.StandardDeviation requires at least two numeric values.');
+        let count = 0, mean = 0, sumSquares = 0;
+        for (const item of values) {
+            count++;
+            const delta = item - mean;
+            mean += delta / count;
+            sumSquares += delta * (item - mean);
+            if (!Number.isFinite(mean) || !Number.isFinite(sumSquares))
+                throw Error('List.StandardDeviation produced a non-finite result.');
+        }
+        const result = Math.sqrt(sumSquares / (count - 1));
+        if (!Number.isFinite(result))
+            throw Error('List.StandardDeviation produced a non-finite result.');
+        return result;
+    }
+    if (short === 'list.removematchingitems' || short === 'list.removeitems') {
+        check(2);
+        const source = arg(0), remove = arg(1);
+        if (!Array.isArray(source) || !Array.isArray(remove) || source.length + remove.length > MAX_CELLS)
+            throw Error(`${name} expects two lists totaling at most 12,000 items.`);
+        const keyOf = (value) => { if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+            throw Error(`${name} in this subset compares only finite scalar values.`); return JSON.stringify([typeof value, value]); };
+        const keys = new Set(remove.map(keyOf));
+        return source.filter(value => !keys.has(keyOf(value)));
+    }
+    if (short === 'list.union' || short === 'list.intersect' || short === 'list.difference') {
+        check(short === 'list.difference' ? 2 : 1);
+        const raw = arg(0), inputs = short === 'list.difference' ? [raw, arg(1)] : raw;
+        if (!Array.isArray(inputs) || inputs.some(list => !Array.isArray(list)))
+            throw Error(`${name} expects a list of lists, or two lists for List.Difference.`);
+        const lists = inputs;
+        let total = 0;
+        for (const list of lists) {
+            total += list.length;
+            if (total > MAX_CELLS)
+                throw Error(`${name} exceeds the 12,000-item M list limit.`);
+        }
+        const keyOf = (value) => { if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+            throw Error(`${name} in this subset supports only finite scalar values.`); return JSON.stringify([typeof value, value]); };
+        const counts = (list) => { const map = new Map(); for (const value of list) {
+            const key = keyOf(value);
+            map.set(key, (map.get(key) ?? 0) + 1);
+        } return map; };
+        if (short === 'list.difference') {
+            const left = lists[0] ?? [], right = counts(lists[1] ?? []), used = new Map(), result = [];
+            for (const value of left) {
+                const key = keyOf(value), available = right.get(key) ?? 0, consumed = used.get(key) ?? 0;
+                if (consumed < available)
+                    used.set(key, consumed + 1);
+                else
+                    result.push(value);
+            }
+            return result;
+        }
+        if (short === 'list.intersect') {
+            if (!lists.length)
+                return [];
+            const others = lists.slice(1).map(counts), seen = new Map(), result = [];
+            for (const value of lists[0] ?? []) {
+                const key = keyOf(value), ordinal = (seen.get(key) ?? 0) + 1;
+                seen.set(key, ordinal);
+                if (others.every(map => ordinal <= (map.get(key) ?? 0)))
+                    result.push(value);
+            }
+            return result;
+        }
+        const maxCounts = new Map(), result = [];
+        for (const list of lists) {
+            const current = new Map();
+            for (const value of list) {
+                const key = keyOf(value), ordinal = (current.get(key) ?? 0) + 1;
+                current.set(key, ordinal);
+                if (ordinal > (maxCounts.get(key) ?? 0))
+                    result.push(value);
+                if (result.length > MAX_CELLS)
+                    throw Error('List.Union exceeds the 12,000-item M list limit.');
+            }
+            for (const [key, count] of current)
+                maxCounts.set(key, Math.max(maxCounts.get(key) ?? 0, count));
+        }
+        return result;
+    }
+    if (short === 'list.insertrange' || short === 'list.removerange' || short === 'list.replacerange') {
+        const expected = short === 'list.insertrange' ? 3 : short === 'list.removerange' ? 3 : 4;
+        check(expected);
+        const source = arg(0), index = arg(1), count = short === 'list.insertrange' ? 0 : arg(2), replacement = short === 'list.insertrange' ? arg(2) : short === 'list.replacerange' ? arg(3) : [];
+        if (!Array.isArray(source) || source.length > MAX_CELLS || typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > source.length || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0 || count > MAX_CELLS || !Array.isArray(replacement))
+            throw Error(`${name} expects a bounded list, valid zero-based index/count, and replacement list where applicable.`);
+        const removed = short === 'list.insertrange' ? 0 : Math.min(count, source.length - index), outputLength = source.length - removed + replacement.length;
+        if (outputLength > MAX_CELLS)
+            throw Error(`${name} output exceeds the 12,000-item M list limit.`);
+        return [...source.slice(0, index), ...replacement, ...source.slice(index + removed)];
+    }
+    if (short === 'list.alternate') {
+        if (args.length < 2 || args.length > 4)
+            throw Error('List.Alternate expects a list, skip count, optional keep count, and optional initial offset.');
+        const values = arg(0), skip = arg(1), keep = args[2] ? arg(2) : undefined, offset = args[3] ? arg(3) : 0;
+        if (!Array.isArray(values) || values.length > MAX_CELLS || ![skip, offset, ...(keep === undefined ? [] : [keep])].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_CELLS))
+            throw Error('List.Alternate counts and offset must be whole numbers from 0 to 12,000.');
+        if (keep === undefined) {
+            const start = Math.min(values.length, offset + skip);
+            return [...values.slice(0, offset), ...values.slice(start)];
+        }
+        if (skip === 0 && keep === 0)
+            throw Error('List.Alternate skip and keep counts cannot both be zero.');
+        const result = values.slice(0, offset);
+        let index = Math.min(values.length, offset);
+        while (index < values.length) {
+            index = Math.min(values.length, index + skip);
+            if (index >= values.length)
+                break;
+            result.push(...values.slice(index, index + keep));
+            index = Math.min(values.length, index + keep);
+        }
+        return result;
+    }
+    if (short === 'list.positions') {
+        check(1);
+        const values = arg(0);
+        if (!Array.isArray(values) || values.length > MAX_CELLS)
+            throw Error('List.Positions expects a list of at most 12,000 values.');
+        return values.map((_, index) => index);
+    }
+    if (short === 'list.repeat') {
+        check(2);
+        const values = arg(0), count = arg(1);
+        if (!Array.isArray(values) || values.length > MAX_CELLS || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0 || count > MAX_CELLS || values.length * count > MAX_CELLS)
+            throw Error('List.Repeat needs a list and a whole repetition count from 0 to 12,000, with at most 12,000 output items.');
+        const result = [];
+        for (let index = 0; index < count; index++)
+            result.push(...values);
+        return result;
+    }
+    if (short === 'list.split') {
+        check(2);
+        const values = arg(0), size = arg(1);
+        if (!Array.isArray(values) || values.length > MAX_CELLS || typeof size !== 'number' || !Number.isSafeInteger(size) || size < 1 || size > MAX_CELLS)
+            throw Error('List.Split needs a list and a positive whole page size from 1 to 12,000.');
+        const result = [];
+        for (let index = 0; index < values.length; index += size)
+            result.push(values.slice(index, index + size));
+        return result;
+    }
+    if (short === 'list.zip') {
+        check(1);
+        const lists = arg(0);
+        if (!Array.isArray(lists) || lists.some(list => !Array.isArray(list)))
+            throw Error('List.Zip expects a list of lists.');
+        let inputCells = 0, maxLength = 0;
+        for (const list of lists) {
+            inputCells += list.length;
+            maxLength = Math.max(maxLength, list.length);
+        }
+        if (inputCells > MAX_CELLS || maxLength * lists.length > MAX_CELLS)
+            throw Error('List.Zip exceeds the 12,000-cell M list limit.');
+        return Array.from({ length: maxLength }, (_, row) => lists.map(list => list[row] ?? null));
+    }
+    if (short === 'list.combine') {
+        check(1);
+        const lists = arg(0);
+        if (!Array.isArray(lists))
+            throw Error('List.Combine expects a list of lists.');
+        const result = [];
+        for (const list of lists) {
+            if (!Array.isArray(list))
+                throw Error('List.Combine expects every item to be a list.');
+            if (result.length + list.length > MAX_CELLS)
+                throw Error('List.Combine exceeds the 12,000-cell M list limit.');
+            result.push(...list);
+        }
+        return result;
+    }
+    if (short === 'list.removenulls' || short === 'list.reverse') {
+        check(1);
+        const values = arg(0);
+        if (!Array.isArray(values))
+            throw Error(`${name} expects a list.`);
+        return short === 'list.removenulls' ? values.filter(value => value !== null) : [...values].reverse();
+    }
+    if (short === 'list.transform' || short === 'list.select') {
+        check(2);
+        const values = arg(0), lambda = arg(1);
+        if (!Array.isArray(values) || values.length > MAX_CELLS || !lambda || typeof lambda !== 'object' || !('each' in lambda))
+            throw Error(`${name} expects a bounded list and an “each” expression.`);
+        const body = lambda.each, out = [];
+        for (const value of values) {
+            const local = new Map(env);
+            local.set('_', value);
+            const result = evaluate(body, local, row);
+            if (short === 'list.select') {
+                if (typeof result !== 'boolean')
+                    throw Error('List.Select predicate must return true or false.');
+                if (result)
+                    out.push(value);
+            }
+            else {
+                if (result !== null && typeof result !== 'string' && typeof result !== 'number' && typeof result !== 'boolean' || typeof result === 'number' && !Number.isFinite(result))
+                    throw Error('List.Transform in this subset must return scalar values.');
+                out.push(result);
+            }
+        }
+        return out;
+    }
+    if (short.startsWith('list.')) {
+        if (['list.first', 'list.last', 'list.singleordefault'].includes(short)) {
+            if (args.length < 1 || args.length > 2)
+                throw Error(`${name} expects a list and optional default value.`);
+        }
+        else if (short === 'list.single') {
+            check(1);
+        }
+        else if (short === 'list.positionof') {
+            if (args.length < 2 || args.length > 3)
+                throw Error('List.PositionOf expects a list, value, and optional Occurrence.First or Occurrence.Last.');
+        }
+        else if (['list.contains', 'list.containsall', 'list.containsany', 'list.positionofany'].includes(short)) {
+            check(2);
+        }
+        else
+            check(1);
+        const values = arg(0);
+        if (!Array.isArray(values))
+            throw Error(`${name} expects a list.`);
+        const nonNull = values.filter(value => value !== null), aggregateValues = nonNull.filter(value => value !== ''), scalarKey = (value) => { if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+            throw Error(`${name} in this subset compares only finite scalar values.`); return JSON.stringify([typeof value, value]); };
+        switch (short) {
+            case 'list.count': return values.length;
+            case 'list.nonnullcount': return nonNull.length;
+            case 'list.isempty': return values.length === 0;
+            case 'list.alltrue':
+            case 'list.anytrue':
+                if (values.some(value => typeof value !== 'boolean'))
+                    throw Error(`${name} requires a list of logical values.`);
+                return short === 'list.alltrue' ? values.every(Boolean) : values.some(Boolean);
+            case 'list.contains': return values.some(value => value === arg(1));
+            case 'list.positionof': {
+                const occurrence = args[2] ? String(arg(2)?.mOccurrence ?? '') : 'Occurrence.First';
+                if (!['Occurrence.First', 'Occurrence.Last'].includes(occurrence))
+                    throw Error('List.PositionOf supports Occurrence.First or Occurrence.Last only.');
+                if (occurrence === 'Occurrence.Last') {
+                    for (let index = values.length - 1; index >= 0; index--)
+                        if (values[index] === arg(1))
+                            return index;
+                    return -1;
+                }
+                return values.findIndex(value => value === arg(1));
+            }
+            case 'list.isdistinct': {
+                const keys = values.map(scalarKey);
+                return new Set(keys).size === keys.length;
+            }
+            case 'list.containsall':
+            case 'list.containsany': {
+                const candidates = arg(1);
+                if (!Array.isArray(candidates))
+                    throw Error(`${name} expects a second list.`);
+                const keys = new Set(values.map(scalarKey)), matches = candidates.map(scalarKey).map(key => keys.has(key));
+                return short === 'list.containsall' ? matches.every(Boolean) : matches.some(Boolean);
+            }
+            case 'list.positionofany': {
+                const candidates = arg(1);
+                if (!Array.isArray(candidates))
+                    throw Error(`${name} expects a second list.`);
+                const wanted = new Set(candidates.map(scalarKey));
+                return values.findIndex(value => wanted.has(scalarKey(value)));
+            }
+            case 'list.first': return values.length ? values[0] : args[1] ? arg(1) : null;
+            case 'list.last': return values.length ? values[values.length - 1] : args[1] ? arg(1) : null;
+            case 'list.single':
+                if (values.length !== 1)
+                    throw Error('List.Single expects exactly one list item.');
+                return values[0];
+            case 'list.singleordefault':
+                if (values.length > 1)
+                    throw Error('List.SingleOrDefault cannot return a value from a list with multiple items.');
+                return values.length ? values[0] : args[1] ? arg(1) : null;
+            case 'list.distinct': return [...new Map(values.map(value => [JSON.stringify(value), value])).values()];
+            case 'list.mode':
+            case 'list.modes': {
+                if (!values.length)
+                    throw Error(`${name} cannot evaluate an empty list.`);
+                const counts = new Map(), keys = values.map(scalarKey);
+                for (const key of keys)
+                    counts.set(key, (counts.get(key) ?? 0) + 1);
+                const maximum = Math.max(...counts.values()), modes = new Map();
+                for (let index = 0; index < values.length; index++) {
+                    const key = keys[index];
+                    if (counts.get(key) === maximum && !modes.has(key))
+                        modes.set(key, values[index]);
+                }
+                if (short === 'list.modes')
+                    return [...modes.values()];
+                for (let index = values.length - 1; index >= 0; index--)
+                    if (counts.get(keys[index]) === maximum)
+                        return values[index];
+                return null;
+            }
+            case 'list.sum':
+            case 'list.average':
+            case 'list.min':
+            case 'list.max':
+            case 'list.product':
+            case 'list.median': {
+                const numbers = aggregateValues.filter((value) => typeof value === 'number' && Number.isFinite(value));
+                if (numbers.length !== aggregateValues.length)
+                    throw Error(`${name} requires numeric list values.`);
+                if (!numbers.length)
+                    return null;
+                if (short === 'list.sum')
+                    return numbers.reduce((sum, value) => sum + value, 0);
+                if (short === 'list.average')
+                    return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+                if (short === 'list.min')
+                    return Math.min(...numbers);
+                if (short === 'list.max')
+                    return Math.max(...numbers);
+                if (short === 'list.median') {
+                    numbers.sort((a, b) => a - b);
+                    const middle = Math.floor(numbers.length / 2), median = numbers.length % 2 ? numbers[middle] : numbers[middle - 1] / 2 + numbers[middle] / 2;
+                    if (!Number.isFinite(median))
+                        throw Error('List.Median produced a non-finite result.');
+                    return median;
+                }
+                let product = 1;
+                for (const number of numbers) {
+                    product *= number;
+                    if (!Number.isFinite(product))
+                        throw Error('List.Product produced a non-finite result.');
+                }
+                return product;
+            }
+            default: throw Error(`M list function “${name}” is not supported.`);
+        }
+    }
+    if (short === '#time') {
+        check(3);
+        const [hour, minute, second] = [arg(0), arg(1), arg(2)];
+        if (typeof hour !== 'number' || !Number.isSafeInteger(hour) || hour < 0 || hour > 23 || typeof minute !== 'number' || !Number.isSafeInteger(minute) || minute < 0 || minute > 59 || typeof second !== 'number' || !Number.isFinite(second) || second < 0 || second >= 60)
+            throw Error('#time requires hour 0-23, minute 0-59, and finite seconds from 0 up to (but not including) 60.');
+        return (hour * 3600 + minute * 60 + second) / 86400;
+    }
+    if (short === '#datetime') {
+        check(6);
+        const raw = [arg(0), arg(1), arg(2), arg(3), arg(4), arg(5)];
+        if (raw.slice(0, 5).some(value => typeof value !== 'number' || !Number.isSafeInteger(value)) || typeof raw[5] !== 'number' || !Number.isFinite(raw[5]))
+            throw Error('#datetime parts must use whole date/hour/minute values and a finite seconds value.');
+        const [year, month, day, hour, minute, second] = raw;
+        if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > daysInGregorianMonth(year, month) || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second >= 60)
+            throw Error('#datetime needs a valid Gregorian date and valid time parts.');
+        const date = excelDateSerial(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+        if (date === null)
+            throw Error('#datetime is outside the supported Excel worksheet date range.');
+        const result = date + (hour * 3600 + minute * 60 + second) / 86400;
+        if (!Number.isFinite(result) || result > 2_958_465)
+            throw Error('#datetime is outside the supported Excel worksheet date range.');
+        return result;
+    }
+    if (short === '#duration') {
+        check(4);
+        const parts = [arg(0), arg(1), arg(2), arg(3)];
+        if (parts.some(value => typeof value !== 'number' || !Number.isFinite(value)))
+            throw Error('#duration parts must be finite numbers.');
+        const days = parts[0] + parts[1] / 24 + parts[2] / 1440 + parts[3] / 86400;
+        if (!Number.isFinite(days))
+            throw Error('#duration produced a non-finite duration.');
+        return { mDurationDays: days };
+    }
+    if (short === '#date') {
+        check(3);
+        const year = arg(0), month = arg(1), day = arg(2);
+        if ([year, month, day].some(value => typeof value !== 'number' || !Number.isSafeInteger(value)) || typeof year !== 'number' || typeof month !== 'number' || typeof day !== 'number' || year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > daysInGregorianMonth(year, month))
+            throw Error('#date requires a valid Gregorian year (1-9999), month (1-12), and day for that month.');
+        const serial = excelDateSerial(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+        if (serial === null)
+            throw Error('#date could not encode the date in the worksheet serial range.');
+        return serial;
+    }
+    if (short === '#table') {
+        check(2);
+        const rawHeaders = arg(0), rawRows = arg(1);
+        if (!Array.isArray(rawHeaders) || !rawHeaders.length || rawHeaders.length > MAX_COLUMNS || rawHeaders.some(header => typeof header !== 'string' || !header.trim()) || new Set(rawHeaders.map(header => header.toLowerCase())).size !== rawHeaders.length || !Array.isArray(rawRows) || rawRows.length > MAX_ROWS || rawRows.some(row => !Array.isArray(row) || row.length !== rawHeaders.length || row.some(cell => cell !== null && typeof cell !== 'string' && typeof cell !== 'number' && typeof cell !== 'boolean' || typeof cell === 'number' && !Number.isFinite(cell))) || (rawRows.length + 1) * rawHeaders.length > MAX_CELLS)
+            throw Error('#table needs unique text headers and equally sized scalar rows within the M size limits.');
+        return { headers: rawHeaders, rows: rawRows };
+    }
+    if (short === 'table.combine') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Table.Combine expects a list of tables and optional explicit column names.');
+        const inputs = arg(0);
+        if (!Array.isArray(inputs) || inputs.length > 64 || inputs.some(item => !isMTable(item)))
+            throw Error('Table.Combine expects a list of up to 64 tables.');
+        const tables = inputs, explicit = args[1] !== undefined && arg(1) !== null, headers = explicit ? columns(arg(1)) : [], headerNames = new Map();
+        if (explicit) {
+            for (const header of headers) {
+                const normalized = normalizedName(header), prior = headerNames.get(normalized);
+                if (prior !== undefined)
+                    throw Error(`Table.Combine output columns “${prior}” and “${header}” are duplicate names.`);
+                if (!header.trim() || header.length > 255)
+                    throw Error('Table.Combine output names must be non-empty text up to 255 characters.');
+                headerNames.set(normalized, header);
+            }
+        }
+        else
+            for (const input of tables)
+                for (const header of input.headers) {
+                    const normalized = normalizedName(header), prior = headerNames.get(normalized);
+                    if (prior !== undefined) {
+                        if (prior !== header)
+                            throw Error(`Table.Combine found headers “${prior}” and “${header}” that differ only by case.`);
+                        continue;
+                    }
+                    headerNames.set(normalized, header);
+                    headers.push(header);
+                }
+        if (!headers.length || headers.length > MAX_COLUMNS)
+            throw Error('Combined M tables must contain 1–104 distinct columns.');
+        const rows = [];
+        for (const input of tables) {
+            const indexes = headers.map(header => input.headers.indexOf(header));
+            for (const values of input.rows) {
+                rows.push(indexes.map(index => index < 0 ? null : values[index] ?? null));
+                if (rows.length > MAX_ROWS || ((rows.length + 1) * headers.length) > MAX_CELLS)
+                    throw Error('Combined M table exceeds the 1,000-row or 12,000-cell limit.');
+            }
+        }
+        return { headers, rows };
+    }
+    if (short === 'table.replacevalue') {
+        check(5);
+        const t = table(), oldValue = arg(1), newValue = arg(2), replacer = arg(3), names = columns(arg(4));
+        if (!replacer || typeof replacer !== 'object' || !('mReplacer' in replacer) || new Set(names).size !== names.length || names.some(column => !t.headers.includes(column)))
+            throw Error('Table.ReplaceValue needs a supported Replacer and unique existing columns.');
+        const replaceText = replacer.mReplacer === 'Replacer.ReplaceText';
+        if (replaceText && (typeof oldValue !== 'string' || !oldValue || typeof newValue !== 'string'))
+            throw Error('Replacer.ReplaceText needs non-empty old text and replacement text.');
+        if ((typeof oldValue === 'object' && oldValue !== null) || (typeof newValue === 'object' && newValue !== null))
+            throw Error('Table.ReplaceValue supports scalar values only.');
+        const indexes = names.map(header => t.headers.indexOf(header));
+        return { ...t, rows: t.rows.map(values => { const next = [...values]; for (const index of indexes) {
+                const value = next[index];
+                if (replaceText && typeof value === 'string')
+                    next[index] = value.split(oldValue).join(newValue);
+                else if (!replaceText && value === oldValue)
+                    next[index] = newValue;
+            } return next; }) };
+    }
+    if (short === 'record.fromlist') {
+        check(2);
+        const values = arg(0), rawFields = arg(1);
+        if (!Array.isArray(values) || values.length > MAX_COLUMNS || !Array.isArray(rawFields) || rawFields.length !== values.length || rawFields.some(field => typeof field !== 'string' || !field.trim() || field.length > 255) || new Set(rawFields).size !== rawFields.length)
+            throw Error('Record.FromList requires equally sized lists of at most 104 values and unique non-empty text field names.');
+        const record = Object.fromEntries(rawFields.map((field, index) => [field, values[index]]));
+        mRecordFieldOrder.set(record, rawFields);
+        return record;
+    }
+    if (short === 'record.fromtable') {
+        check(1);
+        const source = table(), nameIndex = source.headers.indexOf('Name'), valueIndex = source.headers.indexOf('Value');
+        if (source.headers.length !== 2 || nameIndex < 0 || valueIndex < 0)
+            throw Error('Record.FromTable requires exactly Name and Value columns.');
+        if (source.rows.length > MAX_COLUMNS)
+            throw Error(`Record.FromTable supports at most ${MAX_COLUMNS} fields.`);
+        const fields = [], values = [], seen = new Set();
+        for (let index = 0; index < source.rows.length; index++) {
+            const field = source.rows[index][nameIndex];
+            if (typeof field !== 'string' || !field.trim() || field.length > 255)
+                throw Error(`Record.FromTable row ${index + 1} needs a non-empty text Name.`);
+            if (seen.has(field))
+                throw Error(`Record.FromTable field “${field}” occurs more than once.`);
+            seen.add(field);
+            const value = source.rows[index][valueIndex];
+            if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+                throw Error(`Record.FromTable row ${index + 1} Value must be a finite scalar or null.`);
+            fields.push(field);
+            values.push(value);
+        }
+        const record = Object.fromEntries(fields.map((field, index) => [field, values[index]]));
+        mRecordFieldOrder.set(record, fields);
+        return record;
+    }
+    if (short === 'record.selectfields' || short === 'record.removefields') {
+        if (args.length < 2 || args.length > 3)
+            throw Error(`${name} expects a record, field name/list, and optional MissingField option.`);
+        const record = arg(0), rawFields = arg(1);
+        if (!record || typeof record !== 'object' || Array.isArray(record) || isMTable(record))
+            throw Error(`${name} expects a record.`);
+        const requested = typeof rawFields === 'string' ? [rawFields] : rawFields;
+        if (!Array.isArray(requested) || requested.some(field => typeof field !== 'string' || !field.trim() || field.length > 255) || new Set(requested).size !== requested.length)
+            throw Error(`${name} requires a field name or unique list of non-empty field names.`);
+        if (requested.length > MAX_COLUMNS)
+            throw Error(`${name} field list exceeds ${MAX_COLUMNS} fields.`);
+        const option = args[2] ? arg(2) : { mMissingField: 'MissingField.Error' }, missing = option?.mMissingField ?? '';
+        if (!option || typeof option !== 'object' || !['MissingField.Error', 'MissingField.Ignore', 'MissingField.UseNull'].includes(missing) || short === 'record.removefields' && missing === 'MissingField.UseNull')
+            throw Error(`${name} supports MissingField.Error${short === 'record.selectfields' ? ', MissingField.Ignore, or MissingField.UseNull' : ' or MissingField.Ignore'}.`);
+        const sourceFields = mRecordFields(record), sourceSet = new Set(sourceFields), absent = requested.filter(field => !sourceSet.has(field));
+        if (absent.length && missing === 'MissingField.Error')
+            throw Error(`${name} cannot find field “${absent[0]}”.`);
+        const outputFields = short === 'record.selectfields' ? [...sourceFields.filter(field => requested.includes(field)), ...(missing === 'MissingField.UseNull' ? absent : [])] : sourceFields.filter(field => !requested.includes(field));
+        if (outputFields.length > MAX_COLUMNS)
+            throw Error(`${name} result exceeds ${MAX_COLUMNS} fields.`);
+        const output = Object.fromEntries(outputFields.map(field => [field, sourceSet.has(field) ? record[field] : null]));
+        mRecordFieldOrder.set(output, outputFields);
+        return output;
+    }
+    if (short === 'record.addfield') {
+        if (args.length < 3 || args.length > 4)
+            throw Error('Record.AddField expects a record, field name, value, and optional delayed flag.');
+        const source = arg(0), field = arg(1), delayed = args[3] ? arg(3) : false;
+        if (!source || typeof source !== 'object' || Array.isArray(source) || isMTable(source))
+            throw Error('Record.AddField expects a record.');
+        if (typeof field !== 'string' || !field.trim() || field.length > 255)
+            throw Error('Record.AddField field name must be non-empty text up to 255 characters.');
+        if (delayed !== false && delayed !== null)
+            throw Error('Record.AddField delayed evaluation is not supported; omit the flag or use false.');
+        const fields = mRecordFields(source);
+        if (fields.length >= MAX_COLUMNS || Object.hasOwn(source, field))
+            throw Error('Record.AddField cannot add a duplicate field or exceed 104 fields.');
+        const output = Object.fromEntries([...fields.map(key => [key, source[key]]), [field, arg(2)]]);
+        mRecordFieldOrder.set(output, [...fields, field]);
+        return output;
+    }
+    if (short === 'record.reorderfields') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('Record.ReorderFields expects a record, ordered field list, and optional MissingField policy.');
+        const source = arg(0), requested = arg(1);
+        if (!source || typeof source !== 'object' || Array.isArray(source) || isMTable(source) || !Array.isArray(requested) || requested.some(field => typeof field !== 'string' || !field.trim() || field.length > 255) || new Set(requested).size !== requested.length || requested.length > MAX_COLUMNS)
+            throw Error('Record.ReorderFields needs a record and a bounded unique list of text field names.');
+        const option = args[2] ? arg(2) : { mMissingField: 'MissingField.Error' }, missing = option?.mMissingField ?? '';
+        if (!option || typeof option !== 'object' || !['MissingField.Error', 'MissingField.Ignore', 'MissingField.UseNull'].includes(missing))
+            throw Error('Record.ReorderFields supports MissingField.Error, MissingField.Ignore, or MissingField.UseNull.');
+        const fields = mRecordFields(source), fieldSet = new Set(fields), absent = requested.filter(field => !fieldSet.has(field));
+        if (absent.length && missing === 'MissingField.Error')
+            throw Error(`Record.ReorderFields cannot find field “${absent[0]}”.`);
+        const order = [...requested.filter(field => fieldSet.has(field)), ...(missing === 'MissingField.UseNull' ? absent : []), ...fields.filter(field => !requested.includes(field))];
+        if (order.length > MAX_COLUMNS)
+            throw Error('Record.ReorderFields result exceeds 104 fields.');
+        const output = Object.fromEntries(order.map(field => [field, fieldSet.has(field) ? source[field] : null]));
+        mRecordFieldOrder.set(output, order);
+        return output;
+    }
+    if (short === 'record.transformfields') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('Record.TransformFields expects a record, transformation pair(s), and optional MissingField policy.');
+        const source = arg(0), rawOperations = arg(1);
+        if (!source || typeof source !== 'object' || Array.isArray(source) || isMTable(source))
+            throw Error('Record.TransformFields expects a record.');
+        const operations = Array.isArray(rawOperations) && rawOperations.length === 2 && typeof rawOperations[0] === 'string' ? [rawOperations] : rawOperations;
+        if (!Array.isArray(operations) || operations.length > MAX_COLUMNS || operations.some(operation => !Array.isArray(operation) || operation.length !== 2 || typeof operation[0] !== 'string' || !operation[0].trim() || operation[0].length > 255 || !operation[1] || typeof operation[1] !== 'object' || !('mFunction' in operation[1]) && !('each' in operation[1])))
+            throw Error('Record.TransformFields supports one or more {field, scalar-function} pairs.');
+        const names = operations.map(operation => operation[0]);
+        if (new Set(names).size !== names.length)
+            throw Error('Record.TransformFields cannot transform a field more than once.');
+        const option = args[2] ? arg(2) : { mMissingField: 'MissingField.Error' }, missing = option?.mMissingField ?? '';
+        if (!option || typeof option !== 'object' || !['MissingField.Error', 'MissingField.Ignore', 'MissingField.UseNull'].includes(missing))
+            throw Error('Record.TransformFields supports MissingField.Error, MissingField.Ignore, or MissingField.UseNull.');
+        const fields = mRecordFields(source), fieldSet = new Set(fields), absent = names.filter(field => !fieldSet.has(field));
+        if (absent.length && missing === 'MissingField.Error')
+            throw Error(`Record.TransformFields cannot find field “${absent[0]}”.`);
+        if (absent.length && missing === 'MissingField.UseNull' && fields.length + absent.length > MAX_COLUMNS)
+            throw Error('Record.TransformFields result exceeds 104 fields.');
+        const values = new Map(fields.map(field => [field, source[field]]));
+        for (const [field, fn] of operations) {
+            if (!fieldSet.has(field) && missing !== 'MissingField.UseNull')
+                continue;
+            const original = fieldSet.has(field) ? values.get(field) : null;
+            let transformed;
+            if (fn.mFunction)
+                transformed = call(fn.mFunction, [{ kind: 'literal', value: original }], env, row);
+            else {
+                const local = new Map(env);
+                local.set('_', original);
+                transformed = evaluate(fn.each, local, row);
+            }
+            if (transformed !== null && typeof transformed !== 'string' && typeof transformed !== 'number' && typeof transformed !== 'boolean' || typeof transformed === 'number' && !Number.isFinite(transformed))
+                throw Error(`Record.TransformFields transformation for “${field}” must return a finite scalar or null.`);
+            values.set(field, transformed);
+            if (!fieldSet.has(field)) {
+                fields.push(field);
+                fieldSet.add(field);
+            }
+        }
+        const output = Object.fromEntries(fields.map(field => [field, values.get(field)]));
+        mRecordFieldOrder.set(output, fields);
+        return output;
+    }
+    if (short === 'record.renamefields') {
+        if (args.length < 2 || args.length > 3)
+            throw Error('Record.RenameFields expects a record, one or more rename pairs, and optional MissingField policy.');
+        const source = arg(0), rawRenames = arg(1);
+        if (!source || typeof source !== 'object' || Array.isArray(source) || isMTable(source))
+            throw Error('Record.RenameFields expects a record.');
+        const pairs = Array.isArray(rawRenames) && rawRenames.length === 2 && rawRenames.every(value => typeof value === 'string') ? [rawRenames] : rawRenames;
+        if (!Array.isArray(pairs) || pairs.length > MAX_COLUMNS || pairs.some(pair => !Array.isArray(pair) || pair.length !== 2 || pair.some(field => typeof field !== 'string' || !field.trim() || field.length > 255)))
+            throw Error('Record.RenameFields requires one or more old/new text-name pairs.');
+        const option = args[2] ? arg(2) : { mMissingField: 'MissingField.Error' }, missing = option?.mMissingField ?? '';
+        if (!option || typeof option !== 'object' || !['MissingField.Error', 'MissingField.Ignore', 'MissingField.UseNull'].includes(missing))
+            throw Error('Record.RenameFields supports MissingField.Error, MissingField.Ignore, or MissingField.UseNull.');
+        const fields = mRecordFields(source), fieldSet = new Set(fields), map = new Map(), added = [];
+        for (const [oldName, newName] of pairs) {
+            if (map.has(oldName))
+                throw Error(`Record.RenameFields repeats source field “${oldName}”.`);
+            if (!fieldSet.has(oldName)) {
+                if (missing === 'MissingField.Error')
+                    throw Error(`Record.RenameFields cannot find field “${oldName}”.`);
+                if (missing === 'MissingField.UseNull')
+                    added.push(newName);
+                continue;
+            }
+            map.set(oldName, newName);
+        }
+        const outputFields = [...fields.map(field => map.get(field) ?? field), ...added];
+        if (outputFields.length > MAX_COLUMNS || new Set(outputFields).size !== outputFields.length)
+            throw Error('Record.RenameFields output field names must be unique and limited to 104 fields.');
+        const output = Object.fromEntries([...fields.map((field, index) => [outputFields[index], source[field]]), ...added.map(field => [field, null])]);
+        mRecordFieldOrder.set(output, outputFields);
+        return output;
+    }
+    if (short === 'record.combine') {
+        check(1);
+        const records = arg(0);
+        if (!Array.isArray(records) || records.length > MAX_COLUMNS)
+            throw Error('Record.Combine expects a list of at most 104 records.');
+        const output = Object.create(null), order = [];
+        for (const source of records) {
+            if (!source || typeof source !== 'object' || Array.isArray(source) || isMTable(source))
+                throw Error('Record.Combine list items must be records.');
+            for (const field of mRecordFields(source)) {
+                if (!Object.hasOwn(output, field))
+                    order.push(field);
+                output[field] = source[field];
+            }
+        }
+        if (order.length > MAX_COLUMNS)
+            throw Error('Record.Combine output exceeds 104 fields.');
+        mRecordFieldOrder.set(output, order);
+        return output;
+    }
+    if (short === 'record.tolist' || short === 'record.fieldvalues' || short === 'record.fieldnames' || short === 'record.fieldcount' || short === 'record.totable') {
+        check(1);
+        const record = arg(0);
+        if (!record || typeof record !== 'object' || Array.isArray(record) || isMTable(record))
+            throw Error(`${name} expects a record.`);
+        const fields = mRecordFields(record), values = fields.map(field => record[field]);
+        if (fields.length > MAX_COLUMNS)
+            throw Error(`${name} is limited to ${MAX_COLUMNS} fields in this M subset.`);
+        if (short === 'record.fieldnames')
+            return fields;
+        if (short === 'record.fieldcount')
+            return fields.length;
+        if (short === 'record.totable') {
+            if ((fields.length + 1) * 2 > MAX_CELLS)
+                throw Error('Record.ToTable exceeds the M cell limit.');
+            const rows = fields.map((field, index) => { const value = values[index]; if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+                throw Error('Record.ToTable supports only scalar field values in this M subset.'); return [field, value]; });
+            return { headers: ['Name', 'Value'], rows };
+        }
+        return values;
+    }
+    if (short === 'record.hasfields') {
+        check(2);
+        const record = arg(0), requested = arg(1);
+        if (!record || typeof record !== 'object' || Array.isArray(record) || isMTable(record))
+            throw Error('Record.HasFields expects a record.');
+        const fields = Object.keys(record);
+        if (fields.length > MAX_COLUMNS)
+            throw Error('Record.HasFields record exceeds the M column limit.');
+        const names = typeof requested === 'string' ? [requested] : requested;
+        if (!Array.isArray(names) || names.some(field => typeof field !== 'string'))
+            throw Error('Record.HasFields expects a field name or list of field names.');
+        return names.every(field => Object.hasOwn(record, field));
+    }
+    if (short === 'record.field' || short === 'record.fieldordefault') {
+        if (short === 'record.field' ? args.length !== 2 : args.length < 2 || args.length > 3)
+            throw Error(`${name} expects a record, field name, and optional default value.`);
+        const record = arg(0), field = arg(1);
+        if (!record || typeof record !== 'object' || Array.isArray(record) || isMTable(record))
+            throw Error(`${name} expects a record.`);
+        if (typeof field !== 'string')
+            throw Error(`${name} field name must be text.`);
+        if (Object.hasOwn(record, field))
+            return record[field];
+        if (short === 'record.fieldordefault')
+            return args[2] ? arg(2) : null;
+        throw Error(`Record.Field cannot find field “${field}”.`);
+    }
+    if (short === 'splitter.splitbynothing') {
+        check(0);
+        return { mSplitter: 'nothing' };
+    }
+    if (short === 'splitter.splittextbydelimiter') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Splitter.SplitTextByDelimiter expects a delimiter and optional QuoteStyle.None or QuoteStyle.Csv.');
+        const delimiter = arg(0), quote = args[1] ? arg(1) : { mQuoteStyle: 'QuoteStyle.None' }, quoteStyle = quote?.mQuoteStyle ?? '';
+        if (typeof delimiter !== 'string' || !delimiter || delimiter.length > 255 || !quote || typeof quote !== 'object' || !['QuoteStyle.None', 'QuoteStyle.Csv'].includes(quoteStyle))
+            throw Error('This M subset supports a non-empty delimiter and QuoteStyle.None or QuoteStyle.Csv.');
+        return { mSplitter: 'delimiter', delimiter, quoteStyle };
+    }
+    if (short === 'combiner.combinetextbydelimiter') {
+        if (args.length < 1 || args.length > 2)
+            throw Error('Combiner.CombineTextByDelimiter expects a delimiter and optional QuoteStyle.None or QuoteStyle.Csv.');
+        const delimiter = arg(0), quote = args[1] ? arg(1) : { mQuoteStyle: 'QuoteStyle.None' }, quoteStyle = quote?.mQuoteStyle ?? '';
+        if (typeof delimiter !== 'string' || delimiter.length > 255 || !quote || typeof quote !== 'object' || !['QuoteStyle.None', 'QuoteStyle.Csv'].includes(quoteStyle))
+            throw Error('This M subset supports a text delimiter and QuoteStyle.None or QuoteStyle.Csv.');
+        return { mCombiner: 'delimiter', delimiter, quoteStyle };
+    }
+    if (short === 'table.fromlist') {
+        if (args.length < 1 || args.length > 3)
+            throw Error('Table.FromList supports a list, optional delimiter/no-split/record-values splitter, and optional columns; default/extra-value options are not supported.');
+        const items = arg(0);
+        if (!Array.isArray(items) || items.length > MAX_ROWS)
+            throw Error(`Table.FromList expects a list of at most ${MAX_ROWS} items.`);
+        const splitterValue = args[1] ? arg(1) : null, splitter = splitterValue === null ? { mSplitter: 'delimiter', delimiter: ',', quoteStyle: 'QuoteStyle.None' } : splitterValue, splitterFunction = splitter?.mFunction, splitKind = splitter?.mSplitter ?? (splitterFunction === 'Record.FieldValues' || splitterFunction === 'Record.ToList' ? 'recordfieldvalues' : '');
+        if (!splitter || typeof splitter !== 'object' || !['delimiter', 'nothing', 'recordfieldvalues'].includes(splitKind))
+            throw Error('Table.FromList supports only Splitter.SplitByNothing, Splitter.SplitTextByDelimiter, or Record.FieldValues.');
+        const explicit = args[2] !== undefined, rawColumns = explicit ? arg(2) : null;
+        if (explicit && typeof rawColumns !== 'number' && !Array.isArray(rawColumns))
+            throw Error('Table.FromList columns must be a positive count or explicit text names.');
+        const names = Array.isArray(rawColumns) ? columns(rawColumns) : typeof rawColumns === 'number' ? Array.from({ length: Number.isSafeInteger(rawColumns) && rawColumns > 0 && rawColumns <= MAX_COLUMNS ? rawColumns : 0 }, (_, index) => `Column${index + 1}`) : [];
+        if (explicit && typeof rawColumns === 'number' && (!Number.isSafeInteger(rawColumns) || rawColumns < 1 || rawColumns > MAX_COLUMNS))
+            throw Error('Table.FromList column count must be a whole number from 1 to 104.');
+        const split = (value) => { if (splitKind === 'nothing')
+            return [value]; if (splitKind === 'recordfieldvalues') {
+            if (!value || typeof value !== 'object' || Array.isArray(value) || isMTable(value))
+                throw Error('Table.FromList Record.FieldValues splitter requires record items.');
+            const values = mRecordFields(value).map(field => value[field]);
+            if (values.length > MAX_COLUMNS)
+                throw Error(`Table.FromList record items are limited to ${MAX_COLUMNS} fields.`);
+            return values;
+        } if (typeof value !== 'string')
+            throw Error('Table.FromList delimiter splitting requires text list items.'); return splitMText(value, splitter.delimiter, splitter.quoteStyle === 'QuoteStyle.Csv'); };
+        const splitRows = items.map(split), width = names.length || Math.max(1, ...splitRows.map(values => values.length)), headers = names.length ? names : Array.from({ length: width }, (_, index) => `Column${index + 1}`);
+        if (headers.length > MAX_COLUMNS || new Set(headers.map(normalizedName)).size !== headers.length || headers.some(header => !header.trim() || header.length > 255))
+            throw Error('Table.FromList needs unique non-empty text column names within the M column limit.');
+        const rows = splitRows.map((values, index) => { if (values.length > headers.length)
+            throw Error(`Table.FromList item ${index + 1} splits into ${values.length} values but only ${headers.length} columns were provided.`); const padded = Array.from({ length: headers.length }, (_, column) => values[column] ?? null); if (padded.some(value => value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value)))
+            throw Error(`Table.FromList item ${index + 1} must resolve to bounded scalar values.`); return padded; });
+        if ((rows.length + 1) * headers.length > MAX_CELLS)
+            throw Error('Table.FromList exceeds the M cell limit.');
+        return { headers, rows };
+    }
+    const t = table();
+    switch (short) {
+        case 'table.splitcolumn': {
+            if (args.length !== 4)
+                throw Error('Table.SplitColumn supports a table, existing column, delimiter splitter, and explicit new-column names.');
+            const column = arg(1), splitter = arg(2), newNames = columns(arg(3)), index = typeof column === 'string' ? t.headers.indexOf(column) : -1;
+            if (index < 0 || !splitter || typeof splitter !== 'object' || splitter.mSplitter !== 'delimiter' || !newNames.length || new Set(newNames.map(normalizedName)).size !== newNames.length || newNames.some(name => !name.trim() || name.length > 255))
+                throw Error('Table.SplitColumn needs an existing source column, supported delimiter splitter, and unique output names.');
+            const delimiter = splitter.delimiter, csv = splitter.quoteStyle === 'QuoteStyle.Csv', headers = [...t.headers.slice(0, index), ...newNames, ...t.headers.slice(index + 1)];
+            if (headers.length > MAX_COLUMNS || new Set(headers.map(normalizedName)).size !== headers.length)
+                throw Error('Table.SplitColumn output names duplicate existing columns or exceed the M column limit.');
+            const rows = t.rows.map(values => { const source = values[index] ?? null; if (source !== null && typeof source !== 'string')
+                throw Error(`Table.SplitColumn source “${column}” must contain text or null.`); const parts = source === null ? [null] : splitMText(source, delimiter, csv); if (parts.length > newNames.length)
+                throw Error(`Table.SplitColumn found ${parts.length} pieces but only ${newNames.length} output names were supplied.`); return [...values.slice(0, index), ...Array.from({ length: newNames.length }, (_, part) => parts[part] ?? null), ...values.slice(index + 1)]; });
+            if ((rows.length + 1) * headers.length > MAX_CELLS)
+                throw Error('Table.SplitColumn exceeds the M cell limit.');
+            const nestedSchemas = new Map(t.nestedSchemas ?? []);
+            nestedSchemas.delete(column);
+            return { ...t, headers, rows, nestedSchemas };
+        }
+        case 'table.combinecolumns': {
+            if (args.length !== 4)
+                throw Error('Table.CombineColumns supports a table, source-column list, delimiter combiner, and output column name.');
+            const sourceNames = columns(arg(1)), combiner = arg(2), outputName = arg(3);
+            if (!sourceNames.length || new Set(sourceNames.map(normalizedName)).size !== sourceNames.length || sourceNames.some(header => !t.headers.includes(header)) || typeof outputName !== 'string' || !outputName.trim() || outputName.length > 255 || !combiner || typeof combiner !== 'object' || combiner.mCombiner !== 'delimiter')
+                throw Error('Table.CombineColumns needs unique existing source columns, a supported delimiter combiner, and a non-empty output name.');
+            const indexes = sourceNames.map(header => t.headers.indexOf(header)), first = Math.min(...indexes), removed = new Set(indexes), headers = [];
+            for (let index = 0; index < t.headers.length; index++) {
+                if (index === first)
+                    headers.push(outputName);
+                if (!removed.has(index))
+                    headers.push(t.headers[index]);
+            }
+            if (headers.length > MAX_COLUMNS || new Set(headers.map(normalizedName)).size !== headers.length)
+                throw Error('Table.CombineColumns output name conflicts with another column or exceeds the M column limit.');
+            const delimiter = combiner.delimiter, csv = combiner.quoteStyle === 'QuoteStyle.Csv', rows = t.rows.map(values => { const texts = indexes.map(index => values[index] ?? null).filter(value => value !== null); if (texts.some(value => typeof value !== 'string'))
+                throw Error('Table.CombineColumns source values must be text or null in this subset.'); const combined = texts.map(value => csv && ((delimiter && value.includes(delimiter)) || value.includes('"') || value.includes('\r') || value.includes('\n')) ? '"' + value.replace(/"/g, '""') + '"' : value).join(delimiter); if (combined.length > 32767)
+                throw Error('Table.CombineColumns output exceeds the 32,767-character cell limit.'); const output = []; for (let index = 0; index < t.headers.length; index++) {
+                if (index === first)
+                    output.push(combined);
+                if (!removed.has(index))
+                    output.push(values[index] ?? null);
+            } return output; });
+            if ((rows.length + 1) * headers.length > MAX_CELLS)
+                throw Error('Table.CombineColumns exceeds the M cell limit.');
+            const nestedSchemas = new Map(t.nestedSchemas ?? []);
+            for (const name of sourceNames)
+                nestedSchemas.delete(name);
+            return { ...t, headers, rows, nestedSchemas };
+        }
+        case 'table.columnnames': {
+            check(1);
+            return [...t.headers];
+        }
+        case 'table.column': {
+            check(2);
+            const column = arg(1);
+            if (typeof column !== 'string')
+                throw Error('Table.Column expects one column name as text.');
+            const index = t.headers.indexOf(column);
+            if (index < 0)
+                throw Error(`Table.Column cannot find column “${column}”.`);
+            return t.rows.map(values => values[index] ?? null);
+        }
+        case 'table.hascolumns': {
+            check(2);
+            const requested = typeof arg(1) === 'string' ? [arg(1)] : columns(arg(1));
+            return requested.every(column => t.headers.includes(column));
+        }
+        case 'table.isempty': {
+            check(1);
+            return t.rows.length === 0;
+        }
+        case 'table.matchesallrows':
+        case 'table.matchesanyrows': {
+            check(2);
+            const predicate = evaluate(args[1], env);
+            if (!predicate || typeof predicate !== 'object' || !('each' in predicate))
+                throw Error(`${name} requires an “each” row predicate.`);
+            const body = predicate.each, wantsAll = short === 'table.matchesallrows';
+            for (const values of t.rows) {
+                const record = mOrderedRecord(t.headers, values), local = new Map(env);
+                local.set('_', record);
+                const result = evaluate(body, local, record);
+                if (typeof result !== 'boolean')
+                    throw Error(`${name} predicates must return true or false.`);
+                if (wantsAll && !result)
+                    return false;
+                if (!wantsAll && result)
+                    return true;
+            }
+            return wantsAll;
+        }
+        case 'table.profile': {
+            check(1);
+            const headers = ['Column', 'Min', 'Max', 'Count', 'NullCount', 'DistinctCount'], rows = t.headers.map((header, index) => { const values = t.rows.map(row => row[index] ?? null), nonNull = values.filter(value => value !== null), distinct = new Set(values.map(value => value === null ? '__M_NULL__' : JSON.stringify([typeof value, value]))); let minimum = null, maximum = null; for (const value of nonNull) {
+                if (minimum === null || compareMScalar(value, minimum) < 0)
+                    minimum = value;
+                if (maximum === null || compareMScalar(value, maximum) > 0)
+                    maximum = value;
+            } return [header, minimum, maximum, nonNull.length, values.length - nonNull.length, distinct.size]; });
+            return { headers, rows };
+        }
+        case 'table.rowcount': {
+            check(1);
+            return t.rows.length;
+        }
+        case 'table.duplicatecolumn': {
+            check(3);
+            const sourceName = arg(1), newName = arg(2);
+            if (typeof sourceName !== 'string' || !t.headers.includes(sourceName) || typeof newName !== 'string' || !newName.trim() || newName.length > 255 || t.headers.some(header => normalizedName(header) === normalizedName(newName)))
+                throw Error('Table.DuplicateColumn needs an existing source and a unique non-empty output name of at most 255 characters.');
+            if (t.headers.length + 1 > MAX_COLUMNS || (t.rows.length + 1) * (t.headers.length + 1) > MAX_CELLS)
+                throw Error('Table.DuplicateColumn would exceed the M column or cell limit.');
+            const index = t.headers.indexOf(sourceName), nestedSchemas = new Map(t.nestedSchemas ?? []), sourceSchema = nestedSchemas.get(sourceName);
+            if (sourceSchema)
+                nestedSchemas.set(newName, [...sourceSchema]);
+            return { ...t, headers: [...t.headers, newName], rows: t.rows.map(values => [...values, values[index] ?? null]), nestedSchemas };
+        }
+        case 'table.selectcolumns':
+        case 'table.removecolumns':
+        case 'table.reordercolumns': {
+            if (args.length < 2 || args.length > 3)
+                throw Error(`${name} expects a table, column list and optional MissingField behavior.`);
+            const requested = columns(arg(1)), missing = String(args[2] ? (arg(2)?.mMissingField ?? '') : 'MissingField.Error');
+            if (new Set(requested.map(normalizedName)).size !== requested.length)
+                throw Error(`${name} column names must be unique.`);
+            if (!['MissingField.Error', 'MissingField.Ignore', 'MissingField.UseNull'].includes(missing) || short === 'table.removecolumns' && missing === 'MissingField.UseNull')
+                throw Error(`${name} supports MissingField.Error or Ignore; UseNull is supported for SelectColumns and ReorderColumns.`);
+            const unknown = requested.filter(column => !t.headers.includes(column));
+            if (missing === 'MissingField.Error' && unknown.length)
+                throw Error(`${name} references missing column “${unknown[0]}”.`);
+            if (short === 'table.selectcolumns') {
+                const selected = missing === 'MissingField.UseNull' ? requested : requested.filter(column => t.headers.includes(column));
+                if (!selected.length || selected.length > MAX_COLUMNS || (t.rows.length + 1) * selected.length > MAX_CELLS)
+                    throw Error('Table.SelectColumns must return 1–104 columns within the M cell limit.');
+                const indexes = selected.map(column => t.headers.indexOf(column));
+                return { headers: selected, rows: t.rows.map(row => indexes.map(index => index < 0 ? null : row[index] ?? null)) };
+            }
+            if (short === 'table.removecolumns') {
+                const removed = new Set(requested.filter(column => t.headers.includes(column))), headers = t.headers.filter(column => !removed.has(column)), indexes = headers.map(column => t.headers.indexOf(column));
+                if (!headers.length)
+                    throw Error('Table.RemoveColumns cannot remove every column in this subset.');
+                return { headers, rows: t.rows.map(row => indexes.map(index => row[index] ?? null)) };
+            }
+            const known = requested.filter(column => t.headers.includes(column)), knownSet = new Set(known), ordered = missing === 'MissingField.UseNull' ? [...requested, ...t.headers.filter(column => !knownSet.has(column))] : [...known, ...t.headers.filter(column => !knownSet.has(column))], indexes = ordered.map(column => t.headers.indexOf(column));
+            if (ordered.length > MAX_COLUMNS || (t.rows.length + 1) * ordered.length > MAX_CELLS)
+                throw Error('Table.ReorderColumns exceeds the M column or cell limit.');
+            return { headers: ordered, rows: t.rows.map(row => indexes.map(index => index < 0 ? null : row[index] ?? null)) };
+        }
+        case 'table.nestedjoin': {
+            if (args.length < 5 || args.length > 6)
+                throw Error('Table.NestedJoin expects two tables, two key lists, a nested-column name and optional JoinKind.');
+            const right = asTable(arg(2)), leftKeys = Array.isArray(arg(1)) ? columns(arg(1)) : [arg(1)], rightKeys = Array.isArray(arg(3)) ? columns(arg(3)) : [arg(3)], nestedName = arg(4), kind = args[5] ? String(arg(5)?.mJoinKind ?? '') : 'JoinKind.LeftOuter';
+            if (typeof nestedName !== 'string' || !nestedName || t.headers.includes(nestedName) || !leftKeys.length || leftKeys.length !== rightKeys.length || leftKeys.some(item => typeof item !== 'string' || !t.headers.includes(item)) || rightKeys.some(item => typeof item !== 'string' || !right.headers.includes(item)) || !['JoinKind.Inner', 'JoinKind.LeftOuter'].includes(kind))
+                throw Error('Table.NestedJoin needs matching key columns, a new nested-column name, and Inner or LeftOuter JoinKind.');
+            const leftIndexes = leftKeys.map(header => t.headers.indexOf(header)), rightIndexes = rightKeys.map(header => right.headers.indexOf(header)), token = (values, indexes) => { const parts = indexes.map(index => values[index] ?? null); return parts.some(value => value === null) ? null : JSON.stringify(parts.map(value => [typeof value, value])); }, index = new Map();
+            for (const row of right.rows) {
+                const id = token(row, rightIndexes);
+                if (id !== null)
+                    index.set(id, [...(index.get(id) ?? []), row]);
+            }
+            let nestedCellCount = 0;
+            const rows = [];
+            for (const row of t.rows) {
+                const id = token(row, leftIndexes), matches = id === null ? [] : index.get(id) ?? [];
+                if (kind === 'JoinKind.Inner' && !matches.length)
+                    continue;
+                nestedCellCount += matches.length * right.headers.length;
+                if (nestedCellCount > MAX_CELLS)
+                    throw Error('Table.NestedJoin nested results exceed the 12,000-cell M limit.');
+                const nested = { mNestedTable: true, headers: right.headers, rows: matches };
+                rows.push([...row, nested]);
+            }
+            if (t.headers.length + 1 > MAX_COLUMNS || (rows.length + 1) * (t.headers.length + 1) > MAX_CELLS)
+                throw Error('Table.NestedJoin exceeds the M column or cell limit.');
+            const nestedSchemas = new Map(t.nestedSchemas ?? []);
+            nestedSchemas.set(nestedName, right.headers);
+            return { headers: [...t.headers, nestedName], rows, nestedSchemas };
+        }
+        case 'table.expandtablecolumn': {
+            if (args.length < 3 || args.length > 4)
+                throw Error('Table.ExpandTableColumn expects a table, nested column, expanded columns and optional output names.');
+            const nestedName = arg(1), requested = columns(arg(2)), renamed = args[3] ? columns(arg(3)) : requested;
+            if (typeof nestedName !== 'string' || !requested.length || renamed.length !== requested.length || new Set(renamed.map(normalizedName)).size !== renamed.length)
+                throw Error('Table.ExpandTableColumn needs a nested-column name and matching unique output names.');
+            const nestedIndex = t.headers.indexOf(nestedName);
+            if (nestedIndex < 0 || t.headers.slice(0, nestedIndex).some(header => renamed.includes(header)) || t.headers.slice(nestedIndex + 1).some(header => renamed.includes(header)))
+                throw Error('Expanded column names must not collide with existing columns.');
+            let nestedHeaders = null;
+            const sourceColumns = [];
+            for (const row of t.rows) {
+                const nested = row[nestedIndex];
+                if (!nested || nested.mNestedTable !== true || !Array.isArray(nested.headers) || !Array.isArray(nested.rows))
+                    throw Error('Table.ExpandTableColumn can expand only a column produced by Table.NestedJoin.');
+                if (nestedHeaders === null) {
+                    nestedHeaders = nested.headers;
+                    for (const name of requested) {
+                        const index = nested.headers.indexOf(name);
+                        if (index < 0)
+                            throw Error(`Nested table has no column “${name}”.`);
+                        sourceColumns.push(index);
+                    }
+                }
+                else if (nested.headers.join('\u0000') !== nestedHeaders.join('\u0000'))
+                    throw Error('Nested tables in this column have inconsistent schemas.');
+            }
+            if (nestedHeaders === null) {
+                nestedHeaders = t.nestedSchemas?.get(nestedName) ?? [];
+                for (const name of requested) {
+                    const index = nestedHeaders.indexOf(name);
+                    if (index < 0)
+                        throw Error(`Nested table has no column “${name}”.`);
+                    sourceColumns.push(index);
+                }
+            }
+            const headers = [...t.headers.slice(0, nestedIndex), ...renamed, ...t.headers.slice(nestedIndex + 1)];
+            if (headers.length > MAX_COLUMNS)
+                throw Error('Table.ExpandTableColumn exceeds the 104-column M limit.');
+            const rows = [];
+            for (const row of t.rows) {
+                const nested = row[nestedIndex];
+                const matches = nested.rows.length ? nested.rows : [requested.map(() => null)];
+                for (const match of matches) {
+                    if (rows.length >= MAX_ROWS || (rows.length + 2) * headers.length > MAX_CELLS)
+                        throw Error('Table.ExpandTableColumn exceeds the M row or cell limit.');
+                    rows.push([...row.slice(0, nestedIndex), ...sourceColumns.map(index => match[index] ?? null), ...row.slice(nestedIndex + 1)]);
+                }
+            }
+            const nestedSchemas = new Map(t.nestedSchemas ?? []);
+            nestedSchemas.delete(nestedName);
+            return { headers, rows, nestedSchemas };
+        }
+        case 'table.transformcolumntypes': {
+            if (args.length < 2 || args.length > 3)
+                throw Error('Table.TransformColumnTypes expects a table, {column, type} pairs, and no locale-specific culture.');
+            if (args[2])
+                throw Error('Table.TransformColumnTypes culture-specific conversions are not supported; use ISO dates and invariant decimal text.');
+            const pairs = arg(1);
+            if (!Array.isArray(pairs) || !pairs.length || pairs.some(pair => !Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string' || typeof pair[1] !== 'string' || !String(pair[1]).startsWith('__type:')))
+                throw Error('Table.TransformColumnTypes expects {column, type text/number/logical/date/datetime} pairs.');
+            const operations = pairs.map(([column, type]) => { const index = t.headers.indexOf(column), target = type.slice(7); if (index < 0 || !['text', 'number', 'logical', 'date', 'datetime'].includes(target))
+                throw Error(`Unsupported or missing TransformColumnTypes field “${column}”.`); return { column, index, target }; });
+            if (new Set(operations.map(item => item.index)).size !== operations.length)
+                throw Error('Table.TransformColumnTypes cannot convert the same column more than once.');
+            return { ...t, rows: t.rows.map(row => { const next = [...row]; for (const operation of operations)
+                    next[operation.index] = convertMType(next[operation.index] ?? null, operation.target, operation.column); return next; }) };
+        }
+        case 'table.promoteheaders': {
+            if (args.length < 1 || args.length > 2)
+                throw Error('Table.PromoteHeaders expects a table and optional options record.');
+            const options = args[1] ? arg(1) : {};
+            if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'PromoteAllScalars') || Object.hasOwn(options, 'PromoteAllScalars') && typeof options.PromoteAllScalars !== 'boolean')
+                throw Error('Table.PromoteHeaders supports only the Boolean PromoteAllScalars option.');
+            if (!t.rows.length)
+                throw Error('Table.PromoteHeaders needs at least one data row.');
+            const promoteAll = options.PromoteAllScalars !== false, raw = t.rows[0], headers = raw.map((value, index) => { if (value === null || value === '' || !promoteAll && typeof value !== 'string')
+                return `Column${index + 1}`; return String(value).trim(); });
+            if (headers.some(header => !header) || new Set(headers.map(normalizedName)).size !== headers.length)
+                throw Error('Promoted headers must be nonblank and unique.');
+            return { headers, rows: t.rows.slice(1) };
+        }
+        case 'table.demoteheaders': {
+            check(1);
+            const rows = [...t.rows.map(row => [...row])];
+            if ((rows.length + 2) * t.headers.length > MAX_CELLS)
+                throw Error('Table.DemoteHeaders exceeds the M cell limit.');
+            return { headers: Array.from({ length: t.headers.length }, (_, index) => `Column${index + 1}`), rows: [t.headers, ...rows] };
+        }
+        case 'table.alternaterows': {
+            check(4);
+            const [offset, skip, take] = [arg(1), arg(2), arg(3)];
+            if ([offset, skip, take].some(value => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_ROWS))
+                throw Error('Table.AlternateRows requires non-negative whole-number offset, skip, and take counts within the M row limit.');
+            const rows = t.rows.slice(0, offset);
+            let cursor = offset;
+            if (take === 0)
+                return { ...t, rows };
+            while (cursor < t.rows.length) {
+                cursor += skip;
+                if (cursor >= t.rows.length)
+                    break;
+                const end = Math.min(cursor + take, t.rows.length);
+                rows.push(...t.rows.slice(cursor, end));
+                cursor = end;
+                if (skip === 0 && take === 0)
+                    break;
+            }
+            return { ...t, rows };
+        }
+        case 'table.repeat': {
+            check(2);
+            const count = arg(1);
+            if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0 || count > MAX_ROWS)
+                throw Error(`Table.Repeat count must be a whole number from 0 to ${MAX_ROWS}.`);
+            const rowCount = t.rows.length * count;
+            if (rowCount > MAX_ROWS || (rowCount + 1) * t.headers.length > MAX_CELLS)
+                throw Error('Table.Repeat exceeds the M row or cell limit.');
+            const rows = [];
+            for (let repetition = 0; repetition < count; repetition++)
+                rows.push(...t.rows.map(values => [...values]));
+            return { ...t, rows };
+        }
+        case 'table.splitat': {
+            check(2);
+            const count = arg(1);
+            if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0 || count > MAX_ROWS)
+                throw Error(`Table.SplitAt count must be a whole number from 0 to ${MAX_ROWS}.`);
+            return [{ ...t, rows: t.rows.slice(0, count) }, { ...t, rows: t.rows.slice(count) }];
+        }
+        case 'table.split': {
+            check(2);
+            const pageSize = arg(1);
+            if (typeof pageSize !== 'number' || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > MAX_ROWS)
+                throw Error(`Table.Split page size must be a whole number from 1 to ${MAX_ROWS}.`);
+            const pages = [];
+            for (let start = 0; start < t.rows.length; start += pageSize)
+                pages.push({ ...t, rows: t.rows.slice(start, start + pageSize) });
+            return pages;
+        }
+        case 'table.range':
+        case 'table.removerows':
+        case 'table.keeprows': {
+            if (short === 'table.range' && (args.length < 2 || args.length > 3) || short !== 'table.range' && (args.length < 2 || args.length > 3))
+                throw Error(`${name} expects a table, non-negative offset, and optional row count.`);
+            const offset = arg(1), countValue = args[2] ? arg(2) : undefined, count = countValue === null ? undefined : countValue;
+            if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0 || count !== undefined && (typeof count !== 'number' || !Number.isInteger(count) || count < 0))
+                throw Error(`${name} requires a non-negative whole-number offset and count.`);
+            if (short === 'table.range')
+                return { ...t, rows: t.rows.slice(offset, count === undefined ? undefined : offset + count) };
+            if (short === 'table.keeprows')
+                return { ...t, rows: t.rows.slice(offset, count === undefined ? undefined : offset + count) };
+            const start = Math.min(offset, t.rows.length), end = count === undefined ? t.rows.length : Math.min(start + count, t.rows.length);
+            return { ...t, rows: [...t.rows.slice(0, start), ...t.rows.slice(end)] };
+        }
+        case 'table.join': {
+            if (args.length < 4 || args.length > 5)
+                throw Error('Table.Join expects left table/key, right table/key, and an optional JoinKind.');
+            const left = asTable(arg(0)), leftKeys = Array.isArray(arg(1)) ? columns(arg(1)) : [arg(1)], right = asTable(arg(2)), rightKeys = Array.isArray(arg(3)) ? columns(arg(3)) : [arg(3)], kind = args[4] ? String(arg(4)?.mJoinKind ?? '') : 'JoinKind.Inner';
+            if (leftKeys.some(item => typeof item !== 'string') || rightKeys.some(item => typeof item !== 'string') || !leftKeys.length || leftKeys.length !== rightKeys.length || leftKeys.some(item => !left.headers.includes(item)) || rightKeys.some(item => !right.headers.includes(item)) || !['JoinKind.Inner', 'JoinKind.LeftOuter', 'JoinKind.RightOuter', 'JoinKind.FullOuter'].includes(kind))
+                throw Error('Table.Join needs matching existing key columns and a supported JoinKind.');
+            const usedHeaders = new Set(left.headers.map(header => header.toLowerCase())), rightHeaders = right.headers.map(header => { let candidate = header, suffix = 2; while (usedHeaders.has(candidate.toLowerCase()))
+                candidate = `${header}.${suffix++}`; usedHeaders.add(candidate.toLowerCase()); return candidate; }), headers = [...left.headers, ...rightHeaders];
+            if (headers.length > MAX_COLUMNS)
+                throw Error('Table.Join exceeds the 104-column M limit.');
+            const leftIndexes = leftKeys.map(header => left.headers.indexOf(header)), rightIndexes = rightKeys.map(header => right.headers.indexOf(header)), joinKey = (values, indexes) => { const parts = indexes.map(index => values[index] ?? null); if (parts.some(value => value === null))
+                return null; return JSON.stringify(parts.map(value => [typeof value, value])); }, rightIndex = new Map();
+            right.rows.forEach((values, index) => { const token = joinKey(values, rightIndexes); if (token !== null)
+                rightIndex.set(token, [...(rightIndex.get(token) ?? []), index]); });
+            const rows = [], matchedRight = new Set(), append = (a, b) => { if (rows.length >= MAX_ROWS || (rows.length + 2) * headers.length > MAX_CELLS)
+                throw Error('Table.Join exceeds the M row or cell limit.'); rows.push([...(a ?? left.headers.map(() => null)), ...(b ?? right.headers.map(() => null))]); };
+            for (const leftRow of left.rows) {
+                const token = joinKey(leftRow, leftIndexes), matches = token === null ? undefined : rightIndex.get(token);
+                if (matches?.length) {
+                    for (const index of matches) {
+                        append(leftRow, right.rows[index]);
+                        matchedRight.add(index);
+                    }
+                }
+                else if (kind === 'JoinKind.LeftOuter' || kind === 'JoinKind.FullOuter')
+                    append(leftRow, null);
+            }
+            if (kind === 'JoinKind.RightOuter' || kind === 'JoinKind.FullOuter') {
+                const leftIndex = new Map();
+                left.rows.forEach((values, index) => { const token = joinKey(values, leftIndexes); if (token !== null)
+                    leftIndex.set(token, [...(leftIndex.get(token) ?? []), index]); });
+                for (let index = 0; index < right.rows.length; index++) {
+                    if (matchedRight.has(index))
+                        continue;
+                    const rightRow = right.rows[index], token = joinKey(rightRow, rightIndexes), matches = token === null ? undefined : leftIndex.get(token);
+                    if (matches?.length && kind === 'JoinKind.RightOuter') {
+                        for (const leftRowIndex of matches)
+                            append(left.rows[leftRowIndex], rightRow);
+                    }
+                    else
+                        append(null, rightRow);
+                }
+            }
+            return { headers, rows };
+        }
+        case 'table.pivot': {
+            if (args.length < 4 || args.length > 5)
+                throw Error('Table.Pivot expects a table, pivot values, attribute column, value column, and optional List aggregation.');
+            const pivotValues = arg(1), attribute = arg(2), valueName = arg(3), aggregator = args[4] ? evaluate(args[4], env) : null;
+            if (!Array.isArray(pivotValues) || !pivotValues.length || pivotValues.length > MAX_COLUMNS || pivotValues.some(item => item !== null && typeof item !== 'string' && typeof item !== 'number' && typeof item !== 'boolean') || typeof attribute !== 'string' || typeof valueName !== 'string' || attribute === valueName)
+                throw Error('Table.Pivot needs a bounded scalar pivot-value list and distinct column names.');
+            const attrIndex = t.headers.indexOf(attribute), valueIndex = t.headers.indexOf(valueName);
+            if (attrIndex < 0 || valueIndex < 0 || attrIndex === valueIndex)
+                throw Error('Table.Pivot attribute and value columns must be distinct existing columns.');
+            const pivotLabels = pivotValues.map(item => String(item)), keep = t.headers.filter((_, index) => index !== attrIndex && index !== valueIndex), headers = [...keep, ...pivotLabels];
+            if (headers.length > MAX_COLUMNS || new Set(headers.map(item => item.toLowerCase())).size !== headers.length)
+                throw Error('Table.Pivot creates duplicate headers or exceeds the M column/cell limit.');
+            let aggregateName;
+            if (aggregator !== null) {
+                if (!aggregator || typeof aggregator !== 'object' || !('mFunction' in aggregator) || !['List.Sort', 'List.Skip', 'List.FirstN', 'List.LastN', 'List.Range', 'List.Numbers', 'List.Combine', 'List.Transform', 'List.Select', 'List.RemoveNulls', 'List.Reverse', 'List.Sum', 'List.Count', 'List.NonNullCount', 'List.Average', 'List.Min', 'List.Max', 'List.Product', 'List.Median', 'List.StandardDeviation', 'List.Percentile', 'List.First', 'List.Last', 'List.Single', 'List.SingleOrDefault', 'List.Distinct', 'List.Mode', 'List.IsEmpty', 'List.Contains', 'List.PositionOf', 'List.AllTrue', 'List.AnyTrue'].includes(aggregator.mFunction))
+                    throw Error('Table.Pivot supports bounded scalar List aggregations including Sum, Count, NonNullCount, Average, Min, Max, Product, Median, StandardDeviation, and First/Last.');
+                aggregateName = aggregator.mFunction;
+            }
+            const pivotIndex = new Map(pivotValues.map((value, index) => [`${typeof value}:${String(value)}`, index])), groups = new Map();
+            for (const source of t.rows) {
+                const pivotIndexValue = pivotIndex.get(`${typeof source[attrIndex]}:${String(source[attrIndex])}`);
+                if (pivotIndexValue === undefined)
+                    continue;
+                const keys = keep.map(header => source[t.headers.indexOf(header)] ?? null), groupKey = JSON.stringify(keys);
+                let group = groups.get(groupKey);
+                if (!group) {
+                    group = { keys, values: new Map() };
+                    groups.set(groupKey, group);
+                }
+                const values = group.values.get(pivotIndexValue) ?? [];
+                values.push(source[valueIndex] ?? null);
+                group.values.set(pivotIndexValue, values);
+            }
+            const rows = [];
+            for (const group of groups.values()) {
+                const result = [...group.keys, ...pivotValues.map((_, index) => { const values = group.values.get(index); if (!values?.length)
+                        return null; if (values.length > 1 && !aggregateName)
+                        throw Error(`Table.Pivot found duplicate values for “${pivotLabels[index]}”; specify a supported List aggregation.`); if (!aggregateName)
+                        return values[0] ?? null; const aggregated = call(aggregateName, [{ kind: 'literal', value: values }], env); if (aggregated !== null && typeof aggregated !== 'string' && typeof aggregated !== 'number' && typeof aggregated !== 'boolean')
+                        throw Error('Table.Pivot aggregations must return scalar values.'); return aggregated; })];
+                if (rows.length >= MAX_ROWS || (rows.length + 2) * headers.length > MAX_CELLS)
+                    throw Error("Table.Pivot exceeds the M row or cell limit.");
+                rows.push(result);
+            }
+            return { headers, rows };
+        }
+        case 'table.transpose': {
+            check(1);
+            if (t.rows.length + 1 > MAX_COLUMNS || (t.headers.length + 1) * (t.rows.length + 1) > MAX_CELLS)
+                throw Error('Table.Transpose exceeds the M column or cell limit.');
+            const source = [t.headers, ...t.rows], headers = Array.from({ length: source.length }, (_, index) => `Column${index + 1}`), rows = t.headers.map((_, column) => source.map(values => values[column] ?? null));
+            return { headers, rows };
+        }
+        case 'table.reverserows': {
+            check(1);
+            return { ...t, rows: [...t.rows].reverse() };
+        }
+        case 'table.unpivot':
+        case 'table.unpivotothercolumns': {
+            check(4);
+            const supplied = columns(arg(1)), attribute = arg(2), valueName = arg(3);
+            if (!supplied.length || new Set(supplied).size !== supplied.length || supplied.some(header => !t.headers.includes(header)) || typeof attribute !== 'string' || !attribute || typeof valueName !== 'string' || !valueName || attribute === valueName)
+                throw Error(`${name} needs existing column names and two distinct output column names.`);
+            const selected = new Set(supplied), unpivot = short === 'table.unpivot' ? t.headers.filter(header => selected.has(header)) : t.headers.filter(header => !selected.has(header)), kept = short === 'table.unpivot' ? t.headers.filter(header => !selected.has(header)) : t.headers.filter(header => selected.has(header));
+            if (!unpivot.length || kept.includes(attribute) || kept.includes(valueName))
+                throw Error(`${name} would create duplicate or empty output columns.`);
+            const headers = [...kept, attribute, valueName];
+            if (headers.length > MAX_COLUMNS)
+                throw Error(`${name} exceeds the M column limit.`);
+            const rows = [];
+            for (const source of t.rows) {
+                const fixed = kept.map(header => source[t.headers.indexOf(header)] ?? null);
+                for (const header of unpivot) {
+                    const cell = source[t.headers.indexOf(header)] ?? null;
+                    if (cell === null)
+                        continue;
+                    rows.push([...fixed, header, cell]);
+                    if (rows.length > MAX_ROWS || (rows.length + 1) * headers.length > MAX_CELLS)
+                        throw Error(`${name} exceeds the M row or cell limit.`);
+                }
+            }
+            return { headers, rows };
+        }
+        case 'table.removematchingrows': {
+            check(2);
+            const rawRows = arg(1);
+            if (!Array.isArray(rawRows) || rawRows.length > MAX_ROWS)
+                throw Error('Table.RemoveMatchingRows expects a bounded list of complete scalar rows.');
+            const key = (values) => { if (values.length !== t.headers.length || values.some(value => value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value)))
+                throw Error('Table.RemoveMatchingRows row values must match the table width and be finite scalars.'); return JSON.stringify(values.map(value => [value === null ? 'null' : typeof value, value])); }, remove = new Set(rawRows.map((raw, index) => { let values; if (Array.isArray(raw))
+                values = raw;
+            else if (raw && typeof raw === 'object') {
+                const record = raw;
+                if (Object.keys(record).length !== t.headers.length || t.headers.some(header => !Object.hasOwn(record, header)))
+                    throw Error(`Table.RemoveMatchingRows record ${index + 1} must contain exactly the source columns.`);
+                values = t.headers.map(header => record[header]);
+            }
+            else
+                throw Error(`Table.RemoveMatchingRows row ${index + 1} must be a scalar list or record.`); return key(values); }));
+            return { ...t, rows: t.rows.filter(values => !remove.has(key(values))) };
+        }
+        case 'table.insertrows':
+        case 'table.replacerows': {
+            const replacing = short === 'table.replacerows';
+            if (args.length !== (replacing ? 4 : 3))
+                throw Error(`${name} expects ${replacing ? 'a table, offset, count, and replacement rows' : 'a table, offset, and inserted rows'}.`);
+            const offset = arg(1), count = replacing ? arg(2) : 0, rawRows = arg(replacing ? 3 : 2);
+            if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > t.rows.length || replacing && (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) || !Array.isArray(rawRows) || rawRows.length > MAX_ROWS)
+                throw Error(`${name} needs an in-range whole-number offset${replacing ? ' and non-negative count' : ''} and a bounded row list.`);
+            if (replacing && (offset + count > t.rows.length))
+                throw Error('Table.ReplaceRows range must fit inside the existing table.');
+            const inserted = rawRows.map((raw, index) => { let values; if (Array.isArray(raw))
+                values = raw;
+            else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                const record = raw, names = Object.keys(record);
+                if (names.length !== t.headers.length || t.headers.some(header => !Object.hasOwn(record, header)))
+                    throw Error(`${name} record ${index + 1} must contain exactly the source columns.`);
+                values = t.headers.map(header => record[header]);
+            }
+            else
+                throw Error(`${name} row ${index + 1} must be a scalar list or record.`); if (values.length !== t.headers.length || values.some(value => value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value)))
+                throw Error(`${name} row ${index + 1} must match the source width and contain only finite scalar values.`); return values; });
+            const removed = replacing ? count : 0;
+            if (t.rows.length - removed + inserted.length > MAX_ROWS || (t.rows.length - removed + inserted.length + 1) * t.headers.length > MAX_CELLS)
+                throw Error(`${name} exceeds the M row or cell limit.`);
+            return { ...t, rows: [...t.rows.slice(0, offset), ...inserted, ...t.rows.slice(offset + removed)] };
+        }
+        case 'table.firstn':
+        case 'table.lastn':
+        case 'table.skip':
+        case 'table.removefirstn':
+        case 'table.removelastn': {
+            if (args.length < 1 || args.length > 2 || args.length === 1 && ['table.firstn', 'table.lastn'].includes(short))
+                throw Error(`${name} expects a table and a count or “each” condition; this bounded subset allows the optional count to be omitted for skip/remove operations.`);
+            const selector = args[1] ? arg(1) : 1, predicate = selector && typeof selector === 'object' && 'each' in selector ? selector.each : null;
+            const matches = (values) => { const result = evaluate(predicate, env, mOrderedRecord(t.headers, values)); if (typeof result !== 'boolean')
+                throw Error(`${name} condition must return true or false.`); return result; };
+            if (predicate) {
+                let edge = 0;
+                if (short === 'table.firstn' || short === 'table.skip' || short === 'table.removefirstn') {
+                    while (edge < t.rows.length && matches(t.rows[edge]))
+                        edge++;
+                    return { ...t, rows: short === 'table.firstn' ? t.rows.slice(0, edge) : t.rows.slice(edge) };
+                }
+                while (edge < t.rows.length && matches(t.rows[t.rows.length - 1 - edge]))
+                    edge++;
+                return { ...t, rows: short === 'table.lastn' ? t.rows.slice(t.rows.length - edge) : t.rows.slice(0, t.rows.length - edge) };
+            }
+            const count = selector;
+            if (typeof count !== 'number' || !Number.isInteger(count) || count < 0)
+                throw Error(`${name} requires a non-negative whole-number row count or an “each” condition in this M subset.`);
+            switch (short) {
+                case 'table.firstn': return { ...t, rows: t.rows.slice(0, count) };
+                case 'table.lastn': return { ...t, rows: count ? t.rows.slice(-count) : [] };
+                case 'table.skip':
+                case 'table.removefirstn': return { ...t, rows: t.rows.slice(count) };
+                default: return { ...t, rows: t.rows.slice(0, Math.max(0, t.rows.length - count)) };
+            }
+        }
+        case 'table.filldown':
+        case 'table.fillup': {
+            check(2);
+            const names = columns(arg(1));
+            if (new Set(names).size !== names.length || names.some(column => !t.headers.includes(column)))
+                throw Error('Table.FillDown/FillUp needs unique existing column names.');
+            const indexes = names.map(header => t.headers.indexOf(header)), rows = t.rows.map(values => [...values]);
+            for (const index of indexes) {
+                let previous = null;
+                if (short === 'table.filldown') {
+                    for (const values of rows) {
+                        if (values[index] === null)
+                            values[index] = previous;
+                        else
+                            previous = values[index] ?? null;
+                    }
+                }
+                else {
+                    for (let i = rows.length - 1; i >= 0; i--) {
+                        const values = rows[i];
+                        if (values[index] === null)
+                            values[index] = previous;
+                        else
+                            previous = values[index] ?? null;
+                    }
+                }
+            }
+            return { ...t, rows };
+        }
+        case 'table.selectrows': {
+            check(2);
+            const predicate = evaluate(args[1], env);
+            if (!predicate || typeof predicate !== 'object' || !('each' in predicate))
+                throw Error('Table.SelectRows requires an “each” row predicate.');
+            const body = predicate.each;
+            return { ...t, rows: t.rows.filter(values => { const result = evaluate(body, env, mOrderedRecord(t.headers, values)); if (typeof result !== 'boolean')
+                    throw Error('Table.SelectRows predicates must return true or false; GridForge does not coerce text, numbers, or null.'); return result; }) };
+        }
+        case 'table.selectcolumns':
+        case 'table.removecolumns': {
+            check(2);
+            const names = columns(arg(1));
+            if (new Set(names).size !== names.length || names.some(column => !t.headers.includes(column)))
+                throw Error('M column selection contains a duplicate or unknown column.');
+            const keep = short === 'table.selectcolumns' ? names : t.headers.filter(header => !names.includes(header));
+            if (!keep.length)
+                throw Error('An M table must keep at least one column.');
+            const indexes = keep.map(header => t.headers.indexOf(header));
+            return { headers: keep, rows: t.rows.map(values => indexes.map(index => values[index] ?? null)) };
+        }
+        case 'table.renamecolumns': {
+            if (args.length < 2 || args.length > 3)
+                throw Error('Table.RenameColumns expects a table, old/new name pairs, and optional MissingField behavior.');
+            const pairs = arg(1), missing = args[2] ? String(arg(2)?.mMissingField ?? '') : 'MissingField.Error';
+            if (!Array.isArray(pairs) || pairs.some(pair => !Array.isArray(pair) || pair.length !== 2 || pair.some(item => typeof item !== 'string' || !item.trim() || item.length > 255)) || !['MissingField.Error', 'MissingField.Ignore'].includes(missing))
+                throw Error('Table.RenameColumns expects non-empty text name pairs and MissingField.Error or MissingField.Ignore.');
+            const headers = [...t.headers], renames = new Map();
+            for (const [oldName, newName] of pairs) {
+                const index = headers.indexOf(oldName);
+                if (index < 0) {
+                    if (missing === 'MissingField.Ignore')
+                        continue;
+                    throw Error(`Table.RenameColumns cannot find “${oldName}”.`);
+                }
+                if (headers.some((header, at) => at !== index && normalizedName(header) === normalizedName(newName)))
+                    throw Error(`Renaming “${oldName}” to “${newName}” creates duplicate columns.`);
+                headers[index] = newName;
+                renames.set(oldName, newName);
+            }
+            const nestedSchemas = new Map();
+            for (const [name, columns] of t.nestedSchemas ?? [])
+                nestedSchemas.set(renames.get(name) ?? name, columns);
+            return { ...t, headers, nestedSchemas };
+        }
+        case 'table.transformcolumnnames': {
+            if (args.length < 2 || args.length > 3)
+                throw Error('Table.TransformColumnNames expects a table, a supported Text name function, and optional options.');
+            if (args[2]) {
+                const options = arg(2);
+                if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).length)
+                    throw Error('Table.TransformColumnNames accepts only an empty options record in this subset.');
+            }
+            const fn = evaluate(args[1], env);
+            if (!fn || typeof fn !== 'object' || !('mFunction' in fn) || !['Text.Trim', 'Text.TrimStart', 'Text.TrimEnd', 'Text.Clean', 'Text.Upper', 'Text.Lower'].includes(fn.mFunction))
+                throw Error('Table.TransformColumnNames supports Text.Trim, Text.Clean, Text.Upper, or Text.Lower.');
+            const functionName = fn.mFunction, headers = t.headers.map(header => call(functionName, [{ kind: 'literal', value: header }], env));
+            if (headers.some(header => typeof header !== 'string' || !header.trim() || header.length > 255) || new Set(headers.map(normalizedName)).size !== headers.length)
+                throw Error('Transformed M column names must be non-empty, at most 255 characters, and unique without case sensitivity.');
+            const renameMap = new Map(t.headers.map((header, index) => [header, headers[index]])), nestedSchemas = new Map();
+            for (const [name, columns] of t.nestedSchemas ?? [])
+                nestedSchemas.set(renameMap.get(name) ?? name, columns);
+            return { ...t, headers: headers, nestedSchemas };
+        }
+        case 'table.maxn':
+        case 'table.minn': {
+            check(3);
+            const column = arg(1), selector = arg(2);
+            if (typeof column !== 'string' || !t.headers.includes(column))
+                throw Error(`${name} in this subset expects an existing column name for scalar comparison.`);
+            const index = t.headers.indexOf(column), values = t.rows.map(row => row[index] ?? null), types = new Set(values.filter(value => value !== null).map(value => typeof value));
+            if (types.size > 1 || [...types].some(type => !['string', 'number', 'boolean'].includes(type)) || values.some(value => typeof value === 'number' && !Number.isFinite(value)))
+                throw Error(`${name} comparison column must contain one comparable scalar type, with nulls allowed.`);
+            const direction = short === 'table.maxn' ? -1 : 1, rows = t.rows.map((row, position) => ({ row, position }));
+            rows.sort((a, b) => direction * compareMScalar(a.row[index] ?? null, b.row[index] ?? null) || a.position - b.position);
+            if (selector && typeof selector === 'object' && 'each' in selector) {
+                const body = selector.each, selected = [];
+                for (const item of rows) {
+                    const result = evaluate(body, env, Object.fromEntries(t.headers.map((header, columnIndex) => [header, item.row[columnIndex] ?? null])));
+                    if (typeof result !== 'boolean')
+                        throw Error(`${name} condition must return true or false.`);
+                    if (!result)
+                        break;
+                    selected.push(item.row);
+                }
+                return { ...t, rows: selected };
+            }
+            if (typeof selector !== 'number' || !Number.isSafeInteger(selector) || selector < 0 || selector > MAX_ROWS)
+                throw Error(`${name} expects a whole result count from 0 to ${MAX_ROWS} or an “each” condition.`);
+            return { ...t, rows: rows.slice(0, selector).map(item => item.row) };
+        }
+        case 'table.sort': {
+            check(2);
+            const rules = arg(1);
+            if (!Array.isArray(rules) || rules.length > t.headers.length)
+                throw Error('Table.Sort expects a list of column/order pairs.');
+            const sort = rules.map(item => { if (!Array.isArray(item) || typeof item[0] !== 'string' || !t.headers.includes(item[0]) || item.length > 2)
+                throw Error('Invalid Table.Sort rule.'); const order = item[1] === undefined ? 'Order.Ascending' : String(item[1]); if (!['Order.Ascending', 'Order.Descending'].includes(order))
+                throw Error('Sort order must be Order.Ascending or Order.Descending.'); return { index: t.headers.indexOf(item[0]), direction: order === 'Order.Ascending' ? 1 : -1 }; });
+            const rows = t.rows.map((values, index) => ({ values, index }));
+            rows.sort((a, b) => { for (const rule of sort) {
+                const order = compareMScalar(a.values[rule.index] ?? null, b.values[rule.index] ?? null);
+                if (order)
+                    return order * rule.direction;
+            } return a.index - b.index; });
+            return { ...t, rows: rows.map(item => item.values) };
+        }
+        case 'table.distinct': {
+            if (args.length < 1 || args.length > 2)
+                throw Error('Table.Distinct expects a table and optional key columns.');
+            const criteria = args[1] ? arg(1) : t.headers, names = typeof criteria === 'string' ? [criteria] : columns(criteria);
+            if (new Set(names.map(normalizedName)).size !== names.length)
+                throw Error('Table.Distinct key columns must be unique.');
+            const indexes = names.map(header => { const index = t.headers.indexOf(header); if (index < 0)
+                throw Error(`Unknown distinct key column “${header}”.`); return index; }), seen = new Set();
+            return { ...t, rows: t.rows.filter(values => { const key = JSON.stringify(indexes.map(index => { const value = values[index] ?? null; return [value === null ? 'null' : typeof value, value]; })); if (seen.has(key))
+                    return false; seen.add(key); return true; }) };
+        }
+        case 'table.isdistinct': {
+            if (args.length < 1 || args.length > 2)
+                throw Error('Table.IsDistinct expects a table and optional key column or key-column list.');
+            const criteria = args[1] ? arg(1) : t.headers, names = typeof criteria === 'string' ? [criteria] : columns(criteria);
+            if (new Set(names.map(normalizedName)).size !== names.length)
+                throw Error('Table.IsDistinct key columns must be unique.');
+            const indexes = names.map(header => { const index = t.headers.indexOf(header); if (index < 0)
+                throw Error(`Unknown distinct key column “${header}”.`); return index; }), seen = new Set();
+            for (const values of t.rows) {
+                const token = JSON.stringify(indexes.map(index => { const value = values[index] ?? null; return [value === null ? 'null' : typeof value, value]; }));
+                if (seen.has(token))
+                    return false;
+                seen.add(token);
+            }
+            return true;
+        }
+        case 'table.addindexcolumn': {
+            if (args.length < 2 || args.length > 5)
+                throw Error('Table.AddIndexColumn expects a table, new column name, optional start, increment, and type.');
+            const nameValue = arg(1), start = args[2] ? arg(2) : 0, increment = args[3] ? arg(3) : 1;
+            if (typeof nameValue !== 'string' || !nameValue || t.headers.some(header => normalizedName(header) === normalizedName(nameValue)) || typeof start !== 'number' || !Number.isFinite(start) || typeof increment !== 'number' || !Number.isFinite(increment))
+                throw Error('Table.AddIndexColumn needs a unique name and finite numeric start/increment values.');
+            if (args[4] && (!String(arg(4)).startsWith('__type:') || !['__type:number', '__type:any'].includes(String(arg(4)))))
+                throw Error('Table.AddIndexColumn supports only number or any output types.');
+            if (t.headers.length + 1 > MAX_COLUMNS || (t.rows.length + 1) * (t.headers.length + 1) > MAX_CELLS)
+                throw Error('Table.AddIndexColumn would exceed the M column or cell limit.');
+            return { headers: [...t.headers, nameValue], rows: t.rows.map((values, index) => { const value = start + index * increment; if (!Number.isFinite(value))
+                    throw Error('Table.AddIndexColumn produced a non-finite index.'); return [...values, value]; }) };
+        }
+        case 'table.transformrows': {
+            check(2);
+            const fn = evaluate(args[1], env);
+            if (!fn || typeof fn !== 'object' || !('each' in fn))
+                throw Error('Table.TransformRows expects a table and an each row transformation.');
+            const body = fn.each, result = [];
+            let cells = 0;
+            for (const values of t.rows) {
+                const row = mOrderedRecord(t.headers, values), transformed = evaluate(body, env, row);
+                if (transformed === null || typeof transformed === 'string' || typeof transformed === 'boolean' || typeof transformed === 'number' && Number.isFinite(transformed)) {
+                    result.push(transformed);
+                    cells++;
+                }
+                else if (transformed && typeof transformed === 'object' && !Array.isArray(transformed)) {
+                    const fields = Object.keys(transformed), record = transformed;
+                    if (fields.length > MAX_COLUMNS || fields.some(field => { const value = record[field]; return value !== null && typeof value !== 'string' && typeof value !== 'boolean' && !(typeof value === 'number' && Number.isFinite(value)); }))
+                        throw Error(`Table.TransformRows row ${result.length + 1} must return a scalar or a record of scalar values.`);
+                    cells += fields.length;
+                    if (cells > MAX_CELLS)
+                        throw Error('Table.TransformRows exceeds the M cell limit.');
+                    result.push(record);
+                }
+                else
+                    throw Error(`Table.TransformRows row ${result.length + 1} must return a scalar or a record of scalar values.`);
+                if (result.length > MAX_ROWS)
+                    throw Error('Table.TransformRows exceeds the M row limit.');
+            }
+            return result;
+        }
+        case 'table.addcolumn': {
+            if (args.length < 3 || args.length > 4)
+                throw Error('Table.AddColumn expects 3 or 4 arguments.');
+            const nameValue = arg(1), fn = evaluate(args[2], env), type = args[3] ? String(arg(3)) : undefined, target = type?.startsWith('__type:') ? type.slice(7) : undefined;
+            if (typeof nameValue !== 'string' || !nameValue || t.headers.some(header => normalizedName(header) === normalizedName(nameValue)) || !fn || typeof fn !== 'object' || !('each' in fn) || target !== undefined && !['any', 'text', 'number', 'logical', 'date', 'datetime'].includes(target) || type !== undefined && !target)
+                throw Error('Table.AddColumn needs a new name, an “each” expression and an optional supported scalar type.');
+            if (t.headers.length + 1 > MAX_COLUMNS || (t.rows.length + 1) * (t.headers.length + 1) > MAX_CELLS)
+                throw Error('Table.AddColumn would exceed the M column or cell limit.');
+            const body = fn.each;
+            return { headers: [...t.headers, nameValue], rows: t.rows.map(values => { const record = mOrderedRecord(t.headers, values); const value = evaluate(body, env, record); if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+                    throw Error('M added columns must contain plain scalar values.'); return [...values, target ? convertMType(value, target, nameValue) : value]; }) };
+        }
+        case 'table.transformcolumns': {
+            check(2);
+            const pairs = arg(1);
+            if (!Array.isArray(pairs) || pairs.some(pair => !Array.isArray(pair) || (pair.length !== 2 && pair.length !== 3) || typeof pair[0] !== 'string' || !pair[1] || typeof pair[1] !== 'object' || !('mFunction' in pair[1]) || pair.length === 3 && (typeof pair[2] !== 'string' || !String(pair[2]).startsWith('__type:'))))
+                throw Error('Table.TransformColumns expects {column, supported transform, optional scalar type} pairs.');
+            const operations = pairs.map(([header, fn, type]) => { const index = t.headers.indexOf(header), target = type?.slice(7); if (index < 0 || target !== undefined && !['any', 'text', 'number', 'logical', 'date', 'datetime'].includes(target))
+                throw Error(`Unknown column or unsupported output type in Table.TransformColumns for “${header}”.`); return { index, header, fn: fn.mFunction, target }; });
+            if (new Set(operations.map(item => item.index)).size !== operations.length)
+                throw Error('Table.TransformColumns cannot transform the same column more than once.');
+            return { ...t, rows: t.rows.map(values => { const next = [...values]; for (const { index, header, fn, target } of operations) {
+                    const transformed = call(fn, [{ kind: 'literal', value: next[index] }], env);
+                    if (transformed !== null && typeof transformed !== 'string' && typeof transformed !== 'number' && typeof transformed !== 'boolean')
+                        throw Error(`M transform for “${header}” must return a scalar.`);
+                    next[index] = target ? convertMType(transformed, target, header) : transformed;
+                } return next; }) };
+        }
+        case 'table.group': {
+            if (args.length !== 3)
+                throw Error('Table.Group accepts exactly a table, key columns, and aggregation definitions; comparer and group-kind options are not supported.');
+            const keys = columns(arg(1)), aggregations = arg(2);
+            if (new Set(keys.map(normalizedName)).size !== keys.length)
+                throw Error('Table.Group key columns must be unique.');
+            if (!Array.isArray(aggregations) || aggregations.length > 64)
+                throw Error('Table.Group supports up to 64 aggregate columns.');
+            const keyIndexes = keys.map(header => { const index = t.headers.indexOf(header); if (index < 0)
+                throw Error(`Unknown grouping column “${header}”.`); return index; });
+            const names = new Set(keys.map(normalizedName));
+            const parsedAggregations = aggregations.map(item => { const type = Array.isArray(item) && item.length === 3 && typeof item[2] === 'string' ? String(item[2]) : undefined, target = type?.startsWith('__type:') ? type.slice(7) : undefined; if (!Array.isArray(item) || (item.length !== 2 && item.length !== 3) || typeof item[0] !== 'string' || !item[0].trim() || item[0].length > 255 || !item[1] || typeof item[1] !== 'object' || !('each' in item[1]) || names.has(normalizedName(String(item[0]))) || item.length === 3 && (target === undefined || !['any', 'text', 'number', 'logical', 'date', 'datetime'].includes(target)))
+                throw Error('Table.Group supports named scalar each/List aggregations, with an optional scalar output type. Nested table aggregates are not supported.'); names.add(normalizedName(String(item[0]))); return { name: item[0], body: item[1].each, target }; });
+            const outputHeaders = [...keys, ...parsedAggregations.map(item => item.name)];
+            if (outputHeaders.length > MAX_COLUMNS)
+                throw Error('Table.Group exceeds the M column limit.');
+            const groups = new Map();
+            for (const values of t.rows) {
+                const groupKeys = keyIndexes.map(index => values[index] ?? null), id = JSON.stringify(groupKeys);
+                let group = groups.get(id);
+                if (!group) {
+                    group = { keys: groupKeys, rows: [] };
+                    groups.set(id, group);
+                }
+                group.rows.push(values);
+            }
+            const resultRows = [];
+            for (const group of groups.values()) {
+                const record = mOrderedRecord(t.headers, t.headers.map((_, column) => group.rows.map(row => row[column] ?? null))), aggregated = parsedAggregations.map(item => { const value = evaluate(item.body, env, record); if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+                    throw Error(`M group aggregation “${item.name}” did not return a scalar.`); return item.target ? convertMType(value, item.target, item.name) : value; });
+                resultRows.push([...group.keys, ...aggregated]);
+            }
+            return { headers: outputHeaders, rows: resultRows };
+        }
+        case 'table.rowcount': {
+            check(1);
+            return t.rows.length;
+        }
+        case 'table.approximaterowcount': {
+            check(1);
+            return t.rows.length;
+        }
+        case 'table.columncount': {
+            check(1);
+            return t.headers.length;
+        }
+        case 'table.columnnames': {
+            check(1);
+            return [...t.headers];
+        }
+        default: throw Error(`M function “${name}” is not supported by GridForge’s bounded M subset.`);
+    }
+}
+/** Execute supported `let ... in ...` transformations over a headered table. */
+export function executePowerQueryM(input, code) {
+    if (!Array.isArray(input) || !input.length || !input[0]?.length)
+        throw Error('M query input needs a header row and at least one column.');
+    if (input.length > MAX_ROWS || input[0].length > MAX_COLUMNS || input.length * input[0].length > MAX_CELLS)
+        throw Error('M query input is limited to 1,000 rows, 104 columns, and 12,000 cells.');
+    const headers = input[0].map((value, index) => { const name = String(value ?? '').trim(); if (!name)
+        throw Error(`M query column ${index + 1} needs a header.`); return name; });
+    if (new Set(headers.map(value => value.toLowerCase())).size !== headers.length)
+        throw Error('M query headers must be unique.');
+    const data = { headers, rows: input.slice(1).map(row => Array.from({ length: headers.length }, (_, index) => row[index] ?? null)) };
+    mTableValues.add(data);
+    if (!code.trim())
+        return [data.headers, ...data.rows];
+    const parsed = new Parser(tokenize(code)).parse(), env = new Map([['Source', data]]);
+    for (const [name, expr] of parsed.bindings) {
+        if (name.toLowerCase() === 'source')
+            throw Error('The M Source binding is reserved for the selected GridForge query source.');
+        if (env.has(name))
+            throw Error(`M step “${name}” is defined more than once.`);
+        env.set(name, evaluate(expr, env));
+    }
+    const result = asTable(evaluate(parsed.result, env));
+    if (!result.headers.length || result.headers.length > MAX_COLUMNS || result.rows.length > MAX_ROWS || (result.rows.length + 1) * result.headers.length > MAX_CELLS)
+        throw Error('M query result exceeds the 1,000-row, 104-column, or 12,000-cell limit.');
+    for (const row of result.rows)
+        for (const value of row)
+            if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean' || typeof value === 'number' && !Number.isFinite(value))
+                throw Error('M query output must contain finite scalar cells; expand nested joins before loading.');
+    return [result.headers, ...result.rows];
+}
+export function validatePowerQueryM(code) { if (code.length > MAX_CODE)
+    throw Error('M expression is limited to 20,000 characters.'); if (code.trim())
+    new Parser(tokenize(code)).parse(); }

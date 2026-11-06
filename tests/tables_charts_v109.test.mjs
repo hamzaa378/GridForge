@@ -43,7 +43,7 @@ test('new chart varieties and chart theme selectors validate and render offline'
    const svg=chartSvg(w,chart);assert.match(svg,/^<svg/);assert.match(svg,/Revenue|Costs|Jan/);
  }
  assert.throws(()=>validateChart({id:'chart-bad',kind:'column',theme:'unknown',title:'?',range:'A1:C5',x:0,y:0,width:500,height:300},400,52));
- assert.equal(CHART_KINDS.length,21);assert.equal(Object.keys(CHART_PALETTES).length,6);
+ assert.equal(CHART_KINDS.length,23);assert.equal(Object.keys(CHART_PALETTES).length,6);
 });
 test('expanded font families and sizes remain validated and safe',()=>{
  assert.equal(cleanStyle({fontFamily:'Cambria',fontSize:36,color:'#aa33cc'}).fontFamily,'Cambria');

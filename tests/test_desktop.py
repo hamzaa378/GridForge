@@ -4,6 +4,7 @@ from functools import partial
 from http.client import HTTPConnection
 from pathlib import Path
 import re
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -21,6 +22,58 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DesktopTests(unittest.TestCase):
+    def test_sqlite_connector_is_read_only_bounded_and_keeps_formula_text(self):
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder) / 'sales.sqlite'
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute('CREATE TABLE Sales (id INTEGER, name TEXT, formula TEXT, large INTEGER)')
+                connection.execute('INSERT INTO Sales VALUES (?, ?, ?, ?)', (1, 'Ada', '=1+1', 9_223_372_036_854_775_807))
+                connection.commit()
+            finally:
+                connection.close()
+            api = DesktopAPI()
+            api._sqlite_handles['session-handle'] = database
+            result = api.run_sqlite_select('session-handle', 'SELECT id AS Key, name AS key, formula, large FROM Sales')
+            self.assertEqual(result['headers'], ['Key', 'key (2)', 'formula', 'large'])
+            self.assertEqual(result['rows'], [[1, 'Ada', '=1+1', '9223372036854775807']])
+            self.assertEqual(result['database'], 'sales.sqlite')
+            for sql in ('DELETE FROM Sales', 'PRAGMA table_info(Sales)', 'SELECT load_extension(\'missing\')', 'SELECT 1; DELETE FROM Sales'):
+                with self.subTest(sql=sql):
+                    with self.assertRaises(ValueError):
+                        api.run_sqlite_select('session-handle', sql)
+            self.assertEqual(api.run_sqlite_select('session-handle', 'SELECT COUNT(*) FROM Sales')['rows'], [[1]])
+            with self.assertRaisesRegex(ValueError, 'session expired'):
+                api.run_sqlite_select('unknown-handle', 'SELECT 1')
+
+    def test_sqlite_connector_caps_returned_rows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder) / 'rows.db'
+            api = DesktopAPI()
+            api._sqlite_handles['rows'] = database
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute('CREATE TABLE Empty (value INTEGER)')
+                connection.commit()
+            finally:
+                connection.close()
+            query = 'WITH RECURSIVE seq(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM seq WHERE x < 1001) SELECT x FROM seq'
+            with self.assertRaisesRegex(ValueError, '1,000 data rows'):
+                api.run_sqlite_select('rows', query)
+
+    def test_authenticated_import_validates_https_and_credentials_before_network(self):
+        api = DesktopAPI()
+        for url in ('http://example.test/data.csv', 'https://user:pass@example.test/data.csv', 'https://example.test/data.csv#fragment'):
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(ValueError, 'HTTPS'):
+                    api.fetch_authenticated_data(url, 'csv', 'none')
+        with self.assertRaisesRegex(ValueError, 'username and password'):
+            api.fetch_authenticated_data('https://example.test/data.csv', 'csv', 'basic', '', 'secret')
+        with self.assertRaisesRegex(ValueError, 'line breaks'):
+            api.fetch_authenticated_data('https://example.test/data.csv', 'csv', 'bearer', '', 'token\r\ninjected')
+        with self.assertRaisesRegex(ValueError, 'Bearer authentication'):
+            api.fetch_authenticated_data('https://example.test/data.csv', 'csv', 'bearer', '', 'bad token')
+
     def test_filename_allowlist(self):
         self.assertEqual(safe_suggested_name('Sales / Q4.xlsx'), 'Sales _ Q4.xlsx')
         self.assertEqual(safe_suggested_name('book.xlsm'), 'book.xlsm')
